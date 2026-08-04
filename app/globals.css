@@ -1,0 +1,1045 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import 'leaflet/dist/leaflet.css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* =====================================================================
+   Palette and type, lifted from the original single-file page.
+   ===================================================================== */
+@theme {
+  --color-ink: #202020;
+  --color-ink-soft: #5c5c5c;
+  --color-paper: #fafafa;
+  --color-yellow: #f0fb29;
+  --color-yellow-dim: #dce737;
+  --color-sky: #aee3fd;
+  --color-err: #ea384c;
+  --color-sheet: #15181a;
+  --color-sheet-line: #2a2e30;
+  --color-sheet-ink: #8a9094;
+  --color-line-soft: #00000026;
+
+  --font-sans: var(--font-plex-sans), Arial, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+/* shadcn's semantic tokens, retuned to the palette above. Setting --radius to 0
+   is what squares every shadcn primitive at once: its rounded-* utilities all
+   derive from it. Pill shapes are opted into per component with rounded-full. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+}
+
+:root {
+  --radius: 0px;
+  --background: #ffffff;
+  --foreground: #202020;
+  --card: #ffffff;
+  --card-foreground: #202020;
+  --popover: #ffffff;
+  --popover-foreground: #202020;
+  --primary: #202020;
+  --primary-foreground: #f0fb29;
+  --secondary: #fafafa;
+  --secondary-foreground: #202020;
+  --muted: #fafafa;
+  --muted-foreground: #5c5c5c;
+  --accent: #f0fb29;
+  --accent-foreground: #202020;
+  --destructive: #ea384c;
+  --border: #202020;
+  --input: #202020;
+  --ring: #202020;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  /* The app is one full-bleed viewer with everything else floating over it, so
+     the document itself never scrolls — each overlay panel scrolls internally. */
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    background: var(--color-sheet);
+    color: var(--color-ink);
+    font:
+      400 15px/1.55 var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* One focus treatment for everything, matching the original. */
+  :where(input, select, button, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .eyebrow {
+    font: 600 11px/1 var(--font-mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-soft);
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- frame ----
+     .stage is the only sized box: the viewers fill it, and .overlay lays the
+     chrome out on a grid over the top. The grid — not hand-computed offsets —
+     is what keeps the dock, the element editor and the flow bar from ever
+     covering one another; the centre cell stays transparent to the pointer so
+     map drags and orbit gestures reach the viewer underneath. */
+  .app {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+  }
+  .stage {
+    position: absolute;
+    inset: 0;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 12px;
+  }
+  .overlay > * {
+    pointer-events: auto;
+    min-height: 0;
+  }
+
+  /* Floating surfaces. A flat white panel disappears into a light basemap and
+     glares over the dark 3D sheet, so everything that hovers gets the same
+     translucent-plus-shadow treatment rather than a per-panel style. */
+  .floating {
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--color-ink);
+    box-shadow: 0 6px 26px rgba(15, 17, 18, 0.32);
+  }
+
+  .topbar {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    /* Wraps to a second row once a build fills the readout strip — squeezing
+       seven counts into the first row would clip the last of them. */
+    flex-wrap: wrap;
+  }
+  .topbar .sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--color-line-soft);
+  }
+  .topbar .origin {
+    color: var(--color-ink-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .iconBtn {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--color-ink);
+    border-radius: 100px;
+    color: var(--color-ink);
+    font: 600 12px/1 var(--font-mono);
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+  .iconBtn:hover,
+  .iconBtn.on {
+    background: var(--color-ink);
+    color: var(--color-yellow);
+  }
+
+  /* ---- options dock ---- */
+  .dock {
+    grid-row: 2;
+    grid-column: 1;
+    width: 330px;
+    max-width: 88vw;
+    padding: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* As tall as its contents, capped by the free height between the top bar
+       and the flow bar — then it scrolls. */
+    align-self: start;
+    max-height: 100%;
+  }
+  .dockHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--color-ink);
+  }
+  /* Collapsed, the dock is a slim tab: the map wins the space and one click
+     brings the whole stack back. */
+  .dockTab {
+    grid-row: 2;
+    grid-column: 1;
+    align-self: start;
+    width: 34px;
+    padding: 12px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font: 600 10.5px/1 var(--font-mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+  }
+  .dockTab span {
+    writing-mode: vertical-rl;
+  }
+  .dockTab:hover {
+    background: var(--color-yellow);
+  }
+
+  /* ---- flow bar ----
+     The whole draw → build → export path, one step at a time. It sits in the
+     centre column so it can never run under the dock or the element editor. */
+  /* A fixed width rather than one that shrink-wraps its contents: the bar is
+     the thing you return to at every step, and one that resized under the
+     cursor on each state change would be a moving target. */
+  .flowbar {
+    grid-row: 3;
+    /* Spans every column: row 3 is below the dock and the editor, so the bar is
+       free to use the whole width and centre itself on the window rather than
+       on whatever gap those two happen to leave. */
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: min(1240px, 100%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 12px;
+    /* Deliberately not wrapping: a flex line wraps before it shrinks, and a
+       long build summary would push the buttons onto a second row and grow the
+       bar into the viewer. The status text shrinks and scrolls instead. */
+    flex-wrap: nowrap;
+  }
+  .flowbar .grow {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .flowbar .statusline {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .steps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+  .steps > span {
+    font: 600 10px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-soft);
+    padding: 5px 8px;
+    border: 1px solid transparent;
+  }
+  .steps > span.on {
+    color: var(--color-ink);
+    border-color: var(--color-ink);
+    background: var(--color-yellow);
+  }
+  .steps > span.done {
+    color: var(--color-ink);
+  }
+  .steps .arrow {
+    color: var(--color-ink-soft);
+    padding: 0;
+    border: 0;
+  }
+  .flowMain {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .flowSite {
+    font: 600 14px/1.2 var(--font-mono);
+    white-space: nowrap;
+  }
+  .flowSite small {
+    display: block;
+    font: 500 11px/1.3 var(--font-mono);
+    color: var(--color-ink-soft);
+  }
+  .flowActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  /* The flow bar's buttons size to their label; .btn-primary/.btn-ghost are
+     full-width by default because they were born in a 330 px sidebar. */
+  .flowActions .btn-primary,
+  .flowActions .btn-ghost {
+    width: auto;
+    padding: 11px 20px;
+    white-space: nowrap;
+  }
+  .flowActions .btn-ghost {
+    padding: 11px 16px;
+  }
+  /* Segmented Draw|Pan. Drawing is armed on load, so this is the way back to a
+     map that pans — Escape does the same thing. */
+  .segmented {
+    display: flex;
+    border: 1px solid var(--color-ink);
+    border-radius: 100px;
+    overflow: hidden;
+    flex: none;
+  }
+  .segmented button {
+    background: none;
+    border: 0;
+    color: var(--color-ink);
+    padding: 9px 16px;
+    cursor: pointer;
+    font: 600 11px/1 var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+  .segmented button:hover:not(.on) {
+    background: var(--color-yellow);
+  }
+  .segmented button.on {
+    background: var(--color-ink);
+    color: var(--color-yellow);
+  }
+  .flowStale {
+    font: 500 11.5px/1.35 var(--font-sans);
+    color: var(--color-err);
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* ---- info overlay: the header prose and the notes, on demand ---- */
+  .infoOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: rgba(15, 17, 18, 0.55);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 64px 16px 24px;
+    overflow-y: auto;
+  }
+  .infoCard {
+    width: min(880px, 100%);
+    padding: 28px;
+  }
+  .infoHead {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .mark {
+    width: 26px;
+    height: 26px;
+    background: var(--color-ink);
+    clip-path: polygon(0 0, 70% 0, 100% 30%, 100% 100%, 0 100%);
+    flex: none;
+  }
+  .wordmark {
+    font: 700 13px/1 var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex: none;
+  }
+  .h1 {
+    font: 700 44px/0.95 var(--font-sans);
+    letter-spacing: -0.02em;
+    margin: 8px 0 0;
+    text-transform: uppercase;
+  }
+  .h1 span {
+    background: var(--color-yellow);
+    padding: 0 6px;
+    box-shadow: 0 0 0 1px var(--color-ink);
+  }
+  .sub {
+    font-size: 13.5px;
+    color: var(--color-ink-soft);
+    max-width: 46ch;
+    margin: 10px 0 0;
+  }
+  .tag {
+    display: inline-block;
+    font: 600 10.5px/1 var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--color-ink);
+    border-radius: 100px;
+    padding: 5px 10px;
+    margin-bottom: 8px;
+    background: #fff;
+  }
+
+  /* ---- controls ---- */
+  .field {
+    margin-bottom: 16px;
+  }
+  .field:last-child {
+    margin-bottom: 0;
+  }
+  .ctl-input {
+    width: 100%;
+    background: var(--color-paper);
+    border: 1px solid var(--color-ink);
+    color: var(--color-ink);
+    padding: 9px 10px;
+    font: 500 13px/1.3 var(--font-mono);
+    border-radius: 0;
+    height: auto;
+  }
+  .rangeval {
+    float: right;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .check .src {
+    margin-left: auto;
+    font: 600 9.5px/1 var(--font-mono);
+    letter-spacing: 0.1em;
+    color: var(--color-ink-soft);
+    border: 1px solid var(--color-ink);
+    padding: 3px 5px;
+    opacity: 0.55;
+  }
+  .ign-only[aria-disabled='true'] {
+    opacity: 0.34;
+    pointer-events: none;
+  }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .presets button {
+    background: none;
+    border: 1px solid var(--color-ink);
+    color: var(--color-ink);
+    padding: 5px 10px;
+    font: 500 11px var(--font-mono);
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 100px;
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+  .presets button:hover:not(:disabled) {
+    background: var(--color-ink);
+    color: var(--color-yellow);
+  }
+  .presets button.on {
+    background: var(--color-ink);
+    color: var(--color-yellow);
+  }
+  .presets button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  /* ---- language dropdown ----
+     Shape and colour live on the component in Tailwind classes so they can
+     displace the shadcn defaults; only what a utility cannot reach is here. */
+  .langTrigger {
+    color: var(--color-ink);
+    font-weight: 500;
+  }
+  /* The chevron is a child of the trigger, and shadcn pins it to a muted grey
+     that would not invert when the pill fills in on hover. */
+  .langTrigger svg:not(.langFlag) {
+    width: 12px;
+    height: 12px;
+    color: inherit;
+  }
+  .langItem {
+    color: var(--color-ink);
+    font-weight: 500;
+    border-bottom: 1px solid var(--color-line-soft);
+  }
+  .langItem:last-child {
+    border-bottom: 0;
+  }
+  .langFlag {
+    width: 18px;
+    height: 12px;
+    flex: none;
+    border: 1px solid rgba(15, 17, 18, 0.28);
+  }
+
+  /* ---- place search ---- */
+  .searchWrap {
+    position: relative;
+  }
+  .searchResults {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 5;
+    background: #fff;
+    border: 1px solid var(--color-ink);
+    max-height: 198px;
+    overflow: auto;
+  }
+  .searchResults button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--color-line-soft);
+    padding: 8px 10px;
+    cursor: pointer;
+    font: 400 12px/1.35 var(--font-sans);
+    color: var(--color-ink);
+  }
+  .searchResults button:last-child {
+    border-bottom: 0;
+  }
+  .searchResults button:hover,
+  .searchResults button:focus-visible {
+    background: var(--color-yellow);
+  }
+
+  /* ---- site readout ---- */
+  .siteBox {
+    border: 1px solid var(--color-ink);
+    background: var(--color-paper);
+    padding: 10px 11px;
+  }
+  .siteBox b {
+    display: block;
+    font: 600 15px/1.2 var(--font-mono);
+    margin-top: 4px;
+  }
+  .siteBox .co {
+    font: 500 12px/1.45 var(--font-mono);
+    color: var(--color-ink-soft);
+    margin-top: 3px;
+  }
+  .siteBox.empty b,
+  .siteBox.empty .co {
+    color: var(--color-ink-soft);
+  }
+  .fieldHint {
+    font-size: 11.5px;
+    color: var(--color-ink-soft);
+    margin-top: 7px;
+    line-height: 1.45;
+  }
+
+  /* ---- element editor ----
+     The panel owns the overlay's right cell so the controls sit beside the
+     building they move; overflow caps it to the free height, because the full
+     control stack is taller than a short window. */
+  .editPanel {
+    grid-row: 2;
+    grid-column: 3;
+    align-self: stretch;
+    width: 296px;
+    max-width: 88vw;
+    padding: 14px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .editPanel.collapsed {
+    align-self: start;
+  } /* nothing selected — header height only */
+  .editPanel .field {
+    margin-bottom: 12px;
+  }
+  .editHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--color-ink);
+  }
+  .editHead > div:first-child {
+    min-width: 0;
+  } /* the name is what gets ellipsised */
+  .editHead .eyebrow {
+    white-space: nowrap;
+  }
+  .editHead .presets button {
+    padding: 4px 8px;
+    line-height: 1;
+  }
+  .editPanel.collapsed .editHead {
+    padding-bottom: 0;
+    margin-bottom: 12px;
+    border-bottom: 0;
+  }
+  .editName {
+    font: 600 13px/1.3 var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .axes {
+    display: flex;
+    gap: 9px;
+    margin-top: 2px;
+  }
+  .axes > label {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    position: relative;
+  }
+  .axes > label > span {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    font: 600 10px/1 var(--font-mono);
+    color: var(--color-ink-soft);
+    z-index: 1;
+  }
+  .axes input {
+    padding-left: 20px;
+    text-align: right;
+  }
+  .colorInput {
+    width: 100%;
+    height: 38px;
+    padding: 3px;
+    background: var(--color-paper);
+    border: 1px solid var(--color-ink);
+    border-radius: 0;
+    cursor: pointer;
+  }
+  .editHint {
+    font-size: 11.5px;
+    color: var(--color-ink-soft);
+    margin-top: 14px;
+    line-height: 1.5;
+  }
+  .editEmpty {
+    font-size: 12.5px;
+    color: var(--color-ink-soft);
+  }
+  /* An advanced block inside a panel: ruled off so it reads as a second subject
+     rather than as more fields belonging to the one above it. */
+  .editSection {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-line-soft);
+  }
+
+  .actions {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .btn-primary,
+  .btn-ghost {
+    width: 100%;
+    padding: 12px;
+    height: auto;
+    cursor: pointer;
+    border-radius: 100px;
+    font: 600 12px/1 var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--color-ink);
+  }
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-yellow);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #000;
+  }
+  .btn-ghost {
+    background: #fff;
+    color: var(--color-ink);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--color-yellow);
+  }
+  .btn-primary:disabled,
+  .btn-ghost:disabled {
+    opacity: 0.32;
+    cursor: not-allowed;
+  }
+
+  /* ---- stage ----
+     The canvas host fills the stage rather than carrying an aspect-ratio: the
+     window is the frame now. Both viewers observe their host and re-measure on
+     their own, so nothing here needs a resize hook. */
+  .viewport {
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+    background: var(--color-sheet);
+  }
+  .viewport canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* The map lies over the 3D canvas rather than replacing it: tearing either
+     viewer down on a tab switch would lose the camera, the selection and the
+     undo stack. */
+  .map2d {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: #0f1112;
+  }
+  /* Now on the light floating top bar rather than the dark sheet header. */
+  .viewtabs {
+    display: flex;
+    border: 1px solid var(--color-ink);
+    flex: none;
+  }
+  .viewtabs button {
+    background: none;
+    border: 0;
+    color: var(--color-ink-soft);
+    padding: 6px 12px;
+    cursor: pointer;
+    font: 600 10.5px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+  .viewtabs button:hover:not(.on) {
+    background: var(--color-yellow);
+    color: var(--color-ink);
+  }
+  .viewtabs button.on {
+    background: var(--color-yellow);
+    color: var(--color-ink);
+  }
+  /* The HUD sits in the overlay's centre cell rather than on the stage, so it
+     tracks the free space between the dock and the element editor instead of
+     hiding underneath them. */
+  .overlay > .hudlayer {
+    grid-row: 2;
+    grid-column: 2;
+    position: relative;
+    pointer-events: none;
+  }
+  .hud {
+    position: absolute;
+    color: var(--color-yellow);
+    font: 600 11px/1 var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-shadow: 0 1px 3px rgba(15, 17, 18, 0.75);
+  }
+  .hud-compass {
+    top: 2px;
+    right: 2px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--color-yellow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* These sit over the pale end of the sky gradient, so they take a light halo
+     rather than the dark one the yellow compass wants. */
+  .hud-legend,
+  .hud-hint {
+    color: #414a4e;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
+  }
+  /* Both on the left: the element editor owns the right side of the stage. */
+  .hud-legend {
+    left: 2px;
+    bottom: 2px;
+  }
+  .hud-hint {
+    left: 2px;
+    bottom: 20px;
+  }
+
+  /* ---- readout ----
+     What the build produced, as one strip in the top bar: the flow bar says
+     what to do next, this says what you have. It scrolls inside itself rather
+     than wrapping, so the bar keeps its height on a narrow window. */
+  .readout {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    padding-left: 4px;
+    border-left: 1px solid var(--color-line-soft);
+  }
+  .readout::-webkit-scrollbar {
+    display: none;
+  }
+  .readout > span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+  }
+  .readout .eyebrow {
+    font-size: 9.5px;
+  }
+  .readout b {
+    font: 600 13px/1.15 var(--font-mono);
+    color: var(--color-ink);
+  }
+  .readout b.muted {
+    color: var(--color-ink-soft);
+  }
+
+  .statusline {
+    font-size: 12.5px;
+    font-family: var(--font-mono);
+    color: var(--color-ink-soft);
+    line-height: 1.4;
+  }
+  /* The build summary is the longest thing that lands here — three lines of
+     it, then it scrolls, rather than growing the bar into the viewer. */
+  .statusline--flow {
+    font-size: 11.5px;
+    line-height: 1.35;
+    max-height: 4.1em;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .statusline .err {
+    color: var(--color-err);
+    font-weight: 600;
+  }
+  .statusline .ok {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  .notes {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid var(--color-ink);
+    font-size: 13px;
+    color: var(--color-ink-soft);
+    line-height: 1.7;
+    columns: 2;
+    column-gap: 34px;
+  }
+  .notes p {
+    margin: 0 0 12px;
+    break-inside: avoid;
+  }
+  .notes strong {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+  .notes code,
+  .inline-code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-ink);
+    background: rgba(174, 227, 253, 0.55);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+}
+
+/* Narrow: there is no room for three columns beside the map, so the dock and
+   the editor both take the full width of the middle row — the dock from the
+   top, the editor from the bottom — and each scrolls inside its share. The
+   flow bar keeps its own row, so the next action is never covered. */
+@media (max-width: 860px) {
+  .overlay > .dock {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    width: auto;
+    max-width: none;
+  }
+  /* They share the row only while something is selected in 3D. */
+  .overlay:has(.editPanel) > .dock {
+    max-height: 46%;
+  }
+  .flowbar {
+    justify-self: stretch;
+    width: auto;
+    flex-wrap: wrap;
+  }
+  /* The step names are the first thing to go: the buttons say the same. */
+  .steps {
+    display: none;
+  }
+  .overlay > .hudlayer {
+    grid-column: 1 / -1;
+  }
+  .editPanel {
+    grid-column: 1 / -1;
+    align-self: end;
+    justify-self: stretch;
+    width: auto;
+    max-width: none;
+    max-height: 46%;
+  }
+  .editPanel.collapsed {
+    align-self: end;
+  }
+}
+@media (max-width: 760px) {
+  .notes {
+    columns: 1;
+  }
+  .infoOverlay {
+    padding: 56px 10px 16px;
+  }
+  .infoCard {
+    padding: 20px;
+  }
+}
+
+/* =====================================================================
+   Leaflet. These style DOM that Leaflet creates and React never sees, so
+   they have to stay global rather than becoming component classes.
+   ===================================================================== */
+.leaflet-container {
+  background: #0f1112;
+  font-family: var(--font-sans);
+}
+/* Leaflet's own controls have to clear the floating chrome: the top bar spans
+   the window — two rows of it once a build fills the readout — and on narrow
+   screens the flow bar spans it too. */
+.leaflet-top.leaflet-right {
+  margin-top: 100px;
+}
+@media (max-width: 860px) {
+  .leaflet-bottom.leaflet-right {
+    margin-bottom: 78px;
+  }
+}
+.leaflet-bar,
+.leaflet-bar a {
+  border-radius: 0 !important;
+  border-color: var(--color-ink);
+}
+.leaflet-bar a {
+  color: var(--color-ink);
+}
+.leaflet-control-attribution {
+  background: rgba(21, 24, 26, 0.84) !important;
+  color: #8a9094 !important;
+  font: 500 10px/1.6 var(--font-mono);
+}
+.leaflet-control-attribution a {
+  color: #c9cfd2;
+}
+.site-handle {
+  background: #fff;
+  border: 1px solid var(--color-ink);
+  box-shadow: 0 0 0 1px rgba(240, 251, 41, 0.85);
+  cursor: grab;
+}
+.site-handle:active {
+  cursor: grabbing;
+}
+.leaflet-container.drawing,
+.leaflet-container.drawing .leaflet-interactive {
+  cursor: crosshair;
+}
+.site-rect {
+  cursor: move;
+}
