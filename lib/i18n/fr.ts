@@ -26,29 +26,31 @@ export const fr: Dict = {
   'ui.info': 'À propos de cet outil',
   'ui.close': 'Fermer',
   'ui.options': 'Options',
-  'ui.collapse': 'Masquer les options',
-  'ui.expand': 'Afficher les options',
   'ui.originMarker': 'Afficher l’origine du modèle',
 
-  /* ---- barre de progression : une étape, une action ---- */
-  'flow.stepDraw': 'Tracer',
-  'flow.stepBuild': 'Construire',
-  'flow.stepExport': 'Exporter',
-  'flow.mode': 'Mode carte',
-  'flow.draw': 'Tracer',
-  'flow.pan': 'Déplacer',
-  'flow.redraw': 'Retracer',
-  'flow.rebuild': 'Reconstruire',
-  'flow.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
+  /* ---- barre d’outils : uniquement des icônes, donc chacun de ces libellés
+     est tout ce que l’outil obtient — infobulle et aria-label à la fois. ---- */
+  'rail.label': 'Outils',
+  'rail.pan': 'Déplacer la carte',
+  'rail.select': 'Sélectionner (Échap)',
+  'rail.drawBox': 'Tracer une emprise rectangulaire',
+  'rail.drawPoly': 'Tracer une emprise polygonale',
+
+  /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
+  'bar.site': 'Site',
+  'bar.origin': 'Origine',
+  'bar.rebuild': 'Reconstruire',
+  'bar.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
+  'bar.drawHeight': 'H (m)',
+  'bar.newHeightTitle': 'Hauteur du prochain bâtiment tracé (m)',
+  'bar.drawHintRect': 'Glissez sur le sol pour tracer une emprise rectangulaire. Échap annule.',
+  'bar.drawHintPoly':
+    'Cliquez chaque sommet sur le sol — sans arêtes croisées. Entrée ou le premier sommet ferme le contour, Échap annule.',
+  'bar.drawHintPoints': '{n} sommets — Entrée ferme, Échap annule.',
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Rechercher un lieu',
   'ctl.findPlacePlaceholder': 'Rue, ville, code postal…',
-  'ctl.siteExtent': 'Emprise du site',
-  'ctl.rectangle': 'Rectangle',
-  'ctl.drawOnMap': 'tracez-en un sur la carte',
-  'ctl.siteHint':
-    'Cliquez deux coins opposés sur la carte — ou glissez pour le balayer d’un seul geste. Glissez les coins pour le redimensionner, le rectangle lui-même pour le déplacer.',
   'ctl.drawSite': 'Tracer le site',
   'ctl.zoomSite': 'Zoomer sur le site',
   'ctl.crs': 'SCR projeté',
@@ -81,17 +83,9 @@ export const fr: Dict = {
   /* ---- sheet ---- */
   'sheet.tabMap': 'Carte 2D',
   'sheet.tab3d': 'Aperçu 3D',
-  'sheet.origin': 'origine —',
-  'sheet.hudLegend': 'jaune = hauteur renseignée · gris = estimée',
-  'sheet.hudHint':
-    'cliquez un bâtiment pour l’éditer · glissez pour orbiter · molette pour zoomer · Maj+glisser pour déplacer',
 
-  /* ---- readout ---- */
+  /* ---- readout : ce que la construction a produit, dans la barre d’état ---- */
   'read.buildings': 'Bâtiments',
-  'read.tagged': 'Hauteur renseignée',
-  'read.roadFaces': 'Faces de voirie',
-  'read.trees': 'Arbres',
-  'read.layers': 'Couches',
   'read.entities': 'Entités',
   'read.file': 'Fichier',
   'unit.kb': 'ko',
@@ -100,38 +94,43 @@ export const fr: Dict = {
 
   /* ---- element editor ---- */
   'ed.selected': 'Élément sélectionné',
-  'ed.empty': 'Cliquez un bâtiment dans l’aperçu 3D pour l’éditer.',
-  'ed.gizmo': 'Manipulateur',
-  'ed.move': 'Déplacer',
-  'ed.rotate': 'Pivoter',
-  'ed.scale': 'Redimensionner',
+  /* Les modes du manipulateur sont désormais des infobulles de la barre
+     d’outils, et c’est là que le raccourci a sa place. */
+  'ed.move': 'Déplacer (W)',
+  'ed.rotate': 'Pivoter (E)',
+  'ed.scale': 'Redimensionner (R)',
   'ed.colour': 'Couleur',
   'ed.defaultColour': 'Couleur par défaut',
+  'ed.opacity': 'Opacité',
+  'ed.solid': 'Opaque',
+  'ed.height': 'Hauteur (m)',
+  'ed.delete': 'Supprimer',
+  'ed.deleteTitle': 'Supprimer (Suppr)',
+  'ed.drawnName': 'Bâtiment tracé',
   'ed.position': 'Décalage de position (m)',
   'ed.rotation': 'Rotation (°)',
   'ed.scaleLabel': 'Échelle',
   'ed.lockProportions': 'Conserver les proportions',
   'ed.resetElement': 'Réinitialiser l’élément',
-  'ed.deselect': 'Désélectionner',
   'ed.undo': 'Annuler (Ctrl+Z)',
   'ed.redo': 'Rétablir (Ctrl+Maj+Z)',
   'ed.close': 'Désélectionner (Échap)',
-  'ed.hint':
-    'W / E / R changent de manipulateur · Échap désélectionne · Ctrl+Z et Ctrl+Maj+Z parcourent l’historique. Les modifications sont écrites dans l’IFC téléchargé.',
   'ed.originName': 'Origine du modèle',
   'ed.originPosition': 'Décalage depuis le centre du site (m)',
   'ed.resetOrigin': 'Recentrer l’origine',
   'ed.originHint':
-    'C’est le point que l’IFC exporté utilise comme (0, 0, 0). Le déplacer rebase le fichier sans rien déplacer au sol — le géoréférencement suit.',
+    'Le point que l’IFC exporté appelle (0, 0, 0). Le déplacer rebase le fichier sans rien déplacer au sol.',
   'ed.projectPlacement': 'Calage local du projet',
   'ed.projectCoords': 'Coordonnées de ce point (m)',
   'ed.projectAngle': 'Angle — ° antihoraire depuis l’est du quadrillage',
   'ed.resetPlacement': 'Réinitialiser le calage',
   'ed.projectHint':
-    'Donnez au point d’origine les coordonnées dans lesquelles votre projet travaille, et orientez les axes sur son quadrillage. Cela devient le calage du site dans l’IFC ; le géoréférencement est inchangé, donc tout reste au même endroit sur la carte. Saisis ici, non glissés — ces deux champs sont hors de l’historique.',
+    'Donnez au point d’origine les coordonnées propres à votre projet et orientez les axes sur son quadrillage. Cela devient le calage du site dans l’IFC ; le géoréférencement est inchangé. Saisis, non glissés — ces champs sont hors de l’historique.',
 
   /* ---- status ---- */
-  'status.ready': 'Prêt. Cliquez deux coins opposés sur la carte pour définir le site.',
+  /* L’instruction complète est status.drawPrompt, émis dès que la carte s’arme
+     — c’est-à-dire au chargement. Celui-ci dit seulement que l’outil est prêt. */
+  'status.ready': 'Prêt — tracez un rectangle de site sur la carte.',
   'status.queryingOverpass': 'Interrogation d’Overpass…',
   'status.queryingTrees': 'Interrogation des arbres OSM…',
   'status.fetchingIgnBuildings': 'Récupération des bâtiments IGN BD TOPO…',
@@ -152,6 +151,8 @@ export const fr: Dict = {
   'status.drawCancelled': 'Tracé annulé.',
   'status.cornerSet': 'Premier coin posé — cliquez le coin opposé. Échap annule.',
   'status.noSiteYet': 'Aucun site — cliquez deux coins opposés sur la carte.',
+  'status.drawTooSmall': 'Trop petit — une emprise doit faire au moins 1 m².',
+  'status.drawFull': 'Limite de bâtiments atteinte ({cap}) — supprimez-en un d’abord.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z pour annuler.',
   'status.undone': 'Annulé : {label} — {name}.',
   'status.redone': 'Rétabli : {label} — {name}.',
@@ -180,9 +181,23 @@ export const fr: Dict = {
   'edit.scale': 'Redimensionnement',
   'edit.colour': 'Couleur',
   'edit.colourReset': 'Couleur réinitialisée',
+  'edit.opacity': 'Opacité',
+  'edit.height': 'Hauteur',
+  'edit.add': 'Nouveau bâtiment',
+  'edit.delete': 'Suppression',
   'edit.reset': 'Élément réinitialisé',
   'edit.origin': 'Déplacement de l’origine',
   'edit.originReset': 'Origine recentrée',
+
+  /* ---- confirmations ---- */
+  'confirm.discardTitle': 'Supprimer les bâtiments tracés ?',
+  'confirm.discardTitleOne': 'Supprimer le bâtiment tracé ?',
+  'confirm.discardDrawn':
+    'Reconstruire recharge le site depuis ses sources, où vos {n} bâtiments tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+  'confirm.discardDrawnOne':
+    'Reconstruire recharge le site depuis ses sources, où votre bâtiment tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+  'confirm.rebuildAnyway': 'Reconstruire quand même',
+  'confirm.keep': 'Continuer l’édition',
 
   /* ---- errors ---- */
   'err.overpassAllRefused': 'Tous les miroirs Overpass ont refusé la requête.',

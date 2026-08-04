@@ -1,10 +1,10 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { PlaceSearch } from '@/components/place-search';
-import { SiteExtent } from '@/components/site-extent';
 import { ACCURACY_CELL, MAX_GRID_N, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
 import { useT } from '@/lib/i18n/context';
@@ -44,18 +44,26 @@ export type ControlsPanelProps = {
   rect: SiteRect | null;
   onPickPlace: (p: Place) => void;
   onSearchFailed: (error: unknown) => void;
-  onCollapse: () => void;
+  onClose: () => void;
 };
 
 /**
- * The options dock: everything that describes *how* to build, floating over the
- * left edge of the viewer. What to do *next* is the flow bar's job, so Build and
- * Download no longer appear here — having them in two places is what made the
- * order of operations hard to see.
+ * Everything that describes *how* to build, as a flyout off the rail's first
+ * button. These are settings you touch once before a build and then leave alone,
+ * which is a poor reason to hold 330 px of the window open for the rest of the
+ * session — so the panel is closed by default and slides out over the viewer.
+ *
+ * It is a disclosure, not a dialog: no backdrop and no focus trap, because the
+ * map underneath has to stay draggable while you read it.
  */
 export function ControlsPanel(p: ControlsPanelProps) {
   const { t, n } = useT();
   const ign = p.form.provider === 'ign';
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Opening the panel is almost always the start of "go somewhere", so the
+  // caret lands in the search box — the same courtesy the confirm card does.
+  useEffect(() => searchRef.current?.focus(), []);
 
   /* The trigger shows the label of the selected option rather than the bare
      value ("2154", "osm") only if the root is handed the whole map, so the list
@@ -93,23 +101,29 @@ export function ControlsPanel(p: ControlsPanelProps) {
   })();
 
   return (
-    <div className="dock floating">
+    <div className="flyout floating" id="optionsFlyout" aria-label={t('ui.options')}>
       <div className="dockHead">
         <span className="eyebrow">{t('ui.options')}</span>
         <button
           type="button"
           className="iconBtn"
-          title={t('ui.collapse')}
-          aria-label={t('ui.collapse')}
-          onClick={p.onCollapse}
+          title={t('ui.close')}
+          aria-label={t('ui.close')}
+          onClick={p.onClose}
         >
-          ‹
+          ✕
         </button>
       </div>
 
-      <PlaceSearch onPickPlace={p.onPickPlace} onSearchFailed={p.onSearchFailed} />
+      <PlaceSearch
+        inputRef={searchRef}
+        onPickPlace={p.onPickPlace}
+        onSearchFailed={p.onSearchFailed}
+      />
 
-      <SiteExtent rect={p.rect} />
+      {/* No site-extent box here any more: the rectangle's size is in the status
+          bar the moment there is one, and stating it twice is what made the
+          old flow bar suppress its own copy by hand. */}
 
       <div className="field">
         <label className="eyebrow block mb-1.5" htmlFor="epsg">

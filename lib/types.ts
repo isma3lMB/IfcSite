@@ -24,13 +24,20 @@ export type Site = SiteRect & {
   radius: number;
 };
 
-/** Where a building's height came from — drives the default preview colour. */
+/**
+ * Where a building's height came from — drives the default preview colour.
+ *
+ * `user` is the one value no provider produces: it marks a footprint drawn in
+ * the 3D view, whose height was typed rather than read off anything. It is also
+ * what a rebuild counts to warn before discarding hand-drawn work.
+ */
 export type HeightSource =
   | 'tag:height'
   | 'tag:levels'
   | 'ign:hauteur'
   | 'ign:etages'
-  | 'fallback';
+  | 'fallback'
+  | 'user';
 
 /** A user edit riding on top of a building. Composed as M = T·R·S. */
 export type Xf = {
@@ -39,6 +46,14 @@ export type Xf = {
   scale: Vec3;
   /** null = use the source-derived default pair. */
   color: number | null;
+  /**
+   * How solid the building draws, 0..1. Sits beside colour because it is the
+   * same kind of decision — a view choice the deliverable carries too: the
+   * viewer reads it as material opacity and the writer exports `1 - it` as
+   * IfcSurfaceStyleRendering.Transparency, the same pairing lib/scene/stack
+   * makes for the context layers.
+   */
+  opacity: number;
 };
 
 export type PropBag = Record<string, string | number>;

@@ -23,29 +23,31 @@ export const en = {
   'ui.info': 'About this tool',
   'ui.close': 'Close',
   'ui.options': 'Options',
-  'ui.collapse': 'Hide options',
-  'ui.expand': 'Show options',
   'ui.originMarker': 'Show the model origin',
 
-  /* ---- flow bar: one step, one next action ---- */
-  'flow.stepDraw': 'Draw',
-  'flow.stepBuild': 'Build',
-  'flow.stepExport': 'Export',
-  'flow.mode': 'Map mode',
-  'flow.draw': 'Draw',
-  'flow.pan': 'Pan',
-  'flow.redraw': 'Redraw',
-  'flow.rebuild': 'Rebuild sheet',
-  'flow.stale': 'Site moved since the last build — rebuild before exporting.',
+  /* ---- tool rail. Icon-only, so every one of these is the whole label: it is
+     the tooltip, the aria-label, and the only prose the tool ever gets. ---- */
+  'rail.label': 'Tools',
+  'rail.pan': 'Pan the map',
+  'rail.select': 'Select (Esc)',
+  'rail.drawBox': 'Draw a box footprint',
+  'rail.drawPoly': 'Draw a polygon footprint',
+
+  /* ---- status bar: the one place anything is stated ---- */
+  'bar.site': 'Site',
+  'bar.origin': 'Origin',
+  'bar.rebuild': 'Rebuild sheet',
+  'bar.stale': 'Site moved since the last build — rebuild before exporting.',
+  'bar.drawHeight': 'H (m)',
+  'bar.newHeightTitle': 'Height of the next drawn building (m)',
+  'bar.drawHintRect': 'Drag on the ground to box out a footprint. Esc cancels.',
+  'bar.drawHintPoly':
+    'Click each corner on the ground — no crossing edges. Enter or the first corner closes it, Esc cancels.',
+  'bar.drawHintPoints': '{n} corners — Enter closes, Esc cancels.',
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Find a place',
   'ctl.findPlacePlaceholder': 'Street, town, postcode…',
-  'ctl.siteExtent': 'Site extent',
-  'ctl.rectangle': 'Rectangle',
-  'ctl.drawOnMap': 'draw one on the map',
-  'ctl.siteHint':
-    'Click two opposite corners on the map — or drag to sweep it out in one go. Drag the corners to resize it, the rectangle itself to move it.',
   'ctl.drawSite': 'Draw site',
   'ctl.zoomSite': 'Zoom to site',
   'ctl.crs': 'Projected CRS',
@@ -79,16 +81,11 @@ export const en = {
   /* ---- sheet ---- */
   'sheet.tabMap': '2D map',
   'sheet.tab3d': '3D preview',
-  'sheet.origin': 'origin —',
-  'sheet.hudLegend': 'yellow = tagged height · grey = estimated',
-  'sheet.hudHint': 'click a building to edit · drag to orbit · scroll to zoom · shift-drag to pan',
 
-  /* ---- readout ---- */
+  /* ---- readout. What the build produced, in the status bar. Road faces, tree
+     and layer counts are gone: the only signal they carried — a layer came back
+     empty — is already the closing clause of the build summary. ---- */
   'read.buildings': 'Buildings',
-  'read.tagged': 'Tagged height',
-  'read.roadFaces': 'Road faces',
-  'read.trees': 'Trees',
-  'read.layers': 'Layers',
   'read.entities': 'Entities',
   'read.file': 'File',
   'unit.kb': 'kB',
@@ -98,38 +95,43 @@ export const en = {
 
   /* ---- element editor ---- */
   'ed.selected': 'Selected element',
-  'ed.empty': 'Click a building in the 3D preview to edit it.',
-  'ed.gizmo': 'Gizmo',
-  'ed.move': 'Move',
-  'ed.rotate': 'Rotate',
-  'ed.scale': 'Scale',
+  /* The gizmo modes are rail tooltips now, and a tooltip is where a keyboard
+     shortcut belongs — it is the only surface that has room for it. */
+  'ed.move': 'Move (W)',
+  'ed.rotate': 'Rotate (E)',
+  'ed.scale': 'Scale (R)',
   'ed.colour': 'Colour',
   'ed.defaultColour': 'Default colour',
+  'ed.opacity': 'Opacity',
+  'ed.solid': 'Solid',
+  'ed.height': 'Height (m)',
+  'ed.delete': 'Delete',
+  'ed.deleteTitle': 'Delete (Del)',
+  'ed.drawnName': 'Drawn building',
   'ed.position': 'Position offset (m)',
   'ed.rotation': 'Rotation (°)',
   'ed.scaleLabel': 'Scale',
   'ed.lockProportions': 'Lock proportions',
   'ed.resetElement': 'Reset element',
-  'ed.deselect': 'Deselect',
   'ed.undo': 'Undo (Ctrl+Z)',
   'ed.redo': 'Redo (Ctrl+Shift+Z)',
   'ed.close': 'Deselect (Esc)',
-  'ed.hint':
-    'W / E / R switch gizmo · Esc deselects · Ctrl+Z and Ctrl+Shift+Z step through history. Edits are written into the downloaded IFC.',
   'ed.originName': 'Model origin',
   'ed.originPosition': 'Offset from site centre (m)',
   'ed.resetOrigin': 'Recentre origin',
   'ed.originHint':
-    'This is the point the exported IFC uses as (0, 0, 0). Moving it re-bases the file without moving anything on the ground — the georeferencing follows it.',
+    'The point the exported IFC calls (0, 0, 0). Moving it re-bases the file without moving anything on the ground.',
   'ed.projectPlacement': 'Local project placement',
   'ed.projectCoords': 'Coordinates of this point (m)',
   'ed.projectAngle': 'Angle — °counter-clockwise from grid east',
   'ed.resetPlacement': 'Reset placement',
   'ed.projectHint':
-    'Give the origin point the coordinates your project works in, and turn the axes to its grid. This becomes the site placement in the IFC; the georeferencing is unchanged, so everything still lands where it does on the map. Typed here, not dragged — these two fields are outside the undo history.',
+    'Give the origin point your project’s own coordinates and turn the axes to its grid. This becomes the IFC site placement; the georeferencing is unchanged. Typed, not dragged — these fields are outside the undo history.',
 
   /* ---- status ---- */
-  'status.ready': 'Ready. Click two opposite corners on the map to set your site.',
+  /* The full instruction is status.drawPrompt, which fires the moment the map
+     arms — which is on load. This one only has to say the app is up. */
+  'status.ready': 'Ready — draw a site rectangle on the map.',
   'status.queryingOverpass': 'Querying Overpass…',
   'status.queryingTrees': 'Querying OSM trees…',
   'status.fetchingIgnBuildings': 'Fetching IGN BD TOPO buildings…',
@@ -149,6 +151,8 @@ export const en = {
   'status.drawCancelled': 'Drawing cancelled.',
   'status.cornerSet': 'Corner set — click the opposite corner. Esc cancels.',
   'status.noSiteYet': 'No site yet — click two opposite corners on the map.',
+  'status.drawTooSmall': 'Too small — a footprint needs at least 1 m².',
+  'status.drawFull': 'Building limit reached ({cap}) — delete something first.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z to undo.',
   'status.undone': 'Undone: {label} — {name}.',
   'status.redone': 'Redone: {label} — {name}.',
@@ -176,9 +180,25 @@ export const en = {
   'edit.scale': 'Scale',
   'edit.colour': 'Colour',
   'edit.colourReset': 'Colour reset',
+  'edit.opacity': 'Opacity',
+  'edit.height': 'Height',
+  'edit.add': 'New building',
+  'edit.delete': 'Delete',
   'edit.reset': 'Reset element',
   'edit.origin': 'Move origin',
   'edit.originReset': 'Origin recentred',
+
+  /* ---- confirmations ----
+     Singular and plural are separate entries rather than an "(s)": this card
+     exists to be read carefully, and one drawn building is the common case. */
+  'confirm.discardTitle': 'Discard drawn buildings?',
+  'confirm.discardTitleOne': 'Discard the drawn building?',
+  'confirm.discardDrawn':
+    'Rebuilding re-fetches the site from its sources, and {n} hand-drawn buildings are not in them. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
+  'confirm.discardDrawnOne':
+    'Rebuilding re-fetches the site from its sources, and your hand-drawn building is not in them. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
+  'confirm.rebuildAnyway': 'Rebuild anyway',
+  'confirm.keep': 'Keep editing',
 
   /* ---- errors ---- */
   'err.overpassAllRefused': 'Every Overpass mirror refused the request.',

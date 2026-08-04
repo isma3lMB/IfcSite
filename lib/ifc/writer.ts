@@ -1,5 +1,6 @@
 import { xfAxes } from '@/lib/geo/euler';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
+import { defaultColors } from '@/lib/scene/xf';
 import type { Building, PropBag, SiteMeta, Vec2, Vec3 } from '@/lib/types';
 
 /* =====================================================================
@@ -426,7 +427,17 @@ export class ContextModel {
       null,
       E('ELEMENT'),
     ]);
-    if (xf.color !== null) this.style(solid, xf.color);
+    // Transparency needs a surface style to hang on, so a ghosted building
+    // writes one even where its colour is the source-derived default — and then
+    // that default has to be written out too, or the file would claim a colour
+    // the preview never showed.
+    const transparency = 1 - xf.opacity;
+    if (xf.color !== null || transparency > 0)
+      this.style(
+        solid,
+        xf.color ?? defaultColors(b).wall,
+        transparency > 0 ? transparency : undefined,
+      );
     this.pset(el, 'Pset_SiteContext', b.props);
     this.elements.push(el);
     return el;

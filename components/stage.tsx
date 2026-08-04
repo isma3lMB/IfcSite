@@ -1,7 +1,6 @@
 'use client';
 
 import type { RefObject } from 'react';
-import { useT } from '@/lib/i18n/context';
 import type { ViewTab } from '@/lib/types';
 
 export type StageProps = {
@@ -30,42 +29,8 @@ export function Stage(p: StageProps) {
   );
 }
 
-export type StageHudProps = {
-  compassRef: RefObject<HTMLDivElement | null>;
-  view: ViewTab;
-};
-
-/**
- * The read-only labels drawn over the viewer. They live in the overlay grid's
- * centre cell, not on the stage, so they track the free space between the dock
- * and the element editor instead of hiding beneath them.
- */
-export function StageHud(p: StageHudProps) {
-  const { t } = useT();
-  const isMap = p.view === 'map';
-
-  return (
-    <div className="hudlayer">
-      {/* The compass stays mounted and is hidden rather than unmounted: the
-          viewer is handed this element once, on mount, and the page boots into
-          the map — an element that only existed in the 3D tab would never
-          reach it, and the needle would never turn. */}
-      <div
-        className="hud hud-compass"
-        ref={p.compassRef}
-        style={{ display: isMap ? 'none' : 'flex' }}
-      >
-        N
-      </div>
-
-      {/* Nothing else over the map: the flow bar already carries the drawing
-          prompt, and a second copy competed with the basemap for the corner. */}
-      {!isMap && (
-        <>
-          <div className="hud hud-legend">{t('sheet.hudLegend')}</div>
-          <div className="hud hud-hint">{t('sheet.hudHint')}</div>
-        </>
-      )}
-    </div>
-  );
-}
+/* The HUD that used to sit here is gone. Its two labels each restated something
+   said elsewhere — the legend repeated the build summary's tagged/estimated
+   split, and the hint repeated the element editor's empty state, on screen at
+   the same time as it. The compass it hosted moved to the utility cluster,
+   which does not change width when the editor opens. */

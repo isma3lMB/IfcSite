@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n/context';
 import { type Place, searchPlaces } from '@/lib/sources/nominatim';
 
 export type PlaceSearchProps = {
   onPickPlace: (p: Place) => void;
   onSearchFailed: (error: unknown) => void;
+  /** So the options flyout can put the caret here when it opens. */
+  inputRef?: RefObject<HTMLInputElement | null>;
 };
 
-export function PlaceSearch({ onPickPlace, onSearchFailed }: PlaceSearchProps) {
+export function PlaceSearch({ onPickPlace, onSearchFailed, inputRef }: PlaceSearchProps) {
   const { t } = useT();
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Place[]>([]);
@@ -61,6 +63,7 @@ export function PlaceSearch({ onPickPlace, onSearchFailed }: PlaceSearchProps) {
       </label>
       <input
         id="placeSearch"
+        ref={inputRef}
         type="text"
         className="ctl-input"
         placeholder={t('ctl.findPlacePlaceholder')}

@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Slider } from '@/components/ui/slider';
 import { useT } from '@/lib/i18n/context';
 import { rnd } from '@/lib/scene/xf';
-import type { GizmoMode, Vec3 } from '@/lib/types';
+import type { Vec3 } from '@/lib/types';
 import type { Selection } from '@/lib/viewer/Viewer';
 
 export type AxisKey = 'pos' | 'rot' | 'scale';
@@ -106,29 +107,62 @@ function ColourField({
   );
 }
 
-const MODES: { mode: GizmoMode; label: 'ed.move' | 'ed.rotate' | 'ed.scale' }[] = [
-  { mode: 'translate', label: 'ed.move' },
-  { mode: 'rotate', label: 'ed.rotate' },
-  { mode: 'scale', label: 'ed.scale' },
-];
+/**
+ * The opacity slider.
+ *
+ * Same split as the colour swatch, and for the same reason: `onValueChange`
+ * fires continuously through the drag so the building ghosts live, while
+ * `onValueCommitted` fires once when the thumb is released, which is the undo
+ * boundary. Stored 0..1, shown 0..100.
+ */
+function OpacityField({
+  value,
+  onOpacity,
+}: {
+  value: number;
+  onOpacity: (a: number, commit: boolean) => void;
+}) {
+  const { t } = useT();
+  const pct = Math.round(value * 100);
+  // The value goes in as a one-element array, the way the dock's height slider
+  // does: components/ui/slider renders one thumb per entry, and a bare number
+  // falls through to [min, max] and draws two.
+  const read = (v: number | readonly number[]): number =>
+    (Array.isArray(v) ? v[0] : (v as number)) / 100;
+
+  return (
+    <>
+      <label className="eyebrow block mb-1.5" htmlFor="edOpacity">
+        {t('ed.opacity')}
+        <span className="rangeval">{t('unit.percent', { v: pct })}</span>
+      </label>
+      <Slider
+        id="edOpacity"
+        min={0}
+        max={100}
+        step={1}
+        value={[pct]}
+        onValueChange={(v) => onOpacity(read(v), false)}
+        onValueCommitted={(v) => onOpacity(read(v), true)}
+      />
+    </>
+  );
+}
 
 export type ElementEditorProps = {
   visible: boolean;
   selection: Selection | null;
-  gizmoMode: GizmoMode;
   uniform: boolean;
-  canUndo: boolean;
-  canRedo: boolean;
-  onMode: (m: GizmoMode) => void;
   onUniform: (v: boolean) => void;
   onAxis: (key: AxisKey, i: number, v: number, commit: boolean) => void;
   onColor: (hex: number, commit: boolean) => void;
   onColorReset: () => void;
+  onOpacity: (a: number, commit: boolean) => void;
+  onHeight: (h: number, commit: boolean) => void;
+  onDelete: () => void;
   onReset: () => void;
   onResetOrigin: () => void;
   onDeselect: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
   /* The local project coordinate system. Export metadata rather than a scene
      edit, so it lives outside the selection and outside the undo stack — see
      ed.projectHint. */
@@ -139,16 +173,27 @@ export type ElementEditorProps = {
   onResetPlacement: () => void;
 };
 
+/**
+ * The selection inspector.
+ *
+ * It renders nothing at all without a selection. It used to stay on screen as a
+ * header and a line of prose telling you to click a building — which is what the
+ * empty 3D view already communicates, and which held a 296 px column open to say
+ * it. The gizmo modes and undo/redo left too: both are global, both are on the
+ * tool rail, and neither had any business appearing and disappearing with the
+ * selection the way this panel does.
+ */
 export function ElementEditor(p: ElementEditorProps) {
   const { t } = useT();
-  if (!p.visible) return null;
+  if (!p.visible || !p.selection) return null;
 
   const sel = p.selection;
-  const xf = sel?.xf;
-  const colour = xf ? (xf.color === null ? sel!.defaultColor : xf.color) : 0;
+  const xf = sel.xf;
+  const colour = xf.color === null ? sel.defaultColor : xf.color;
+  const opacity = xf.opacity;
   // The origin is a bare point: no ring to recolour, nothing to turn or stretch.
   // It reuses the position row and drops the rest rather than greying it out.
-  const isOrigin = sel?.kind === 'origin';
+  const isOrigin = sel.kind === 'origin';
 
   /* `write` rather than p.onAxis directly, so the project-coordinate row can
      reuse AxisInput's draft/commit behaviour without pretending to be an xf. */
@@ -179,30 +224,24 @@ export function ElementEditor(p: ElementEditorProps) {
     axisRow(key, values, step, (i, v, commit) => p.onAxis(key, i, v, commit), min);
 
   return (
-    <div className={`floating editPanel${sel ? '' : ' collapsed'}`}>
+    <div className="floating editPanel">
       <div className="editHead">
         <div>
           <div className="eyebrow">{t('ed.selected')}</div>
-          <div className="editName" title={sel?.id}>
-            {isOrigin ? t('ed.originName') : (sel?.name ?? '—')}
+          <div className="editName" title={sel.id}>
+            {isOrigin ? t('ed.originName') : sel.name}
           </div>
         </div>
-        <div className="presets !m-0 flex-none flex-nowrap">
-          <button type="button" title={t('ed.undo')} disabled={!p.canUndo} onClick={p.onUndo}>
-            ↩
-          </button>
-          <button type="button" title={t('ed.redo')} disabled={!p.canRedo} onClick={p.onRedo}>
-            ↪
-          </button>
+        {/* The one deselect affordance. There were three — this, a preset in
+            each branch below, and Escape — for an action nothing rides on. */}
+        <div className="presets m-0! flex-none flex-nowrap">
           <button type="button" title={t('ed.close')} onClick={p.onDeselect}>
             ✕
           </button>
         </div>
       </div>
 
-      {!sel && <div className="editEmpty">{t('ed.empty')}</div>}
-
-      {sel && xf && isOrigin && (
+      {isOrigin && (
         <div>
           <div className="field">
             <span className="eyebrow block mb-1.5">{t('ed.originPosition')}</span>
@@ -216,9 +255,6 @@ export function ElementEditor(p: ElementEditorProps) {
           <div className="presets">
             <button type="button" onClick={p.onResetOrigin}>
               {t('ed.resetOrigin')}
-            </button>
-            <button type="button" onClick={p.onDeselect}>
-              {t('ed.deselect')}
             </button>
           </div>
 
@@ -261,33 +297,43 @@ export function ElementEditor(p: ElementEditorProps) {
         </div>
       )}
 
-      {sel && xf && !isOrigin && (
+      {!isOrigin && (
         <div>
-          <div className="field">
-            <span className="eyebrow block mb-1.5">{t('ed.gizmo')}</span>
-            <div className="presets !mt-0">
-              {MODES.map((m) => (
-                <button
-                  key={m.mode}
-                  type="button"
-                  className={p.gizmoMode === m.mode ? 'on' : undefined}
-                  onClick={() => p.onMode(m.mode)}
-                >
-                  {t(m.label)}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="field">
             <label className="eyebrow block mb-1.5" htmlFor="edColor">
               {t('ed.colour')}
             </label>
             <ColourField value={colour} onColor={p.onColor} />
+
+            <div className="mt-3">
+              <OpacityField value={opacity} onOpacity={p.onOpacity} />
+            </div>
+
             <div className="presets">
               <button type="button" onClick={p.onColorReset}>
                 {t('ed.defaultColour')}
               </button>
+              <button type="button" onClick={() => p.onOpacity(1, true)}>
+                {t('ed.solid')}
+              </button>
+            </div>
+          </div>
+
+          {/* Height is the building's own dimension, not a transform, so it sits
+              above the xf rows rather than among them — but it commits the same
+              way, and lands on the same undo step as the transform beside it. */}
+          <div className="field">
+            <span className="eyebrow block mb-1.5">{t('ed.height')}</span>
+            <div className="axes">
+              <AxisInput
+                axis="H"
+                value={rnd(sel.h, 2)}
+                step={0.5}
+                min={0.5}
+                ariaLabel={t('ed.height')}
+                onLive={(v) => p.onHeight(v, false)}
+                onCommit={(v) => p.onHeight(v, true)}
+              />
             </div>
           </div>
 
@@ -323,16 +369,22 @@ export function ElementEditor(p: ElementEditorProps) {
             </label>
           </div>
 
+          {/* No shortcut list under this: W/E/R are on the rail's gizmo
+              tooltips, Esc on the ✕ above, Ctrl+Z on the rail's undo, and Del
+              is on the button beside this comment. */}
           <div className="presets">
             <button type="button" onClick={p.onReset}>
               {t('ed.resetElement')}
             </button>
-            <button type="button" onClick={p.onDeselect}>
-              {t('ed.deselect')}
+            <button
+              type="button"
+              className="danger"
+              title={t('ed.deleteTitle')}
+              onClick={p.onDelete}
+            >
+              {t('ed.delete')}
             </button>
           </div>
-
-          <p className="editHint">{t('ed.hint')}</p>
         </div>
       )}
     </div>

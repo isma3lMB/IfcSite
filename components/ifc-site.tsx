@@ -1,20 +1,23 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BrandChip } from '@/components/brand-chip';
+import { ConfirmCard } from '@/components/confirm-card';
 import { ControlsPanel } from '@/components/controls-panel';
 import { type AxisKey, ElementEditor } from '@/components/element-editor';
-import { FlowBar } from '@/components/flow-bar';
 import { InfoOverlay } from '@/components/info-overlay';
-import { Stage, StageHud } from '@/components/stage';
+import { Stage } from '@/components/stage';
+import { StatusBar } from '@/components/status-bar';
 import type { StatusState } from '@/components/status-line';
-import { TopBar } from '@/components/top-bar';
+import { ToolRail } from '@/components/tool-rail';
+import { UtilChip } from '@/components/util-chip';
 import { IfcEmitter } from '@/lib/build/emitter';
 import { runBuild } from '@/lib/build/run';
 import { useT } from '@/lib/i18n/context';
 import type { Place } from '@/lib/sources/nominatim';
 import type { BuildOptions, GizmoMode, IfcStats, SiteMeta, SiteRect, Vec3, ViewTab } from '@/lib/types';
 import { MapController } from '@/lib/viewer/MapController';
-import { type Selection, Viewer } from '@/lib/viewer/Viewer';
+import { type DrawTool, type Selection, Viewer } from '@/lib/viewer/Viewer';
 
 /**
  * The projected easting/northing the exported file calls (0,0,0). That is the
@@ -60,6 +63,17 @@ export function IfcSite() {
   /** Mirrors infoOpen for the mount-only key handler, which would otherwise
       close over the value it had on the first render. */
   const infoOpenRef = useRef(false);
+  /** Same trick for the footprint tool: the key handler has to know which tool
+      is armed, and how far into a gesture it is, before deciding what Esc and
+      Enter mean. */
+  const drawToolRef = useRef<DrawTool | null>(null);
+  const drawPointsRef = useRef(0);
+  /** And for the confirm card, which outranks everything else Escape unwinds. */
+  const confirmOpenRef = useRef(false);
+  /** Same again for the options flyout, plus the button it hangs off — Escape
+      and the panel's own ✕ both hand focus back there. */
+  const optionsOpenRef = useRef(false);
+  const gearRef = useRef<HTMLButtonElement>(null);
 
   /* ---- React state --------------------------------------------------- */
   const [form, setForm] = useState<BuildOptions>(DEFAULT_FORM);
@@ -70,7 +84,6 @@ export function IfcSite() {
   const [status, setStatus] = useState<StatusState>({ kind: 'msg', key: 'status.ready' });
   const [stats, setStats] = useState<IfcStats | null>(null);
   const [buildings, setBuildings] = useState<number | null>(null);
-  const [taggedPct, setTaggedPct] = useState<number | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [canUndo, setCanUndo] = useState(false);
@@ -78,7 +91,9 @@ export function IfcSite() {
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   const [uniform, setUniform] = useState(false);
   const [hasScene, setHasScene] = useState(false);
-  const [dockOpen, setDockOpen] = useState(true);
+  /** Closed on arrival: these are settings you set once, and the viewer is what
+      you came for. */
+  const [optionsOpen, setOptionsOpen] = useState(false);
   /** Matches the viewer's own default; the marker is opt-in. */
   const [showOrigin, setShowOrigin] = useState(false);
   /* The local project coordinate system the origin point is mapped to. Pure
@@ -88,6 +103,17 @@ export function IfcSite() {
   const [projectBase, setProjectBase] = useState<Vec3>([0, 0, 0]);
   const [projectAngle, setProjectAngle] = useState(0);
   const [infoOpen, setInfoOpen] = useState(false);
+  /* Footprint authoring. The tool and the corner count are the viewer's to
+     report — it cancels gestures on its own — so these follow onDraw rather
+     than leading it. The height is the other way round: React owns it and
+     pushes it down, seeded from the dock's default. */
+  const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
+  const [drawPoints, setDrawPoints] = useState(0);
+  const [drawHeight, setDrawHeight] = useState(DEFAULT_FORM.defaultHeight);
+  /** How many drawn buildings a pending rebuild would discard; null when the
+      card is down. The count is captured when it opens, so the card cannot
+      disagree with what it is about to destroy. */
+  const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
   /** The rectangle moved since the last build, so the scene on screen — and the
       IFC behind Download — no longer describes it. */
   const [siteDirty, setSiteDirty] = useState(false);
@@ -97,7 +123,7 @@ export function IfcSite() {
     if (!viewportRef.current) return;
     const v = new Viewer(viewportRef.current, {
       onSelect: setSelection,
-      onTransform: (xf) => setSelection((s) => (s ? { ...s, xf } : s)),
+      onTransform: (xf, h) => setSelection((s) => (s ? { ...s, xf, h } : s)),
       onHistory: (u, r) => {
         setCanUndo(u);
         setCanRedo(r);
@@ -113,6 +139,13 @@ export function IfcSite() {
         setOriginLabel(originLabelOf(m));
       },
       onMode: setGizmoMode,
+      onCount: setBuildings,
+      onDraw: (tool, points) => {
+        drawToolRef.current = tool;
+        drawPointsRef.current = points;
+        setDrawTool(tool);
+        setDrawPoints(points);
+      },
     });
     viewerRef.current = v;
     v.setCompassElement(compassRef.current);
@@ -149,9 +182,20 @@ export function IfcSite() {
     };
   }, []);
 
+  /* ---- footprint authoring ---------------------------------------------
+     The viewer cannot translate, so the name a drawn building gets is pushed
+     down from here — and re-pushed on a language change, which is why `t` is a
+     dependency rather than a value read once. */
+  useEffect(() => {
+    viewerRef.current?.setDrawOptions({ height: drawHeight, name: t('ed.drawnName') });
+  }, [drawHeight, t]);
+
   /* ---- view tab -------------------------------------------------------- */
   useEffect(() => {
     viewerRef.current?.setActive(view === '3d');
+    // A tool that stays armed behind the map would be waiting on clicks that
+    // cannot reach it, and would surprise on the way back.
+    if (view !== '3d') viewerRef.current?.setDrawMode(null);
     if (view !== 'map') return;
     mapRef.current?.invalidateSize();
     // Anything that needed a laid-out map runs now, not when it was requested.
@@ -188,6 +232,17 @@ export function IfcSite() {
       const tag = el?.tagName;
       const inField = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
 
+      // The confirm card blocks. While it is up, Escape answers it and nothing
+      // else here applies — including undo, and including the Enter that would
+      // otherwise close a polygon while the card has focus.
+      if (confirmOpenRef.current) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          openConfirm(null);
+        }
+        return;
+      }
+
       if (e.ctrlKey || e.metaKey) {
         const k = e.key.toLowerCase();
         if (k !== 'z' && k !== 'y') return;
@@ -200,12 +255,27 @@ export function IfcSite() {
       }
       if (inField || e.altKey) return;
 
-      // Escape unwinds whatever is open, outermost first: the info card, then a
-      // drawing gesture, then the 3D selection.
+      // Escape unwinds whatever is open, outermost first: the info card, the
+      // options flyout, then a drawing gesture on either viewer, then the 3D
+      // selection. A footprint tool gives up its corners before it gives up the
+      // mode, so a stray click costs one gesture rather than sending you back to
+      // the toolbar.
+      //
+      // The flyout has to outrank the map here rather than read as the more
+      // local thing: the map arms itself on load and isDrawing is true almost
+      // whenever the map tab is up, so anything below it would never be reached.
       if (e.key === 'Escape') {
         if (infoOpenRef.current) closeInfo();
+        else if (optionsOpenRef.current) closeOptions();
         else if (mapRef.current?.isDrawing) mapRef.current.cancelDraw();
-        else viewerRef.current?.select(null);
+        else if (drawToolRef.current) {
+          if (drawPointsRef.current > 0) viewerRef.current?.cancelDraw();
+          else viewerRef.current?.setDrawMode(null);
+        } else viewerRef.current?.select(null);
+      } else if (e.key === 'Enter' && drawToolRef.current === 'polygon') {
+        viewerRef.current?.finishDraw();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        viewerRef.current?.deleteSelected();
       } else if (e.key === 'w' || e.key === 'W') applyMode('translate');
       else if (e.key === 'e' || e.key === 'E') applyMode('rotate');
       else if (e.key === 'r' || e.key === 'R') applyMode('scale');
@@ -267,8 +337,28 @@ export function IfcSite() {
     infoOpenRef.current = v;
     setInfoOpen(v);
   }, []);
+
+  /* Same pairing as setInfo: the ref is what the mount-only key handler reads,
+     the state is what renders. Null closes the card. */
+  const openConfirm = useCallback((n: number | null) => {
+    confirmOpenRef.current = n !== null;
+    setConfirmDiscard(n);
+  }, []);
   const closeInfo = useCallback(() => setInfo(false), [setInfo]);
   const toggleInfo = useCallback(() => setInfo(!infoOpenRef.current), [setInfo]);
+
+  /* Same pairing again for the flyout. Escape and the panel's ✕ both land on
+     closeOptions, so focus comes back to the gear either way — an icon-only
+     button is hard enough to find again without losing the caret too. */
+  const setOptions = useCallback((v: boolean) => {
+    optionsOpenRef.current = v;
+    setOptionsOpen(v);
+  }, []);
+  const closeOptions = useCallback(() => {
+    setOptions(false);
+    gearRef.current?.focus();
+  }, [setOptions]);
+  const toggleOptions = useCallback(() => setOptions(!optionsOpenRef.current), [setOptions]);
 
   /* ---- form ------------------------------------------------------------ */
   const onFormChange = useCallback((patch: Partial<BuildOptions>) => {
@@ -320,7 +410,10 @@ export function IfcSite() {
     [runOnMap],
   );
 
-  const onBuild = useCallback(async () => {
+  /** The build itself, past the point of asking. Split from onBuild because the
+   *  confirmation is a card rather than a blocking window.confirm, so the answer
+   *  arrives in a later tick and has to be able to resume this. */
+  const runBuildNow = useCallback(async () => {
     if (!rect) return setStatus({ kind: 'error', error: new Error(t('err.noSite')) });
     setBusy(true);
     const res = await runBuild(rect, form, (key, params) =>
@@ -334,12 +427,15 @@ export function IfcSite() {
 
     metaRef.current = res.meta;
     setBuildings(res.summary.buildings);
-    setTaggedPct(Math.round((100 * res.summary.tagged) / res.summary.buildings));
     setOriginLabel(originLabelOf(res.meta));
     // A rebuild re-derives the site, so a placement measured against the old one
     // means nothing. res.meta already carries the zeroes; this just follows it.
     setProjectBase([0, 0, 0]);
     setProjectAngle(0);
+    // Seed the footprint height from the dock rather than tracking it live: the
+    // build is the moment that setting was last the user's stated intent, and
+    // following it afterwards would overwrite a height typed into the draw HUD.
+    setDrawHeight(form.defaultHeight);
 
     emitterRef.current?.setSource(res.scene, res.meta);
     viewerRef.current?.setScene(res.scene, res.site);
@@ -349,6 +445,15 @@ export function IfcSite() {
     setBusy(false);
     setStatus({ kind: 'summary', summary: res.summary });
   }, [rect, form, t]);
+
+  /* A rebuild re-fetches into a brand-new scene, so anything drawn by hand goes
+     with the old one. Everything else on this panel is on the undo stack; this
+     is not, which is why it is the one action that stops to ask. */
+  const onBuild = useCallback(() => {
+    const drawn = viewerRef.current?.drawnCount() ?? 0;
+    if (drawn > 0) return openConfirm(drawn);
+    void runBuildNow();
+  }, [openConfirm, runBuildNow]);
 
   const onDownload = useCallback(() => {
     // pick up any edit still inside the debounce window
@@ -374,60 +479,79 @@ export function IfcSite() {
     <div className="app">
       <Stage viewportRef={viewportRef} mapRef={mapHostRef} view={view} />
 
-      {/* Everything below floats over the viewers on a grid, so the dock, the
-          element editor and the flow bar can never cover one another and the
-          space between them stays transparent to map and orbit gestures. */}
+      {/* Everything below floats over the viewers on a grid, so the rail, the
+          element editor and the status bar can never cover one another and the
+          space between them stays transparent to map and orbit gestures. Row 1
+          is two shrink-wrapped clusters rather than one strip, which hands the
+          whole top-centre of the window back to the viewer. */}
       <div className="overlay">
-        <TopBar
+        <BrandChip view={view} onView={setView} />
+
+        <UtilChip
           view={view}
-          onView={setView}
-          originLabel={originLabel}
-          buildings={buildings}
-          taggedPct={taggedPct}
-          stats={stats}
+          compassRef={compassRef}
           showOrigin={showOrigin}
           onShowOrigin={onShowOrigin}
           infoOpen={infoOpen}
           onInfo={toggleInfo}
         />
 
-        {dockOpen ? (
-          <ControlsPanel
-            form={form}
-            onChange={onFormChange}
+        {/* The rail and the flyout share one positioning context, so the panel
+            slides out over the viewer instead of reserving a column for itself.
+            The zone stretches the row — see .overlay > .railZone in globals.css,
+            which has to give the pointer back or it swallows every gesture that
+            starts down the left edge. */}
+        <div className="railZone">
+          <ToolRail
+            view={view}
+            hasScene={hasScene}
             rect={rect}
-            onPickPlace={onPickPlace}
-            onSearchFailed={(e) =>
-              setStatus({ kind: 'msg', key: 'status.searchUnavailable', tone: 'err', cause: e })
-            }
-            onCollapse={() => setDockOpen(false)}
+            armed={armed}
+            drawTool={drawTool}
+            gizmoMode={gizmoMode}
+            selection={selection}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            optionsOpen={optionsOpen}
+            gearRef={gearRef}
+            onToggleOptions={toggleOptions}
+            onDraw={onDraw}
+            onPan={onPan}
+            onZoom={onZoom}
+            /* Through the viewer, never straight into React state: setDrawMode
+               is what fires onDraw, and onDraw is what writes the refs the
+               mount-only key handler reads. */
+            onDrawTool={(tool) => viewerRef.current?.setDrawMode(tool)}
+            onMode={applyMode}
+            onUndo={() => viewerRef.current?.undo()}
+            onRedo={() => viewerRef.current?.redo()}
           />
-        ) : (
-          <button
-            type="button"
-            className="dockTab floating"
-            title={t('ui.expand')}
-            aria-label={t('ui.expand')}
-            onClick={() => setDockOpen(true)}
-          >
-            ›<span>{t('ui.options')}</span>
-          </button>
-        )}
 
-        <StageHud compassRef={compassRef} view={view} />
+          {optionsOpen && (
+            <ControlsPanel
+              form={form}
+              onChange={onFormChange}
+              rect={rect}
+              onPickPlace={onPickPlace}
+              onSearchFailed={(e) =>
+                setStatus({ kind: 'msg', key: 'status.searchUnavailable', tone: 'err', cause: e })
+              }
+              onClose={closeOptions}
+            />
+          )}
+        </div>
 
         <ElementEditor
           visible={view === '3d' && hasScene}
           selection={selection}
-          gizmoMode={gizmoMode}
           uniform={uniform}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          onMode={applyMode}
           onUniform={setUniform}
           onAxis={onAxis}
           onColor={(hex, commit) => viewerRef.current?.setColor(hex, commit)}
           onColorReset={() => viewerRef.current?.resetColor()}
+          onOpacity={(a, commit) => viewerRef.current?.setOpacity(a, commit)}
+          onHeight={(h, commit) => viewerRef.current?.setHeight(h, commit)}
+          onDelete={() => viewerRef.current?.deleteSelected()}
           onReset={() => viewerRef.current?.resetElement()}
           onResetOrigin={() => viewerRef.current?.resetOrigin()}
           projectBase={projectBase}
@@ -436,26 +560,42 @@ export function IfcSite() {
           onProjectAngle={onProjectAngle}
           onResetPlacement={onResetPlacement}
           onDeselect={() => viewerRef.current?.select(null)}
-          onUndo={() => viewerRef.current?.undo()}
-          onRedo={() => viewerRef.current?.redo()}
         />
 
-        <FlowBar
+        <StatusBar
           rect={rect}
-          armed={armed}
           busy={busy}
           hasScene={hasScene}
           siteDirty={siteDirty}
           status={status}
-          onDraw={onDraw}
-          onPan={onPan}
-          onZoom={onZoom}
+          buildings={buildings}
+          stats={stats}
+          originLabel={originLabel}
+          drawTool={drawTool}
+          drawPoints={drawPoints}
+          drawHeight={drawHeight}
+          onDrawHeight={setDrawHeight}
           onBuild={onBuild}
           onDownload={onDownload}
         />
       </div>
 
       <InfoOverlay open={infoOpen} onClose={closeInfo} />
+
+      <ConfirmCard
+        open={confirmDiscard !== null}
+        title={t(confirmDiscard === 1 ? 'confirm.discardTitleOne' : 'confirm.discardTitle')}
+        body={t(confirmDiscard === 1 ? 'confirm.discardDrawnOne' : 'confirm.discardDrawn', {
+          n: confirmDiscard ?? 0,
+        })}
+        confirmLabel={t('confirm.rebuildAnyway')}
+        cancelLabel={t('confirm.keep')}
+        onConfirm={() => {
+          openConfirm(null);
+          void runBuildNow();
+        }}
+        onCancel={() => openConfirm(null)}
+      />
     </div>
   );
 }

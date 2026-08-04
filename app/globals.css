@@ -155,28 +155,48 @@
     box-shadow: 0 6px 26px rgba(15, 17, 18, 0.32);
   }
 
-  .topbar {
+  /* ---- corner clusters ----
+     What the masthead became. It used to be one strip across the whole window
+     — two rows of it once a build filled its readout — for the sake of a
+     wordmark, two tabs and three buttons. Split in two and shrink-wrapped, the
+     entire top-centre of the window goes back to the viewer. */
+  .brandChip {
     grid-row: 1;
-    grid-column: 1 / -1;
+    grid-column: 1;
+    align-self: start;
+    justify-self: start;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    /* Wraps to a second row once a build fills the readout strip — squeezing
-       seven counts into the first row would clip the last of them. */
-    flex-wrap: wrap;
+    gap: 10px;
+    padding: 6px 10px;
   }
-  .topbar .sep {
+  .brandChip .sep {
     width: 1px;
     align-self: stretch;
     background: var(--color-line-soft);
   }
-  .topbar .origin {
-    color: var(--color-ink-soft);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
+  .utilChip {
+    grid-row: 1;
+    grid-column: 3;
+    align-self: start;
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px;
+  }
+  /* Was absolutely placed over the stage, in yellow on the dark sheet. It sits
+     on a white floating surface now, and is sized to the buttons beside it. */
+  .compassChip {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-ink);
+    border-radius: 50%;
+    color: var(--color-ink);
+    font: 600 11px/1 var(--font-mono);
   }
   .iconBtn {
     width: 28px;
@@ -201,19 +221,117 @@
     color: var(--color-yellow);
   }
 
-  /* ---- options dock ---- */
-  .dock {
+  /* ---- tool rail ----
+     Square buttons against the round .iconBtn of the utility cluster: round is
+     chrome, square is a tool.
+
+     The zone stretches the whole row so the flyout can cap itself at the free
+     height — which means it covers a 40 px strip down the left edge of the
+     window, and has to give the pointer back or it swallows every map drag and
+     orbit gesture that starts there. Written as `.overlay > .railZone` rather
+     than `.railZone` so it outweighs `.overlay > *` on specificity instead of
+     on source order. */
+  .overlay > .railZone {
+    pointer-events: none;
+  }
+  .railZone {
     grid-row: 2;
     grid-column: 1;
+    align-self: stretch;
+    justify-self: start;
+    position: relative;
+  }
+  .railZone > * {
+    pointer-events: auto;
+  }
+  /* Deliberately not a scroller. A scroll container clips both axes — set
+     overflow-y and `overflow-x: visible` computes to auto — which would cut
+     every hover label off at the rail's right edge. The tallest the rail ever
+     gets is the 3D set at ~355 px, which fits any window over ~490 px, so the
+     scroll is switched on by height further down instead: below that the
+     labels clip, but the buttons are at least reachable. */
+  .rail {
+    width: 40px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-height: 100%;
+  }
+  .railBtn {
+    width: 32px;
+    height: 32px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 0;
+    color: var(--color-ink);
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      color 0.15s,
+      border-color 0.15s;
+  }
+  .railBtn:hover:not(:disabled) {
+    background: var(--color-yellow);
+    border-color: var(--color-ink);
+  }
+  .railBtn.on {
+    background: var(--color-ink);
+    border-color: var(--color-ink);
+    color: var(--color-yellow);
+  }
+  .railBtn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+  .railSep {
+    width: 24px;
+    height: 1px;
+    flex: none;
+    margin: 2px 0;
+    background: var(--color-line-soft);
+  }
+  /* An icon-only rail needs a label on hover, and a native `title` cannot be
+     styled and never appears on keyboard focus — so the chip is drawn here and
+     shown for both. The buttons carry aria-label and no title, or the two would
+     stack. */
+  .railBtn[data-tip]:hover::after,
+  .railBtn[data-tip]:focus-visible::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    white-space: nowrap;
+    pointer-events: none;
+    background: var(--color-ink);
+    color: var(--color-paper);
+    font: 600 10.5px/1 var(--font-mono);
+    letter-spacing: 0.06em;
+    padding: 6px 8px;
+  }
+
+  /* ---- options flyout ----
+     Out of flow so it slides over the viewer rather than reserving a column for
+     settings you touch once. Capped by the stretched .railZone, then it
+     scrolls, exactly as the dock it replaces did. */
+  .flyout {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 8px);
     width: 330px;
-    max-width: 88vw;
+    max-width: min(88vw, calc(100vw - 76px));
+    max-height: 100%;
     padding: 16px;
     overflow-y: auto;
     overscroll-behavior: contain;
-    /* As tall as its contents, capped by the free height between the top bar
-       and the flow bar — then it scrolls. */
-    align-self: start;
-    max-height: 100%;
   }
   .dockHead {
     display: flex;
@@ -224,155 +342,99 @@
     margin-bottom: 16px;
     border-bottom: 1px solid var(--color-ink);
   }
-  /* Collapsed, the dock is a slim tab: the map wins the space and one click
-     brings the whole stack back. */
-  .dockTab {
-    grid-row: 2;
-    grid-column: 1;
-    align-self: start;
-    width: 34px;
-    padding: 12px 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    font: 600 10.5px/1 var(--font-mono);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-ink);
-  }
-  .dockTab span {
-    writing-mode: vertical-rl;
-  }
-  .dockTab:hover {
-    background: var(--color-yellow);
-  }
+  /* ---- status bar ----
+     The single information surface: what the model is, what just happened, and
+     the two actions that end the sequence. Spans every column — row 3 is below
+     the rail and the editor, so it is free to use the whole width.
 
-  /* ---- flow bar ----
-     The whole draw → build → export path, one step at a time. It sits in the
-     centre column so it can never run under the dock or the element editor. */
-  /* A fixed width rather than one that shrink-wraps its contents: the bar is
-     the thing you return to at every step, and one that resized under the
-     cursor on each state change would be a moving target. */
-  .flowbar {
+     A fixed height at every state, which the Leaflet dodge at the foot of this
+     file depends on: the status text clamps rather than wrapping, so a long
+     build summary cannot grow the bar up into the viewer. */
+  .statusbar {
     grid-row: 3;
-    /* Spans every column: row 3 is below the dock and the editor, so the bar is
-       free to use the whole width and centre itself on the window rather than
-       on whatever gap those two happen to leave. */
     grid-column: 1 / -1;
-    justify-self: center;
-    width: min(1240px, 100%);
+    justify-self: stretch;
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 10px 12px;
-    /* Deliberately not wrapping: a flex line wraps before it shrinks, and a
-       long build summary would push the buttons onto a second row and grow the
-       bar into the viewer. The status text shrinks and scrolls instead. */
     flex-wrap: nowrap;
+    padding: 6px 12px;
+    min-height: 46px;
   }
-  .flowbar .grow {
+  .barStatus {
     flex: 1 1 auto;
     min-width: 0;
   }
-  .flowbar .statusline {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .steps {
+  .barReadout {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    align-items: baseline;
+    gap: 12px;
     flex: none;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
   }
-  .steps > span {
-    font: 600 10px/1 var(--font-mono);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--color-ink-soft);
-    padding: 5px 8px;
-    border: 1px solid transparent;
-  }
-  .steps > span.on {
-    color: var(--color-ink);
-    border-color: var(--color-ink);
-    background: var(--color-yellow);
-  }
-  .steps > span.done {
-    color: var(--color-ink);
-  }
-  .steps .arrow {
-    color: var(--color-ink-soft);
-    padding: 0;
-    border: 0;
-  }
-  .flowMain {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  .barReadout > span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
     min-width: 0;
   }
-  .flowSite {
-    font: 600 14px/1.2 var(--font-mono);
-    white-space: nowrap;
-  }
-  .flowSite small {
-    display: block;
-    font: 500 11px/1.3 var(--font-mono);
+  .barReadout > span + span::before {
+    content: '·';
     color: var(--color-ink-soft);
+    margin-right: 7px;
   }
-  .flowActions {
+  .barReadout b {
+    font: 600 12.5px/1.15 var(--font-mono);
+    color: var(--color-ink);
+  }
+  .barReadout .eyebrow {
+    font-size: 9.5px;
+  }
+  /* The only cell long enough to need cutting; the whole of it is on the title. */
+  .barReadout .origin {
+    overflow: hidden;
+  }
+  .barReadout .origin b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .barActions {
     display: flex;
     align-items: center;
     gap: 8px;
     flex: none;
   }
-  /* The flow bar's buttons size to their label; .btn-primary/.btn-ghost are
-     full-width by default because they were born in a 330 px sidebar. */
-  .flowActions .btn-primary,
-  .flowActions .btn-ghost {
+  /* These size to their label here; .btn-primary/.btn-ghost are full-width by
+     default because they were born in a 330 px sidebar. */
+  .barActions .btn-primary,
+  .barActions .btn-ghost {
     width: auto;
-    padding: 11px 20px;
+    padding: 10px 18px;
     white-space: nowrap;
   }
-  .flowActions .btn-ghost {
-    padding: 11px 16px;
+  .barActions .btn-ghost {
+    padding: 10px 14px;
   }
-  /* Segmented Draw|Pan. Drawing is armed on load, so this is the way back to a
-     map that pans — Escape does the same thing. */
-  .segmented {
+  /* Not information, but the bar is the only horizontal surface left — and the
+     field only exists while a footprint tool is armed. */
+  .barHeight {
     display: flex;
-    border: 1px solid var(--color-ink);
-    border-radius: 100px;
-    overflow: hidden;
+    align-items: center;
+    gap: 6px;
     flex: none;
   }
-  .segmented button {
-    background: none;
-    border: 0;
-    color: var(--color-ink);
-    padding: 9px 16px;
-    cursor: pointer;
-    font: 600 11px/1 var(--font-mono);
+  .barHeight > span {
+    font: 600 10px/1 var(--font-mono);
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    transition:
-      background-color 0.15s,
-      color 0.15s;
+    color: var(--color-ink-soft);
+    white-space: nowrap;
   }
-  .segmented button:hover:not(.on) {
-    background: var(--color-yellow);
-  }
-  .segmented button.on {
-    background: var(--color-ink);
-    color: var(--color-yellow);
-  }
-  .flowStale {
-    font: 500 11.5px/1.35 var(--font-sans);
-    color: var(--color-err);
-    flex: 1 1 auto;
-    min-width: 0;
+  .barHeight .ctl-input {
+    width: 74px;
+    padding: 6px 8px;
   }
 
   /* ---- info overlay: the header prose and the notes, on demand ---- */
@@ -397,6 +459,50 @@
     justify-content: space-between;
     gap: 20px;
     flex-wrap: wrap;
+  }
+
+  /* ---- confirm card ----
+     Above the info overlay's 20: this is the only thing in the app that blocks,
+     so nothing may draw over it. Centred rather than top-aligned because it is
+     short and answering it is the only thing to do. */
+  .confirmOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(15, 17, 18, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .confirmCard {
+    width: min(440px, 100%);
+    padding: 24px;
+  }
+  .confirmTitle {
+    font: 700 18px/1.2 var(--font-sans);
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  .confirmBody {
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--color-ink-soft);
+    margin: 10px 0 0;
+  }
+  .confirmActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  /* Same reason as .flowActions: these two are full-width by default. */
+  .confirmActions .btn-primary,
+  .confirmActions .btn-ghost {
+    width: auto;
+    padding: 11px 18px;
+    white-space: nowrap;
   }
 
   .mark {
@@ -520,6 +626,16 @@
     opacity: 0.3;
     cursor: not-allowed;
   }
+  /* Destructive, and the only preset that is — it stays outlined until hovered
+     rather than shouting from the panel, since the undo stack catches it. */
+  .presets button.danger {
+    border-color: var(--color-err);
+    color: var(--color-err);
+  }
+  .presets button.danger:hover:not(:disabled) {
+    background: var(--color-err);
+    color: var(--color-paper);
+  }
 
   /* ---- language dropdown ----
      Shape and colour live on the component in Tailwind classes so they can
@@ -585,26 +701,6 @@
     background: var(--color-yellow);
   }
 
-  /* ---- site readout ---- */
-  .siteBox {
-    border: 1px solid var(--color-ink);
-    background: var(--color-paper);
-    padding: 10px 11px;
-  }
-  .siteBox b {
-    display: block;
-    font: 600 15px/1.2 var(--font-mono);
-    margin-top: 4px;
-  }
-  .siteBox .co {
-    font: 500 12px/1.45 var(--font-mono);
-    color: var(--color-ink-soft);
-    margin-top: 3px;
-  }
-  .siteBox.empty b,
-  .siteBox.empty .co {
-    color: var(--color-ink-soft);
-  }
   .fieldHint {
     font-size: 11.5px;
     color: var(--color-ink-soft);
@@ -615,7 +711,8 @@
   /* ---- element editor ----
      The panel owns the overlay's right cell so the controls sit beside the
      building they move; overflow caps it to the free height, because the full
-     control stack is taller than a short window. */
+     control stack is taller than a short window. It is not rendered at all
+     without a selection, so there is no collapsed state to style. */
   .editPanel {
     grid-row: 2;
     grid-column: 3;
@@ -626,9 +723,6 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-  .editPanel.collapsed {
-    align-self: start;
-  } /* nothing selected — header height only */
   .editPanel .field {
     margin-bottom: 12px;
   }
@@ -650,11 +744,6 @@
   .editHead .presets button {
     padding: 4px 8px;
     line-height: 1;
-  }
-  .editPanel.collapsed .editHead {
-    padding-bottom: 0;
-    margin-bottom: 12px;
-    border-bottom: 0;
   }
   .editName {
     font: 600 13px/1.3 var(--font-mono);
@@ -702,10 +791,6 @@
     margin-top: 14px;
     line-height: 1.5;
   }
-  .editEmpty {
-    font-size: 12.5px;
-    color: var(--color-ink-soft);
-  }
   /* An advanced block inside a panel: ruled off so it reads as a second subject
      rather than as more fields belonging to the one above it. */
   .editSection {
@@ -714,12 +799,6 @@
     border-top: 1px solid var(--color-line-soft);
   }
 
-  .actions {
-    margin-top: 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-  }
   .btn-primary,
   .btn-ghost {
     width: 100%;
@@ -778,7 +857,7 @@
     z-index: 2;
     background: #0f1112;
   }
-  /* Now on the light floating top bar rather than the dark sheet header. */
+  /* On the light brand cluster in the top-left corner. */
   .viewtabs {
     display: flex;
     border: 1px solid var(--color-ink);
@@ -805,103 +884,23 @@
     background: var(--color-yellow);
     color: var(--color-ink);
   }
-  /* The HUD sits in the overlay's centre cell rather than on the stage, so it
-     tracks the free space between the dock and the element editor instead of
-     hiding underneath them. */
-  .overlay > .hudlayer {
-    grid-row: 2;
-    grid-column: 2;
-    position: relative;
-    pointer-events: none;
-  }
-  .hud {
-    position: absolute;
-    color: var(--color-yellow);
-    font: 600 11px/1 var(--font-mono);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    text-shadow: 0 1px 3px rgba(15, 17, 18, 0.75);
-  }
-  .hud-compass {
-    top: 2px;
-    right: 2px;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: 1px solid var(--color-yellow);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  /* These sit over the pale end of the sky gradient, so they take a light halo
-     rather than the dark one the yellow compass wants. */
-  .hud-legend,
-  .hud-hint {
-    color: #414a4e;
-    text-transform: none;
-    letter-spacing: 0;
-    font-weight: 500;
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
-  }
-  /* Both on the left: the element editor owns the right side of the stage. */
-  .hud-legend {
-    left: 2px;
-    bottom: 2px;
-  }
-  .hud-hint {
-    left: 2px;
-    bottom: 20px;
-  }
-
-  /* ---- readout ----
-     What the build produced, as one strip in the top bar: the flow bar says
-     what to do next, this says what you have. It scrolls inside itself rather
-     than wrapping, so the bar keeps its height on a narrow window. */
-  .readout {
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow-x: auto;
-    white-space: nowrap;
-    scrollbar-width: none;
-    padding-left: 4px;
-    border-left: 1px solid var(--color-line-soft);
-  }
-  .readout::-webkit-scrollbar {
-    display: none;
-  }
-  .readout > span {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 5px;
-  }
-  .readout .eyebrow {
-    font-size: 9.5px;
-  }
-  .readout b {
-    font: 600 13px/1.15 var(--font-mono);
-    color: var(--color-ink);
-  }
-  .readout b.muted {
-    color: var(--color-ink-soft);
-  }
-
   .statusline {
     font-size: 12.5px;
     font-family: var(--font-mono);
     color: var(--color-ink-soft);
     line-height: 1.4;
   }
-  /* The build summary is the longest thing that lands here — three lines of
-     it, then it scrolls, rather than growing the bar into the viewer. */
-  .statusline--flow {
+  /* The build summary is the longest thing that lands here. It is cut at two
+     lines rather than scrolled: the bar has to keep one height for the Leaflet
+     dodge below to hold, and the full sentence is on the element's title. */
+  .statusline--bar {
     font-size: 11.5px;
-    line-height: 1.35;
-    max-height: 4.1em;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .statusline .err {
     color: var(--color-err);
@@ -941,43 +940,63 @@
   }
 }
 
-/* Narrow: there is no room for three columns beside the map, so the dock and
-   the editor both take the full width of the middle row — the dock from the
-   top, the editor from the bottom — and each scrolls inside its share. The
-   flow bar keeps its own row, so the next action is never covered. */
+/* Narrow: the rail is the one thing that keeps its shape — it is 40 px at every
+   width. What gives way is the flyout (it takes the window), the inspector (a
+   bottom sheet beside the rail rather than over it) and the readout, every
+   number of which is also visible in the model itself. */
 @media (max-width: 860px) {
-  .overlay > .dock {
-    grid-column: 1 / -1;
+  .flyout {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    bottom: 70px;
+    left: auto;
+    width: auto;
+    max-width: none;
+    max-height: none;
+  }
+  /* 2 / -1, not 1 / -1: pinned to the bottom this would otherwise sit over the
+     lower half of the rail, and the 3D rail is nine buttons tall. */
+  .editPanel {
+    grid-column: 2 / -1;
+    align-self: end;
     justify-self: stretch;
     width: auto;
     max-width: none;
+    max-height: 52%;
   }
-  /* They share the row only while something is selected in 3D. */
-  .overlay:has(.editPanel) > .dock {
-    max-height: 46%;
-  }
-  .flowbar {
-    justify-self: stretch;
-    width: auto;
-    flex-wrap: wrap;
-  }
-  /* The step names are the first thing to go: the buttons say the same. */
-  .steps {
+  .barReadout {
     display: none;
   }
-  .overlay > .hudlayer {
-    grid-column: 1 / -1;
+  /* The mark alone is the brand at this width. */
+  .brandChip .wordmark,
+  .brandChip .sep {
+    display: none;
   }
-  .editPanel {
-    grid-column: 1 / -1;
-    align-self: end;
-    justify-self: stretch;
-    width: auto;
-    max-width: none;
-    max-height: 46%;
+}
+/* Short enough that the 3D rail no longer fits between the chips and the bar.
+   Reachable beats readable here: the rail scrolls, and its hover labels clip
+   with it. See the comment on .rail. */
+@media (max-height: 560px) {
+  .rail {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
   }
-  .editPanel.collapsed {
-    align-self: end;
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .statusbar {
+    gap: 10px;
+    padding: 6px 10px;
+  }
+  .barActions .btn-primary,
+  .barActions .btn-ghost {
+    padding: 10px 12px;
+    letter-spacing: 0.06em;
   }
 }
 @media (max-width: 760px) {
@@ -1000,16 +1019,22 @@
   background: #0f1112;
   font-family: var(--font-sans);
 }
-/* Leaflet's own controls have to clear the floating chrome: the top bar spans
-   the window — two rows of it once a build fills the readout — and on narrow
-   screens the flow bar spans it too. */
+/* Leaflet's own controls have to clear the floating chrome. Both numbers are
+   hard-coded against the chrome's geometry, so they move when it does:
+
+   52 = the overlay's 12 px padding + one row of corner chips + clearance. It
+   was 100, for a masthead that spanned the window and wrapped to two rows.
+
+   62 = 12 px padding + .statusbar's 46 px min-height + 4. It was 78 and applied
+   only under 860 px, because the flow bar was centred at min(1240px, 100%) and
+   cleared the attribution on its own at wider sizes; the status bar spans the
+   full width at every size, so this is unconditional now. It is keyed to that
+   min-height — if the status clamp goes, so does the attribution. */
 .leaflet-top.leaflet-right {
-  margin-top: 100px;
+  margin-top: 52px;
 }
-@media (max-width: 860px) {
-  .leaflet-bottom.leaflet-right {
-    margin-bottom: 78px;
-  }
+.leaflet-bottom.leaflet-right {
+  margin-bottom: 62px;
 }
 .leaflet-bar,
 .leaflet-bar a {

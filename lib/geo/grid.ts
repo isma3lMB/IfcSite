@@ -25,7 +25,7 @@ export const ACCURACY_CELL: Record<TerrainAccuracy, number> = {
  * the deliverable becoming unopenable — every vertex is its own
  * IfcCartesianPoint. Terrarium is held to it too, for the second reason.
  *
- * It lives here rather than beside either fetch so the options dock can predict
+ * It lives here rather than beside either fetch so the options panel can predict
  * the grid without importing the WFS module — and with it three.js, via the mesh
  * helpers — into the panel's chunk.
  */
@@ -33,8 +33,9 @@ export const MAX_GRID_N = 211;
 
 /**
  * Cells across the site for a target cell size, given whatever ceiling the
- * provider can afford. Both DEM paths and the options dock's readout go through
- * here, so what the panel promises cannot drift from what the builder does.
+ * provider can afford. Both DEM paths and the options panel's cell readout go
+ * through here, so what the panel promises cannot drift from what the builder
+ * does.
  */
 export const gridSize = (span: number, cell: number, maxN: number): number =>
   Math.min(maxN, Math.max(8, Math.round(span / cell)));
