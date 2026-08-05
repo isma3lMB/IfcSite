@@ -427,17 +427,17 @@ export class ContextModel {
       null,
       E('ELEMENT'),
     ]);
-    // Transparency needs a surface style to hang on, so a ghosted building
-    // writes one even where its colour is the source-derived default — and then
-    // that default has to be written out too, or the file would claim a colour
-    // the preview never showed.
+    // Always styled, even at the source-derived default. An element with no
+    // IfcStyledItem is one every viewer is free to colour its own way, and they
+    // all choose grey — which is how an off-white massing arrived in BIM viewers
+    // as a grey one while the preview beside it was right. Transparency still
+    // only appears on a ghosted building; style() takes a null for the rest.
     const transparency = 1 - xf.opacity;
-    if (xf.color !== null || transparency > 0)
-      this.style(
-        solid,
-        xf.color ?? defaultColors(b).wall,
-        transparency > 0 ? transparency : undefined,
-      );
+    this.style(
+      solid,
+      xf.color ?? defaultColors(b).wall,
+      transparency > 0 ? transparency : undefined,
+    );
     this.pset(el, 'Pset_SiteContext', b.props);
     this.elements.push(el);
     return el;

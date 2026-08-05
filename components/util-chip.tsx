@@ -1,7 +1,7 @@
 'use client';
 
 import type { RefObject } from 'react';
-import { IconOrigin } from '@/components/icons';
+import { IconCompass, IconOrigin } from '@/components/icons';
 import { LangToggle } from '@/components/lang-toggle';
 import { useT } from '@/lib/i18n/context';
 import type { ViewTab } from '@/lib/types';
@@ -39,7 +39,7 @@ export function UtilChip(p: UtilChipProps) {
         aria-hidden="true"
         style={{ display: isMap ? 'none' : 'flex' }}
       >
-        N
+        <IconCompass />
       </div>
 
       {/* Only means anything with the 3D view up — it toggles a marker in the

@@ -175,7 +175,7 @@ export async function runBuild(
     } else {
       onStatus('status.queryingOverpass');
       const data = await overpass(site, opts.roads);
-      tagged = parseOSM(scene, data, toLocal, toGeo, sampleZ, fallbackH, opts.roads);
+      tagged = parseOSM(scene, data, site, toLocal, toGeo, sampleZ, fallbackH, opts.roads);
       capped = scene.buildings.length >= BUILDING_CAP;
     }
   } catch (e) {

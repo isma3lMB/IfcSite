@@ -104,6 +104,89 @@ export function clipToBox(
 }
 
 /**
+ * Liang-Barsky against the site square, for OPEN polylines. clipToBox cannot do
+ * this job: Sutherland-Hodgman treats its input as a closed ring and reconnects
+ * the last vertex to the first, so a road centreline fed through it comes back
+ * with a phantom segment joining its two ends. Roads and any other centreline
+ * therefore need a segment clipper, not a polygon one.
+ *
+ * A way that leaves the box and comes back is genuinely two roads as far as the
+ * site is concerned, hence an array of runs rather than one polyline. Runs of a
+ * single point carry no segment and are dropped.
+ */
+export function clipPolyline(
+  pts: Vec2[],
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): Vec2[][] {
+  const runs: Vec2[][] = [];
+  let cur: Vec2[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x1, y1] = pts[i];
+    const [x2, y2] = pts[i + 1];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    let t0 = 0;
+    let t1 = 1;
+    let keep = true;
+    // One pass per boundary: p is the rate of approach, q the signed distance
+    // already inside. p === 0 is a segment parallel to that edge, which is
+    // rejected outright only when it starts outside it.
+    const edges: [number, number][] = [
+      [-dx, x1 - minX],
+      [dx, maxX - x1],
+      [-dy, y1 - minY],
+      [dy, maxY - y1],
+    ];
+    for (const [p, q] of edges) {
+      if (p === 0) {
+        if (q < 0) {
+          keep = false;
+          break;
+        }
+        continue;
+      }
+      const t = q / p;
+      if (p < 0) {
+        if (t > t1) {
+          keep = false;
+          break;
+        }
+        if (t > t0) t0 = t;
+      } else {
+        if (t < t0) {
+          keep = false;
+          break;
+        }
+        if (t < t1) t1 = t;
+      }
+    }
+    if (!keep) {
+      if (cur.length > 1) runs.push(cur);
+      cur = [];
+      continue;
+    }
+    const a: Vec2 = [x1 + t0 * dx, y1 + t0 * dy];
+    const b: Vec2 = [x1 + t1 * dx, y1 + t1 * dy];
+    // Continuous with the run so far only if this segment picks up exactly where
+    // the last one was cut off; any entry part-way along starts a fresh run.
+    if (!cur.length || t0 > 0) {
+      if (cur.length > 1) runs.push(cur);
+      cur = [a];
+    }
+    cur.push(b);
+    if (t1 < 1) {
+      runs.push(cur);
+      cur = [];
+    }
+  }
+  if (cur.length > 1) runs.push(cur);
+  return runs;
+}
+
+/**
  * Sutherland-Hodgman against an arbitrary CONVEX window given counter-clockwise
  * — the same machinery as clipToBox with one half-plane per window edge instead
  * of four axis-aligned ones. Convexity is the whole requirement, and a terrain

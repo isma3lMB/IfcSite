@@ -31,14 +31,23 @@ export function sameXf(a: Xf, b: Xf): boolean {
   );
 }
 
-/** yellow = tagged height, grey = estimated, blue = drawn here. Read straight off
- *  the height source.
- *  `cap` is pre-lifted: roofs face the sun head-on and render at a ~1.23 Lambert
- *  factor, so these values land just under saturation. To retune, divide the
- *  colour you want on screen by 1.23. */
+/** off-white = tagged height, a cooler grey = estimated, blue = drawn here. Read
+ *  straight off the height source.
+ *
+ *  These are base colours, not screen colours. The hemisphere fill in
+ *  lib/viewer/Viewer lands an up-facing surface at ~1.11 and a wall at ~0.74, so
+ *  the off-white below is lifted to a white roof (#fffcf7) over walls around
+ *  #d8d5d1 — the light supplies the whole roof/wall separation, which is why
+ *  `cap` and `wall` can be the same value.
+ *
+ *  Off-white rather than pure white because this is also what the IFC carries
+ *  (see addBuilding in lib/ifc/writer): white on screen is the light's doing, and
+ *  a file claiming #ffffff would be claiming something the preview never had. The
+ *  estimated grey is kept cool against it — that contrast, not lightness alone,
+ *  is what keeps the two legible side by side. */
 export const defaultColors = (b: Building): { wall: number; cap: number } => {
   if (b.src === 'user') return { wall: 0x4aa8d8, cap: 0x86c4e0 };
   return b.src === 'fallback'
-    ? { wall: 0x7a7a7a, cap: 0xa8a8a8 }
-    : { wall: 0xf0fb29, cap: 0xccd457 };
+    ? { wall: 0xdfe3e5, cap: 0xdfe3e5 }
+    : { wall: 0xf4f1ec, cap: 0xf4f1ec };
 };

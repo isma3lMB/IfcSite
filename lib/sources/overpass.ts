@@ -6,6 +6,7 @@ import type {
   PropBag,
   SampleZ,
   SceneData,
+  Site,
   SiteRect,
   ToGeo,
   ToLocal,
@@ -138,6 +139,7 @@ export function parseHeight(
 export function parseOSM(
   scene: SceneData,
   data: OverpassResponse,
+  site: Site,
   toLocal: ToLocal,
   toGeo: ToGeo,
   sampleZ: SampleZ,
@@ -186,6 +188,7 @@ export function parseOSM(
         w,
         toGeo,
         sampleZ,
+        site,
       );
     }
   }

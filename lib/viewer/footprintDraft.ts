@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 
-/** The site-boundary yellow, reused so an in-progress footprint reads as part of
- *  the same authoring vocabulary as the drawn site rectangle. */
-const LINE = 0xf0fb29;
-/** The first corner, highlighted: clicking it again is what closes a polygon. */
-const FIRST = 0xffffff;
+/** The blue a drawn building comes out as (see defaultColors in lib/scene/xf), so
+ *  the draft previews the thing it is about to become. It also has to survive a
+ *  near-white ground and a near-white roof, which the old brand yellow did not. */
+const LINE = 0x1f8ac0;
+/** The first corner, highlighted: clicking it again is what closes a polygon.
+ *  Darker than the line rather than lighter — white vanished on this palette. */
+const FIRST = 0x0d4f66;
 
 /** Corner marker radius, in metres. Small enough not to hide the ground under
  *  it at the scales a footprint is drawn at, big enough to aim for. */

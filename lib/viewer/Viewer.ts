@@ -2,7 +2,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { BUILDING_CAP, pushBuilding } from '@/lib/scene/push';
-import { TERRAIN_COLOR, layerOpacity } from '@/lib/scene/stack';
+import {
+  ROAD_COLOR,
+  TERRAIN_COLOR,
+  TREE_CANOPY_COLOR,
+  TREE_TRUNK_COLOR,
+  layerOpacity,
+} from '@/lib/scene/stack';
 import { MIN_SCALE, cloneXf, defaultColors, newXf, sameXf } from '@/lib/scene/xf';
 import { type FootprintDraft, createFootprintDraft } from '@/lib/viewer/footprintDraft';
 import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/originMarker';
@@ -259,9 +265,29 @@ export class Viewer {
     this.controls.minDistance = 1;
     this.controls.maxDistance = 100000;
 
-    this.sceneGL.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.85);
-    sun.position.set(180, -260, 420);
+    // A hemisphere fill does what a flat ambient cannot: an up-facing surface
+    // takes the full sky colour, a wall a half-mix with the ground bounce, an
+    // underside the bounce alone. That gradient is the whole look — bright roofs,
+    // softly shaded sides — and it comes from the light rather than from colours
+    // pre-lifted per face, which is what lib/scene/xf used to have to do.
+    // The sun is left as the tie-breaker that keeps a sunlit wall apart from a
+    // shaded one; carrying the fill as well would flatten the sides again.
+    //
+    // Both intensities are written as the irradiance actually wanted times π —
+    // read them as 0.85 fill and 0.3 sun. three r155+ passes light intensities
+    // through unscaled (WebGLRenderer._useLegacyLights is false) while the Lambert
+    // BRDF keeps its 1/π, so an intensity of 1 reaches a surface as 1/π. Drop the
+    // Math.PI and the whole scene goes three times too dark — which does not look
+    // like a bug from inside the render, because it darkens everything uniformly:
+    // it reads as "the colours were chosen too dark", and sends you editing hexes.
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xe0e2e4, 0.85 * Math.PI);
+    // HemisphereLight reads "up" off its own position, which defaults to +Y.
+    // Data is Z-up (see camera.up above), so left alone the sky would shine from
+    // due north and roofs would come out no brighter than walls.
+    hemi.position.set(0, 0, 1);
+    this.sceneGL.add(hemi);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.3 * Math.PI);
+    sun.position.set(180, -260, 520);
     this.sceneGL.add(sun);
 
     this.contentGroup = new THREE.Group();
@@ -426,14 +452,6 @@ export class Viewer {
     // meet it — left at zero it reads as the ground and puts the whole site
     // apparently in mid-air. Null datum means a flat scene, and zero is right.
     const z0 = scene.datumZ ?? 0;
-    const ext = Math.max(halfX, halfY) * 1.05;
-    const gridSize = Math.ceil(ext / 50) * 50 * 2;
-    const divisions = Math.round(gridSize / 50);
-    const grid = new THREE.GridHelper(gridSize, divisions, 0x2a2e30, 0x2a2e30);
-    // GridHelper lies in XZ by default; data is Z-up, so tilt into XY
-    grid.rotation.x = Math.PI / 2;
-    grid.position.z = z0;
-    this.contentGroup.add(grid);
 
     // The rectangle drawn on the map, so the site boundary is readable in 3D too.
     const outline = new THREE.BufferGeometry().setFromPoints([
@@ -445,14 +463,19 @@ export class Viewer {
     this.contentGroup.add(
       new THREE.LineLoop(
         outline,
-        new THREE.LineBasicMaterial({ color: 0xf0fb29, transparent: true, opacity: 0.5 }),
+        // Dark rather than the brand yellow: on a near-white stage yellow is the
+        // one hue that disappears, and a thin dark boundary suits the
+        // drawing-on-paper register the scene reads in now.
+        new THREE.LineBasicMaterial({ color: 0x3d4245, transparent: true, opacity: 0.55 }),
       ),
     );
 
     if (scene.roads.length) {
       const pos: number[] = [];
-      for (const [p0, p1, p2, p3] of scene.roads)
-        pos.push(...p0, ...p1, ...p2, ...p0, ...p2, ...p3);
+      // Three to five corners once the site clip has cut the buffered quad, but
+      // always convex, so a fan off the first corner is an exact triangulation.
+      for (const f of scene.roads)
+        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       // The roadway is draped a few centimetres over the terrain, so it needs a
@@ -464,7 +487,11 @@ export class Viewer {
       const roadMesh = new THREE.Mesh(
         geo,
         new THREE.MeshBasicMaterial({
-          color: 0xf0fb29,
+          // Unlit, so this value reaches the screen as written — no light factor
+          // to divide out the way the Lambert surfaces need. Which is also why it
+          // is this much darker than it looks next to the buildings: they are
+          // off-white base colours the light drops to ~#d8 on a wall, this is not.
+          color: ROAD_COLOR,
           side: THREE.DoubleSide,
           polygonOffset: true,
           polygonOffsetFactor: -1,
@@ -476,7 +503,7 @@ export class Viewer {
       const roadEdges = new THREE.LineSegments(
         new THREE.EdgesGeometry(geo),
         new THREE.LineBasicMaterial({
-          color: 0xf0fb29,
+          color: 0xaeaeae,
           polygonOffset: true,
           polygonOffsetFactor: -1,
           polygonOffsetUnits: -1,
@@ -507,6 +534,30 @@ export class Viewer {
         }),
       );
       this.contentGroup.add(this.groundMesh);
+    } else {
+      // A flat build has no terrain mesh, and since the reference grid went away
+      // it would otherwise have nothing under it at all — buildings hanging in
+      // front of the sky dome. A plain plane at the datum anchors them.
+      //
+      // Not assigned to groundMesh: pickGround already falls back to an infinite
+      // math plane at datumZ when there is no mesh, and a finite one would only
+      // make a drawn corner stop landing once the pointer left its edge. This is
+      // scenery, nothing raycasts it.
+      const span = Math.max(halfX, halfY) * 2.2;
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(span * 2, span * 2),
+        new THREE.MeshLambertMaterial({
+          color: TERRAIN_COLOR,
+          side: THREE.DoubleSide,
+          // Same reason as the terrain mesh above: the ground loses every depth
+          // tie against the layers draped centimetres over it.
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
+        }),
+      );
+      floor.position.z = z0;
+      this.contentGroup.add(floor);
     }
 
     // Context layers are not pushed into buildingMeshes, so the raycaster keeps
@@ -554,12 +605,12 @@ export class Viewer {
       canopyGeo.translate(0, 0, 0.5);
       const trunks = new THREE.InstancedMesh(
         trunkGeo,
-        new THREE.MeshLambertMaterial({ color: 0x4a3b2a, flatShading: true }),
+        new THREE.MeshLambertMaterial({ color: TREE_TRUNK_COLOR, flatShading: true }),
         scene.trees.length,
       );
       const canopies = new THREE.InstancedMesh(
         canopyGeo,
-        new THREE.MeshLambertMaterial({ color: 0x2e5e33, flatShading: true }),
+        new THREE.MeshLambertMaterial({ color: TREE_CANOPY_COLOR, flatShading: true }),
         scene.trees.length,
       );
       const m = new THREE.Matrix4();
@@ -613,7 +664,8 @@ export class Viewer {
     mesh.add(
       new THREE.LineSegments(
         new THREE.EdgesGeometry(geo),
-        new THREE.LineBasicMaterial({ color: 0x15181a }),
+        // Colour is set by paintMesh — it doubles as the selection marker.
+        new THREE.LineBasicMaterial(),
       ),
     );
     this.applyXf(mesh, b);
@@ -718,9 +770,14 @@ export class Viewer {
     const mats = mesh.material as THREE.MeshLambertMaterial[];
     mats[0].color.setHex(c.cap);
     mats[1].color.setHex(c.wall);
-    const em = this.selected?.kind === 'building' && this.selected.obj === mesh ? 0x2e4a5c : 0x000000;
-    mats[0].emissive.setHex(em);
-    mats[1].emissive.setHex(em);
+    // Selection is carried mainly by the outline, not by the emissive. Emissive
+    // is additive, and against a near-white massing there is no headroom left to
+    // add into — a lit roof would clip before the tint became legible. A coloured
+    // silhouette reads at any brightness, so the emissive is only a faint
+    // supporting wash for the faces.
+    const sel = this.selected?.kind === 'building' && this.selected.obj === mesh;
+    mats[0].emissive.setHex(sel ? 0x16304a : 0x000000);
+    mats[1].emissive.setHex(sel ? 0x16304a : 0x000000);
 
     // Transparency, on the same terms as the context surfaces above: a solid
     // drawn below 1 must not write depth, or it hides what it is meant to be
@@ -740,6 +797,7 @@ export class Viewer {
     const outline = Viewer.outlineOf(mesh);
     if (outline) {
       const om = outline.material as THREE.LineBasicMaterial;
+      om.color.setHex(sel ? 0x1f8ac0 : 0xa8adb0);
       om.transparent = a < 1;
       om.opacity = a;
       om.depthWrite = a >= 1;

@@ -1,15 +1,19 @@
 import * as THREE from 'three';
 
 /**
- * The sky palette. Below the horizon the dome brightens to white rather than
- * darkening, so looking straight down reads as a clean backdrop behind the
- * site instead of a black void.
+ * The sky palette — a near-white backdrop with only a faint cool cast at the
+ * zenith, so the massing reads as a model on paper rather than as a scene under
+ * a sky. Below the horizon it brightens to white rather than darkening, so
+ * looking straight down stays a clean backdrop instead of a black void.
+ *
+ * The gradient is deliberately shallow. It is here to keep the dome from being
+ * a flat fill, not to be noticed.
  */
 export const SKY = {
-  zenith: 0x4a7fb5,
-  mid: 0x7fa8cf,
-  horizon: 0xcfd9e0,
-  ground: 0xe8ecef,
+  zenith: 0xe6ebf0,
+  mid: 0xf1f4f6,
+  horizon: 0xf8f9fa,
+  ground: 0xfcfcfb,
   nadir: 0xffffff,
 } as const;
 

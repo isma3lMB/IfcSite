@@ -123,12 +123,16 @@ export type Tree = {
   props: PropBag;
 };
 
-/** Four corners of one road segment quad, in site coordinates. */
-export type RoadQuad = [Vec3, Vec3, Vec3, Vec3];
+/**
+ * One road segment's face, in site coordinates. Four corners as buffered, three
+ * to five once the site clip has cut it — always convex, so consumers can fan
+ * it into triangles without a triangulator.
+ */
+export type RoadFace = Vec3[];
 
 export type SceneData = {
   buildings: Building[];
-  roads: RoadQuad[];
+  roads: RoadFace[];
   terrain: Grid | null;
   terrainSource?: string;
   vectorSource?: string;

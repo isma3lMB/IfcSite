@@ -58,7 +58,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     label: 'layer.vegetation',
     props: ['cleabs', 'nature'],
     ifc: 'VEGETATION',
-    color: 0x6b9e5c,
+    color: 0xd5e4cd,
     dz: LAYER_DZ.vegetation,
   },
   hedge: {
@@ -66,8 +66,10 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     geom: 'geometrie',
     label: 'layer.hedges',
     props: ['cleabs', 'hauteur', 'largeur'],
+    // Deliberately stronger than the vegetation fill it usually sits on: a hedge
+    // is an object, not more park, and at this palette a pale green loses it.
     ifc: 'VEGETATION',
-    color: 0xc4edb4,
+    color: 0xa8d494,
     line: true,
     dz: LAYER_DZ.hedge,
   },
@@ -77,7 +79,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     label: 'layer.water',
     props: ['cleabs', 'nature'],
     ifc: 'WATER',
-    color: 0x2b4c6f,
+    color: 0xbbd3e0,
     dz: LAYER_DZ.water,
   },
   parcel: {
@@ -433,9 +435,12 @@ export async function parseIGN(
         3,
       );
       for (const r of geoRings(f.geometry)) {
-        const pts = r.map((c): Vec2 => toLocal(c[0], c[1]));
-        if (!pts.some((q) => inSite(q[0], q[1]))) continue;
-        pushRoadway(scene, pts, w, toGeo, sampleZ);
+        // No inSite pre-test: pushRoadway clips to the box itself, which is both
+        // stricter and less lossy than the some(inSite) that used to stand here.
+        // That test kept a whole 5 km troncon for one vertex inside, and dropped
+        // a road crossing the site cleanly with every vertex outside it — routine
+        // on a small site, where a straight run spans the box in one segment.
+        pushRoadway(scene, r.map((c): Vec2 => toLocal(c[0], c[1])), w, toGeo, sampleZ, site);
       }
     }
   }

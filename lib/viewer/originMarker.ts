@@ -9,8 +9,9 @@ import * as THREE from 'three';
  */
 export const AXIS = { x: 0xe0564a, y: 0x55ad57, z: 0x5786e0 } as const;
 
-/** The site-boundary yellow, reused for the centre dot. */
-const DOT = 0xf0fb29;
+/** The site-boundary dark, reused for the centre dot — on a near-white stage the
+ *  brand yellow it used to be is the one hue that disappears. */
+const DOT = 0x22262a;
 
 /** Unit geometry: arms run from -STUB to ARM, so the triad reads as a crosshair
  *  rather than as three arms hanging off a corner. */
@@ -39,8 +40,8 @@ const isPainted = (o: THREE.Object3D): o is Painted =>
  * Built at unit size: the caller rescales it every frame so it holds a constant
  * pixel size, the way TransformControls does. Everything draws with depthTest
  * off — a datum you cannot find behind a building is useless — and the arms are
- * thin solids rather than lines, because a one-pixel line at this palette's
- * contrast vanishes against the reference grid.
+ * thin solids rather than lines, because a one-pixel line is too easy to lose
+ * against the pale ground it is usually seen over.
  *
  * `ghost` dims it and strips raycasting, for the read-only copy drawn at a
  * selected element's pivot: it must never intercept a click meant for the gizmo

@@ -201,17 +201,20 @@ drag arbitration against OrbitControls, raycast picking with a click-versus-orbi
 threshold, InstancedMesh trees, and an undo stack keyed on live mesh state.
 
 - **Z-up.** Data is E/N/height, so `camera.up` is set to `(0,0,1)` *before* OrbitControls is
-  constructed, and imported three geometries (GridHelper, cylinders, cones) are rotated
-  into the convention.
+  constructed, imported three geometries (cylinders, cones) are rotated into the
+  convention, and the `HemisphereLight` is told its up axis (it reads one off its own
+  position, which defaults to +Y).
 - **Sky dome** ([sky.ts](lib/viewer/sky.ts)) — a `ShaderMaterial` sphere parented to the
   *camera*, so orbit distance can never escape it. The gradient keys on the world-space Z
   of the view ray, so the horizon does not tilt with the camera. Below the horizon it
   brightens to white rather than going black.
-- **Scene construction** (`setScene`): grid helper, the site outline (the drawn rectangle,
-  readable in 3D too), roads as a translucent double-sided mesh plus edges, one
+- **Scene construction** (`setScene`): the site outline (the drawn rectangle, readable in
+  3D too), roads as a translucent double-sided mesh plus edges, one
   `ExtrudeGeometry` mesh per building with a two-material side/top split and an outline as
-  a *child* (so it inherits every edit), the terrain mesh, context surfaces with polygon
-  offset against z-fighting, draped vegetation volumes, and trees as two `InstancedMesh`es
+  a *child* (so it inherits every edit), the terrain mesh — or a plain plane at the datum
+  when the build carries no DEM, so a flat scene still sits on something — context surfaces
+  with polygon offset against z-fighting, draped vegetation volumes, and trees as two
+  `InstancedMesh`es
   (shared trunk cone/cylinder geometry — a dense quarter runs to 1200 trees). Terrain,
   surfaces and volumes all arrive as vertex/face pairs and share one `facesetGeometry`.
 - **Depth priority**: everything in the scene is draped on the ground within centimetres,
@@ -366,17 +369,29 @@ enforces that, along with dedupe/CCW, and caps at `BUILDING_CAP = 4000` — past
 browser, not the services, is the bottleneck.
 
 `Xf` ([xf.ts](lib/scene/xf.ts)) holds `pos`/`rot`/`scale`/`color`, where `color: null`
-means "use the source-derived default". Those defaults encode provenance at a glance:
-**yellow = a real height came with the data, grey = estimated** — read straight off
-`HeightSource`.
+means "use the source-derived default". Those defaults encode provenance quietly:
+**near-white = a real height came with the data, a cooler grey = estimated** — read
+straight off `HeightSource`. Subtle on purpose: the massing should read as one material
+at site zoom and only give the split up close, with the build summary's tagged/estimated
+counts as the number to trust.
 
-Roads are stored as raw corner quads (`pushRoadway`), one quad per centreline segment.
-Crude at junctions, but it needs no buffer/union library. The centreline is densified first
-and elevation is sampled at the four **corners**, not at the centreline: a carriageway runs
-to 13 m wide, so a quad held flat across its width cuts into the hillside on any cross-slope
-and the road disappears behind the ground. Draping every corner banks the ribbon with the
-terrain — not how a road is built, but at this level of detail a ribbon that never buries
-and never floats beats a geometrically honest one that does both.
+Roads are stored as raw corner faces (`pushRoadway`), one buffered quad per centreline
+segment, **cut to the site box** — three to five corners once the clip has been through it,
+always convex, so both the viewer and the IFC writer fan it into triangles without a
+triangulator. The clip is what keeps the layer honest: Overpass `out geom` and the IGN WFS
+`BBOX` are *intersects* filters, so a motorway catching one corner of the site arrives whole,
+tens of kilometres of it. The centreline is filtered against the box first (grown by half a
+carriageway, so a road running just outside still contributes the half of its surface that is
+inside), and only what survives is densified and draped — the other way round pays thousands
+of projection inversions per way to produce a handful of quads.
+
+Crude at junctions, but it needs no buffer/union library. Elevation is sampled at every
+**corner**, not at the centreline: a carriageway runs to 13 m wide, so a quad held flat across
+its width cuts into the hillside on any cross-slope and the road disappears behind the ground.
+Draping every corner banks the ribbon with the terrain — not how a road is built, but at this
+level of detail a ribbon that never buries and never floats beats a geometrically honest one
+that does both. Draping happens *after* the clip, so the vertices it introduces on the
+boundary get their own sample and the cut edge sits flush.
 
 ---
 

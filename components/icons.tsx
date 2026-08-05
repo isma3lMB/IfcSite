@@ -62,8 +62,8 @@ export const IconZoomSite = () => (
   </Svg>
 );
 
-/* The one solid glyph in the set — a hollow arrow reads as a shape rather than
-   as a pointer at this size. */
+/* Solid, like IconCompass and for the same reason — a hollow arrow reads as a
+   shape rather than as a pointer at this size. */
 export const IconSelect = () => (
   <Svg>
     <path
@@ -136,5 +136,19 @@ export const IconOrigin = () => (
   <Svg>
     <circle cx="8" cy="8" r="3.4" />
     <path d="M8 .5v3.4M8 12.1v3.4M.5 8h3.4M12.1 8h3.4" />
+  </Svg>
+);
+
+/* The surveyor's north arrow: apex, two base corners, and a notch back up to the
+   centre. The notch is what makes it read as a needle pointing somewhere rather
+   than as a plain triangle — and it survives being turned to any angle, which is
+   the whole job here. Solid for the same reason IconSelect is.
+
+   Sized past the 16 grid on purpose: it sits alone inside a 28 px ring with no
+   other glyph to line up with, and a needle inset to the usual margins looks
+   lost in it. */
+export const IconCompass = () => (
+  <Svg>
+    <path d="M8 .8 12.6 15.2 8 12.2 3.4 15.2Z" fill="currentColor" stroke="none" />
   </Svg>
 );

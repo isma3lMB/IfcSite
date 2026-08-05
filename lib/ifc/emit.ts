@@ -1,6 +1,6 @@
 import { treeProxy } from '@/lib/geo/mesh';
 import { ContextModel } from '@/lib/ifc/writer';
-import { TERRAIN_COLOR, layerOpacity } from '@/lib/scene/stack';
+import { ROAD_COLOR, TERRAIN_COLOR, TREE_CANOPY_COLOR, layerOpacity } from '@/lib/scene/stack';
 import type { IfcStats, SceneData, SiteMeta, Vec3 } from '@/lib/types';
 
 /**
@@ -30,19 +30,30 @@ export function emitIFC(
 
   for (const b of scene.buildings) model.addBuilding(b);
 
-  // scene.roads keeps each segment's four corners, so the surface mesh the IFC
-  // needs is reconstructible without storing it twice.
+  // scene.roads keeps each segment's corners, so the surface mesh the IFC needs
+  // is reconstructible without storing it twice. A face is a buffered quad after
+  // the site clip has cut it, so three to five corners — but always convex, and
+  // a fan off the first vertex triangulates a convex polygon exactly.
   let roadFaces = 0;
   if (scene.roads.length) {
     const verts: Vec3[] = [];
     const faces: number[][] = [];
     for (const q of scene.roads) {
       const b = verts.length;
-      verts.push(q[0], q[1], q[2], q[3]);
-      faces.push([b, b + 1, b + 2], [b, b + 2, b + 3]);
-      roadFaces += 2;
+      for (const p of q) verts.push(p);
+      for (let k = 2; k < q.length; k++) faces.push([b, b + k - 1, b + k]);
+      roadFaces += q.length - 2;
     }
-    model.addSurface(verts, faces, `Roads (${scene.vectorSource || 'OSM'})`, 'USERDEFINED');
+    // Coloured rather than left bare, for the same reason the buildings are (see
+    // addBuilding in lib/ifc/writer): an unstyled element is one the viewer
+    // colours itself, and it always picks grey.
+    model.addSurface(
+      verts,
+      faces,
+      `Roads (${scene.vectorSource || 'OSM'})`,
+      'USERDEFINED',
+      ROAD_COLOR,
+    );
   }
 
   // The same opacity the preview draws, inverted into IFC's transparency, so a
@@ -64,7 +75,7 @@ export function emitIFC(
     const verts: Vec3[] = [];
     const faces: number[][] = [];
     for (const t of scene.trees) treeProxy(t, verts, faces);
-    model.addSurface(verts, faces, 'Trees (OSM)', 'VEGETATION', 0x2e5e33);
+    model.addSurface(verts, faces, 'Trees (OSM)', 'VEGETATION', TREE_CANOPY_COLOR);
   }
 
   const text = model.build();
