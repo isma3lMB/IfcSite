@@ -343,6 +343,14 @@
     margin-bottom: 16px;
     border-bottom: 1px solid var(--color-ink);
   }
+  /* Narrower than Options — a single field, not a settings form — and
+     overflow: visible rather than auto: there is nothing here tall enough to
+     need a scrollbar, and auto would clip the results dropdown, which is
+     positioned absolutely off the field below it. */
+  .searchFlyout {
+    width: 300px;
+    overflow: visible;
+  }
   /* ---- status bar ----
      The single information surface: what the model is, what just happened, and
      the two actions that end the sequence. Spans every column — row 3 is below

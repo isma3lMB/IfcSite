@@ -6,6 +6,7 @@ import { ConfirmCard } from '@/components/confirm-card';
 import { ControlsPanel } from '@/components/controls-panel';
 import { type AxisKey, ElementEditor } from '@/components/element-editor';
 import { InfoOverlay } from '@/components/info-overlay';
+import { SearchFlyout } from '@/components/search-flyout';
 import { Stage } from '@/components/stage';
 import { StatusBar } from '@/components/status-bar';
 import type { StatusState } from '@/components/status-line';
@@ -74,6 +75,11 @@ export function IfcSite() {
       and the panel's own ✕ both hand focus back there. */
   const optionsOpenRef = useRef(false);
   const gearRef = useRef<HTMLButtonElement>(null);
+  /** And once more for the search flyout — mutually exclusive with Options,
+      and starts true to match its default-open state below. */
+  const searchOpenRef = useRef(true);
+  const searchBtnRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   /* ---- React state --------------------------------------------------- */
   const [form, setForm] = useState<BuildOptions>(DEFAULT_FORM);
@@ -94,8 +100,15 @@ export function IfcSite() {
   /** Closed on arrival: these are settings you set once, and the viewer is what
       you came for. */
   const [optionsOpen, setOptionsOpen] = useState(false);
+  /** Open on arrival instead — there is no site rectangle yet, and finding a
+      place is the natural first move. See the effect below that collapses it
+      the moment `rect` is set. */
+  const [searchOpen, setSearchOpenState] = useState(true);
   /** Matches the viewer's own default; the marker is opt-in. */
   const [showOrigin, setShowOrigin] = useState(false);
+  /** Also the viewer's default. Held here rather than reported back, like the
+      marker above: nothing in the viewer changes it on its own. */
+  const [ortho, setOrtho] = useState(false);
   /* The local project coordinate system the origin point is mapped to. Pure
      export metadata — the viewer never sees it and the scene never moves — so it
      lives here rather than in the viewer, and outside the undo stack, which
@@ -182,6 +195,18 @@ export function IfcSite() {
     };
   }, []);
 
+  /* ---- orientation widget ----------------------------------------------
+     The widget is drawn into the viewer's own canvas, so it is not on the
+     overlay grid and nothing lays it out — it has to be told what is docked in
+     the corner it wants. The element editor is 296 px plus the grid's 12 px
+     gap, and it is on screen exactly when there is a selection. Below 860 px
+     the editor spans the width instead (see globals.css), so the inset would
+     push the widget off the left edge; hold it at the plain margin there and
+     let the editor cover it. */
+  useEffect(() => {
+    viewerRef.current?.setRightInset(selection && window.innerWidth > 860 ? 308 : 12);
+  }, [selection]);
+
   /* ---- footprint authoring ---------------------------------------------
      The viewer cannot translate, so the name a drawn building gets is pushed
      down from here — and re-pushed on a language change, which is why `t` is a
@@ -267,6 +292,7 @@ export function IfcSite() {
       if (e.key === 'Escape') {
         if (infoOpenRef.current) closeInfo();
         else if (optionsOpenRef.current) closeOptions();
+        else if (searchOpenRef.current) closeSearch();
         else if (mapRef.current?.isDrawing) mapRef.current.cancelDraw();
         else if (drawToolRef.current) {
           if (drawPointsRef.current > 0) viewerRef.current?.cancelDraw();
@@ -294,6 +320,11 @@ export function IfcSite() {
   const onShowOrigin = useCallback((v: boolean) => {
     setShowOrigin(v);
     viewerRef.current?.setMarkerVisible(v);
+  }, []);
+
+  const onOrtho = useCallback((v: boolean) => {
+    setOrtho(v);
+    viewerRef.current?.setProjection(v);
   }, []);
 
   /* The emitter holds the very same meta object, so writing through to it and
@@ -349,16 +380,59 @@ export function IfcSite() {
 
   /* Same pairing again for the flyout. Escape and the panel's ✕ both land on
      closeOptions, so focus comes back to the gear either way — an icon-only
-     button is hard enough to find again without losing the caret too. */
+     button is hard enough to find again without losing the caret too. Opening
+     Options also closes Search: the two flyouts share the same strip of
+     screen off the rail, so only one may be out at a time. */
   const setOptions = useCallback((v: boolean) => {
     optionsOpenRef.current = v;
     setOptionsOpen(v);
+    if (v && searchOpenRef.current) {
+      searchOpenRef.current = false;
+      setSearchOpenState(false);
+    }
   }, []);
   const closeOptions = useCallback(() => {
     setOptions(false);
     gearRef.current?.focus();
   }, [setOptions]);
   const toggleOptions = useCallback(() => setOptions(!optionsOpenRef.current), [setOptions]);
+
+  /* Search's own pairing, mirroring Options above — including closing
+     Options when Search opens. */
+  const setSearch = useCallback((v: boolean) => {
+    searchOpenRef.current = v;
+    setSearchOpenState(v);
+    if (v && optionsOpenRef.current) {
+      optionsOpenRef.current = false;
+      setOptionsOpen(false);
+    }
+  }, []);
+  const closeSearch = useCallback(() => {
+    setSearch(false);
+    searchBtnRef.current?.focus();
+  }, [setSearch]);
+  const toggleSearch = useCallback(() => setSearch(!searchOpenRef.current), [setSearch]);
+
+  /* The one auto-behaviour here: Search starts open because there is nothing
+     to search *for* until a site rectangle exists, and it collapses to an
+     icon — same as every other rail item — the instant one does. Guarded on
+     "nothing else open" so it does not steal focus back from Options after a
+     reset, and on the ref rather than the `searchOpen` state so a manual
+     close during this same render isn't immediately undone. */
+  useEffect(() => {
+    if (rect) {
+      if (searchOpenRef.current) closeSearch();
+    } else if (!optionsOpenRef.current && !searchOpenRef.current) {
+      setSearch(true);
+    }
+  }, [rect, closeSearch, setSearch]);
+
+  // Whenever the flyout opens — on arrival or from a click on its rail
+  // button — the caret should already be in the field, the same courtesy the
+  // confirm card and the old in-panel search gave.
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
 
   /* ---- form ------------------------------------------------------------ */
   const onFormChange = useCallback((patch: Partial<BuildOptions>) => {
@@ -492,6 +566,8 @@ export function IfcSite() {
           compassRef={compassRef}
           showOrigin={showOrigin}
           onShowOrigin={onShowOrigin}
+          ortho={ortho}
+          onOrtho={onOrtho}
           infoOpen={infoOpen}
           onInfo={toggleInfo}
         />
@@ -515,6 +591,9 @@ export function IfcSite() {
             optionsOpen={optionsOpen}
             gearRef={gearRef}
             onToggleOptions={toggleOptions}
+            searchOpen={searchOpen}
+            searchBtnRef={searchBtnRef}
+            onToggleSearch={toggleSearch}
             onDraw={onDraw}
             onPan={onPan}
             onZoom={onZoom}
@@ -528,15 +607,17 @@ export function IfcSite() {
           />
 
           {optionsOpen && (
-            <ControlsPanel
-              form={form}
-              onChange={onFormChange}
-              rect={rect}
+            <ControlsPanel form={form} onChange={onFormChange} rect={rect} onClose={closeOptions} />
+          )}
+
+          {searchOpen && (
+            <SearchFlyout
+              inputRef={searchInputRef}
               onPickPlace={onPickPlace}
               onSearchFailed={(e) =>
                 setStatus({ kind: 'msg', key: 'status.searchUnavailable', tone: 'err', cause: e })
               }
-              onClose={closeOptions}
+              onClose={closeSearch}
             />
           )}
         </div>

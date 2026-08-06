@@ -24,6 +24,7 @@ export const en = {
   'ui.close': 'Close',
   'ui.options': 'Options',
   'ui.originMarker': 'Show the model origin',
+  'ui.projection': 'Orthographic view',
 
   /* ---- tool rail. Icon-only, so every one of these is the whole label: it is
      the tooltip, the aria-label, and the only prose the tool ever gets. ---- */

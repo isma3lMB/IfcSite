@@ -11,6 +11,7 @@ import {
   IconRedo,
   IconRotate,
   IconScale,
+  IconSearch,
   IconSelect,
   IconUndo,
   IconZoomSite,
@@ -32,6 +33,9 @@ export type ToolRailProps = {
   optionsOpen: boolean;
   gearRef: RefObject<HTMLButtonElement | null>;
   onToggleOptions: () => void;
+  searchOpen: boolean;
+  searchBtnRef: RefObject<HTMLButtonElement | null>;
+  onToggleSearch: () => void;
   onDraw: () => void;
   onPan: () => void;
   onZoom: () => void;
@@ -169,6 +173,25 @@ export function ToolRail(p: ToolRailProps) {
 
   return (
     <div className="rail floating" role="toolbar" aria-orientation="vertical" aria-label={t('rail.label')}>
+      
+      {/* Pinned beside the gear rather than folded into Options: finding a
+          place is the first thing you do, before there is anything to
+          configure. It starts expanded — see the flyout it opens — and
+          collapses to this icon once a site rectangle exists. */}
+      <button
+        ref={p.searchBtnRef}
+        type="button"
+        className={`railBtn${p.searchOpen ? ' on' : ''}`}
+        data-tip={t('ctl.findPlace')}
+        aria-label={t('ctl.findPlace')}
+        aria-expanded={p.searchOpen}
+        aria-controls="searchFlyout"
+        onClick={p.onToggleSearch}
+      >
+        <IconSearch />
+      </button>
+      
+      
       {/* Pinned above the first separator rather than at the foot of the rail:
           the body below changes with the view, and a bottom-anchored gear would
           move under the cursor on every switch. */}
@@ -184,6 +207,8 @@ export function ToolRail(p: ToolRailProps) {
       >
         <IconOptions />
       </button>
+
+      
 
       {groups.map((g, i) => (
         // eslint-disable-next-line react/no-array-index-key -- the groups are a

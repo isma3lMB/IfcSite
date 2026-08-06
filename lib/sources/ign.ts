@@ -58,7 +58,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     label: 'layer.vegetation',
     props: ['cleabs', 'nature'],
     ifc: 'VEGETATION',
-    color: 0xd5e4cd,
+    color: 0xc0d4b6,
     dz: LAYER_DZ.vegetation,
   },
   hedge: {
@@ -69,7 +69,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     // Deliberately stronger than the vegetation fill it usually sits on: a hedge
     // is an object, not more park, and at this palette a pale green loses it.
     ifc: 'VEGETATION',
-    color: 0xa8d494,
+    color: 0x93c07e,
     line: true,
     dz: LAYER_DZ.hedge,
   },
@@ -79,7 +79,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     label: 'layer.water',
     props: ['cleabs', 'nature'],
     ifc: 'WATER',
-    color: 0xbbd3e0,
+    color: 0xa3c1d2,
     dz: LAYER_DZ.water,
   },
   parcel: {

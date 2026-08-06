@@ -145,6 +145,61 @@ export class IfcFile {
  *  not a value the schema knows, whatever it reads like. */
 const GEO_TYPES = new Set(['TERRAIN', 'USERDEFINED', 'NOTDEFINED']);
 
+/**
+ * The highlight knee for exported colours, on a 0..255 channel. Nothing below
+ * EXPORT_KNEE moves; everything above it is compressed into the headroom up to
+ * EXPORT_CEILING.
+ *
+ * The two knobs for "the export comes out too bright". Raise the ceiling toward
+ * 255 to get closer to what the preview draws, lower it if a viewer still blows
+ * out; the knee decides how much of the palette is left alone on the way.
+ *
+ * This exists because the preview and a BIM viewer light a scene differently and
+ * there is no way to state a lighting rig in IFC. The palette is tuned against
+ * the preview's hemisphere fill, which lands a flat surface at about ×1.11;
+ * point the same near-white at a viewer with more ambient gain and it clips to
+ * paper. Terrain at 0xe8e7e4 and massing at 0xf4f1ec sit within 5% of white, so
+ * they have nowhere to go — and they are also the two largest areas on screen,
+ * which is why the whole model reads washed out rather than just a hot spot.
+ *
+ * A knee rather than a flat multiplier because the complaint is highlights
+ * clipping, not everything being too light: scaling every colour equally would
+ * drag the saturated layers — trees, hedges, water — down with the whites they
+ * are supposed to read against. A knee rather than a hard clamp because a clamp
+ * is not monotonic once it bites. Terrain and roofs both sit above any useful
+ * ceiling, so a clamp lands them on the same value and the roofs disappear into
+ * the ground in the flat-lit plan view this is meant to fix. Compressing keeps
+ * them apart, just closer together.
+ */
+const EXPORT_KNEE = 170;
+const EXPORT_CEILING = 205;
+
+/**
+ * Put a colour through that knee, as 0..1 components ready for IfcColourRgb.
+ *
+ * The knee is computed on the brightest channel and the whole triple moves by
+ * that one factor, so hue and saturation are untouched — a pale warm grey stays
+ * a pale warm grey, it just stops being nearly white.
+ *
+ * Export-only, and on purpose: lib/scene/stack keeps one colour per thing so the
+ * preview and the file cannot drift, and that still holds — this is not a second
+ * palette but one rendering allowance applied to the single palette on its way
+ * out. Every colour in the file passes through style(), including one the user
+ * picked in the editor, so nothing escapes it and the model stays internally
+ * consistent.
+ */
+function toneForExport(hex: number): [number, number, number] {
+  const r = (hex >> 16) & 255;
+  const g = (hex >> 8) & 255;
+  const b = hex & 255;
+  const peak = Math.max(r, g, b);
+  if (peak <= EXPORT_KNEE) return [r / 255, g / 255, b / 255];
+  const squeezed =
+    EXPORT_KNEE + ((peak - EXPORT_KNEE) * (EXPORT_CEILING - EXPORT_KNEE)) / (255 - EXPORT_KNEE);
+  const k = squeezed / peak;
+  return [(r * k) / 255, (g * k) / 255, (b * k) / 255];
+}
+
 export class ContextModel {
   readonly f: IfcFile;
   private readonly origin: Vec2;
@@ -161,6 +216,9 @@ export class ContextModel {
   private readonly project: Ref;
   private readonly sitePlacement: Ref;
   private readonly site: Ref;
+  /** Shared black, for the specular of every matte style. Lazy so a file with
+   *  nothing styled in it does not carry a colour it never references. */
+  private black: Ref | null = null;
 
   constructor(o: SiteMeta) {
     this.f = new IfcFile('context.ifc');
@@ -346,25 +404,45 @@ export class ContextModel {
   // deprecated IfcPresentationStyleAssignment wrapper is not needed.
   private style(item: Ref, hex: number, transparency?: number): void {
     const f = this.f;
-    const c = f.add('IfcColourRgb', [
-      null,
-      R(((hex >> 16) & 255) / 255),
-      R(((hex >> 8) & 255) / 255),
-      R((hex & 255) / 255),
-    ]);
+    const [cr, cg, cb] = toneForExport(hex);
+    const c = f.add('IfcColourRgb', [null, R(cr), R(cg), R(cb)]);
+    // Every rendering attribute is spelled out, because .NOTDEFINED. with the
+    // rest left null hands the material to the viewer and they all reach for a
+    // Phong default with a white specular highlight. That lands on the flat
+    // draped layers — water, vegetation, roads — which face straight up and
+    // bounce it into the camera at any near-plan angle, while the vertical
+    // building walls beside them never catch it. The preview shades with
+    // MeshLambert (no specular term at all), so the file was the only place the
+    // gloss existed.
+    //
+    // Said in colours rather than in IfcNormalisedRatioMeasure factors. Both
+    // branches of IfcColourOrFactor are legal and the factors are tidier, but a
+    // colour is the branch every importer has to handle to read anything at all,
+    // and the point here is to be understood by a viewer we cannot inspect.
+    if (!this.black) this.black = f.add('IfcColourRgb', [null, R(0), R(0), R(0)]);
     const rend = f.add('IfcSurfaceStyleRendering', [
       c,
       // IFC counts transparency, not opacity: 0 is solid. Left null the file
       // always claimed opaque, so a layer the preview draws as a faint overlay
       // came back as a solid slab in any other viewer.
       transparency ? R(transparency) : null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      E('NOTDEFINED'),
+      // DiffuseColour: the surface colour itself, reusing the same entity rather
+      // than writing it out twice. Importers that prefer DiffuseColour over
+      // SurfaceColour — the IfcOpenShell glTF path among them — get an answer
+      // instead of a guess, and the two cannot disagree.
+      c,
+      null, // TransmissionColour
+      null, // DiffuseTransmissionColour
+      null, // ReflectionColour — no environment reflection
+      // SpecularColour: black, which is what actually kills the highlight.
+      this.black,
+      // Redundant once specular is black, but cheap. IfcSpecularExponent rather
+      // than IfcSpecularRoughness because the exponent is what Revit and
+      // ArchiCAD emit, so it is the branch of the select viewers are known to
+      // read; roughness is rare enough in the wild to be quietly ignored.
+      TYPED('IfcSpecularExponent', R(1)),
+      // The schema's own word for diffuse-only.
+      E('MATT'),
     ]);
     const st = f.add('IfcSurfaceStyle', [S('Colour'), E('BOTH'), [rend]]);
     f.add('IfcStyledItem', [item, [st], null]);

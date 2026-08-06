@@ -13,6 +13,7 @@ import { MIN_SCALE, cloneXf, defaultColors, newXf, sameXf } from '@/lib/scene/xf
 import { type FootprintDraft, createFootprintDraft } from '@/lib/viewer/footprintDraft';
 import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/originMarker';
 import { SKY, createSkyDome } from '@/lib/viewer/sky';
+import { type ViewAxis, type ViewTriad, axisEye, createViewTriad } from '@/lib/viewer/viewTriad';
 import type { EditLabelKey, Params, StatusKey } from '@/lib/i18n/keys';
 import type { Building, GizmoMode, SceneData, Site, Vec2, Vec3, Xf } from '@/lib/types';
 
@@ -137,6 +138,27 @@ const ORIGIN_NAME = 'ed.originName';
 const ORIGIN_PX = 54;
 const PIVOT_PX = 38;
 
+/**
+ * The perspective vertical field of view, and the frustum height it spans per
+ * unit of distance.
+ *
+ * FOV_K is the bridge between the two projections: a perspective camera sitting
+ * `d` from its target shows `FOV_K * d` of world height there, so the same
+ * expression run backwards turns an orthographic frustum height into the
+ * distance that would frame it identically. Both directions of setProjection
+ * are that one identity, which is what makes the toggle round-trip exactly.
+ */
+const FOV = 45;
+const FOV_K = 2 * Math.tan((FOV * Math.PI) / 360);
+
+/** Either projection. The viewer holds one of each and swaps which is live. */
+type ViewerCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
+
+/** How long an axis snap takes, in ms. Long enough to read as a move rather
+ *  than a cut — which is the whole point of animating it, since a jump leaves
+ *  you working out what you are now looking at. */
+const SNAP_MS = 380;
+
 const originXf = (off: THREE.Vector3): Xf => ({
   pos: [off.x, off.y, off.z],
   rot: [0, 0, 0],
@@ -176,7 +198,16 @@ export class Viewer {
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly sceneGL: THREE.Scene;
-  private readonly camera: THREE.PerspectiveCamera;
+  /**
+   * Whichever projection is live. Both cameras exist for the life of the
+   * viewer and setProjection swaps which one is pointed at — rather than one
+   * camera being rebuilt — so the orbit, the gizmo and the dome all move
+   * between two stable objects instead of chasing a new one each time.
+   */
+  private camera: ViewerCamera;
+  private readonly perspCam: THREE.PerspectiveCamera;
+  private readonly orthoCam: THREE.OrthographicCamera;
+  private ortho = false;
   private readonly controls: OrbitControls;
   private readonly contentGroup: THREE.Group;
   private readonly skyDome: THREE.Mesh;
@@ -184,6 +215,22 @@ export class Viewer {
   private readonly resizeObserver: ResizeObserver;
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
+
+  /* ---- the orientation widget ----
+     Drawn into a corner of the same canvas rather than as DOM, so it needs its
+     own pointer arbitration; see initTriadPicking. */
+  private readonly triad: ViewTriad;
+  /** How far the widget is held clear of the right edge, in CSS pixels. React
+   *  drives this: the element editor takes that corner when it is open. */
+  private rightInset = 12;
+  /** The axis a press landed on, and where it landed, pending the release. */
+  private triadPress: { axis: ViewAxis; x: number; y: number } | null = null;
+  /** Listeners on the host, which outlives the viewer — see initTriadPicking. */
+  private readonly listeners = new AbortController();
+  /** A snap in flight: where the eye started, the turn to make, the radius to
+   *  hold, and the clock. */
+  private snap: { from: THREE.Vector3; q: THREE.Quaternion; r: number; t0: number } | null = null;
+  private readonly slerpQ = new THREE.Quaternion();
 
   /** The scene's centre point: where the exported model's zero sits. */
   private readonly originMarker: THREE.Group;
@@ -211,6 +258,10 @@ export class Viewer {
   private rectAnchor: THREE.Vector3 | null = null;
 
   private firstFrame = true;
+  /** frameCamera's inputs, kept because a projection swap has to re-derive the
+   *  frustum from the site and nothing else stored it. */
+  private fitRadius = 0;
+  private fitZ0 = 0;
   private buildingMeshes: THREE.Mesh[] = [];
   private selected: Target | null = null;
   /** false while the 2D map covers the viewport — nothing to draw behind it. */
@@ -220,6 +271,8 @@ export class Viewer {
 
   private scene: SceneData | null = null;
   private compass: HTMLElement | null = null;
+  /** Last good compass azimuth, held through a straight-down view. */
+  private lastAz = 0;
 
   private readonly edits: { stack: Cmd[]; index: number; limit: number } = {
     stack: [],
@@ -239,20 +292,28 @@ export class Viewer {
     // Fallback for the frame before frameCamera() sizes the dome; the dome covers it after.
     this.sceneGL.background = new THREE.Color(SKY.horizon);
 
-    this.camera = new THREE.PerspectiveCamera(
-      45,
-      host.clientWidth / Math.max(1, host.clientHeight),
-      1,
-      200000,
-    );
-    // data is E/N/height (Z-up) — must be set before OrbitControls is built
-    this.camera.up.set(0, 0, 1);
+    const aspect = host.clientWidth / Math.max(1, host.clientHeight);
+    this.perspCam = new THREE.PerspectiveCamera(FOV, aspect, 1, 200000);
+    // The frustum is filled in by frameCamera/applyFrustum before this one is
+    // ever rendered; it only has to be non-degenerate until then.
+    this.orthoCam = new THREE.OrthographicCamera(-aspect, aspect, 1, -1, -1, 1000);
+    // data is E/N/height (Z-up) — must be set before OrbitControls is built.
+    //
+    // Neither camera's up may change afterwards, and they have to agree:
+    // OrbitControls computes its orbit axis from object.up exactly once, when
+    // update() is defined (OrbitControls.js:177), and never recomputes it. A
+    // camera whose up differs from the one the controls were built with would
+    // render on one axis and orbit about another.
+    this.perspCam.up.set(0, 0, 1);
+    this.orthoCam.up.set(0, 0, 1);
+    this.camera = this.perspCam;
 
     // The dome rides on the camera so orbit distance can never escape it, and the
     // camera goes into the scene graph or its children are never traversed.
+    // Both cameras live in the graph; only the dome moves between them.
     this.skyDome = createSkyDome();
     this.camera.add(this.skyDome);
-    this.sceneGL.add(this.camera);
+    this.sceneGL.add(this.perspCam, this.orthoCam);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -264,6 +325,13 @@ export class Viewer {
     this.controls.screenSpacePanning = true;
     this.controls.minDistance = 1;
     this.controls.maxDistance = 100000;
+    // Orthographic dolly changes zoom rather than distance, so it needs its own
+    // clamp — the distance pair above still bounds the orbit radius in both
+    // projections and stays as it is. minZoom must not be left at its default
+    // of 0: a zero zoom is an infinite frustum, and the sky dome stops covering
+    // the viewport.
+    this.controls.minZoom = 0.05;
+    this.controls.maxZoom = 400;
 
     // A hemisphere fill does what a flat ambient cannot: an up-facing surface
     // takes the full sky colour, a wall a half-mix with the ground bounce, an
@@ -330,6 +398,11 @@ export class Viewer {
     this.draft = createFootprintDraft();
     this.sceneGL.add(this.originMarker, this.pivotGhost, this.draft.group);
 
+    this.triad = createViewTriad();
+
+    // Registered on the host and in the capture phase, so it runs before both
+    // OrbitControls and initPicking — see initTriadPicking.
+    this.initTriadPicking();
     this.initPicking();
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -348,15 +421,43 @@ export class Viewer {
     const h = this.host.clientHeight;
     if (w <= 0 || h <= 0) return;
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    const c = this.camera;
+    if (c instanceof THREE.OrthographicCamera) {
+      // The vertical extent is the state of record and left/right follow it,
+      // which is what a vertical fov does under perspective — so widening the
+      // window reveals more of the site in both projections rather than
+      // stretching in one and revealing in the other.
+      const half = (c.top - c.bottom) / 2;
+      c.left = -half * (w / h);
+      c.right = half * (w / h);
+    } else {
+      c.aspect = w / h;
+    }
+    c.updateProjectionMatrix();
   }
 
   private updateCompass(): void {
     if (!this.compass) return;
     const dir = this.camera.position.clone().sub(this.controls.target);
-    const az = (Math.atan2(dir.x, dir.y) * 180) / Math.PI; // Y=north in local E/N coords
-    this.compass.style.transform = `rotate(${-az}deg)`;
+    // Looking straight down there is no horizontal component to take a bearing
+    // from, and atan2 on the float noise that is left spins the needle. Hold
+    // the last real reading instead — which is also what the eye expects, since
+    // a plan view has no heading to report in the first place.
+    if (Math.hypot(dir.x, dir.y) > 1e-6 * Math.abs(dir.z))
+      this.lastAz = (Math.atan2(dir.x, dir.y) * 180) / Math.PI; // Y=north in local E/N coords
+    // The needle marks north, so the 180 is not a fudge — it is the half turn
+    // between the two things being measured. lastAz is the bearing of the eye
+    // seen from the pivot; you look back the other way, so the bearing at the
+    // top of the screen is lastAz + 180, and north lands at -lastAz - 180 from
+    // there. The needle rests pointing up and rotate() runs clockwise, so that
+    // angle is the transform. Drop the 180 and the needle points due south at
+    // every camera angle, which is what it used to do.
+    //
+    // A flat rose can only ever show the plan bearing: tilt the camera and the
+    // projected direction of north drifts off it (~57 degrees against a plan
+    // bearing of ~36 at the default framing). That is inherent to drawing a 3D
+    // heading in 2D, and the plan bearing is the honest half of it.
+    this.compass.style.transform = `rotate(${180 - this.lastAz}deg)`;
   }
 
   /**
@@ -365,9 +466,15 @@ export class Viewer {
    * fills the screen at a doorway. Rendering is continuous, so this is free.
    */
   private scaleToScreen(o: THREE.Object3D, px: number): void {
-    const d = this.camera.position.distanceTo(o.position);
+    const c = this.camera;
     const h = Math.max(1, this.host.clientHeight);
-    const worldPerPx = (2 * Math.tan((this.camera.fov * Math.PI) / 360) * d) / h;
+    const worldPerPx =
+      c instanceof THREE.OrthographicCamera
+        ? // A parallel projection has no foreshortening, so how far away the
+          // marker is does not enter into it — the frustum height alone sets
+          // the scale.
+          (c.top - c.bottom) / c.zoom / h
+        : (FOV_K * c.position.distanceTo(o.position)) / h;
     o.scale.setScalar(worldPerPx * px);
   }
 
@@ -384,25 +491,170 @@ export class Viewer {
     }
   }
 
-  private animate = (): void => {
+  private animate = (now = 0): void => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.animate);
     if (!this.active) return; // the map is up; nothing to draw behind it
+    // A snap writes the camera position itself, so the controls have to stand
+    // down for the duration or they overwrite it on the same frame. They still
+    // get the last word on orientation — see stepSnap.
+    if (this.snap) this.stepSnap(now);
     this.controls.update();
+    // Scroll changes zoom rather than distance under a parallel projection, so
+    // the dome has to follow it every frame — see syncSkyDome.
+    if (this.ortho) this.syncSkyDome();
     this.updateCompass();
     this.updateMarkers();
     this.renderer.render(this.sceneGL, this.camera);
+    this.triad.render(this.renderer, this.camera, this.rightInset);
   };
 
   setActive(on: boolean): void {
+    // animate() returns early while the map is up, so a snap left in flight
+    // would freeze part-way and resume whenever the tab came back. Land it.
+    if (!on) this.finishSnap();
     this.active = on;
     if (on) this.resize();
+  }
+
+  /* ---- axis snapping --------------------------------------------------
+     The camera is driven directly for the length of the tween, then handed
+     back. OrbitControls re-derives its own spherical state from wherever the
+     camera ends up on the next update(), so the two can never disagree — the
+     only thing that has to be true is that they are not both writing at once.
+     -------------------------------------------------------------------- */
+
+  /** Point the camera down an axis, keeping the orbit target and distance. */
+  snapTo(axis: ViewAxis): void {
+    const off = this.camera.position.clone().sub(this.controls.target);
+    const r = off.length();
+    if (r < 1e-6) return;
+    const from = off.divideScalar(r);
+    const to = axisEye(axis);
+    if (from.dot(to) > 1 - 1e-9) return; // already there
+
+    // The tail of the last drag is still in the controls' spherical delta, and
+    // it decays rather than stopping — left alone it keeps turning underneath
+    // the tween and kicks the camera when the tween hands back. One update with
+    // damping off applies it and zeroes it in the same call.
+    const damp = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = damp;
+
+    // The whole rotation, resolved once. setFromUnitVectors picks an arbitrary
+    // perpendicular axis when the two are opposed, which is what makes E->W and
+    // N->S work at all — there is no shortest arc between them to find.
+    this.snap = {
+      from,
+      q: new THREE.Quaternion().setFromUnitVectors(from, to),
+      r,
+      t0: performance.now(),
+    };
+  }
+
+  private stepSnap(now: number): void {
+    const s = this.snap;
+    if (!s) return;
+    const k = Math.min(1, (now - s.t0) / SNAP_MS);
+    // Cubic in-out: the ends matter more than the middle here, because a snap
+    // that starts abruptly reads as a jump however long it then takes.
+    const e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
+    // Rotate the eye *direction* and hold the radius. Lerping the position
+    // instead would cut the corner, swinging the camera in through the site and
+    // back out again.
+    const dir = s.from.clone().applyQuaternion(this.slerpQ.identity().slerp(s.q, e));
+    this.camera.position.copy(this.controls.target).addScaledVector(dir, s.r);
+    if (k >= 1) this.snap = null;
+  }
+
+  /** Land a snap where it was headed. */
+  private finishSnap(): void {
+    if (this.snap) this.stepSnap(this.snap.t0 + SNAP_MS);
+  }
+
+  /** Drop a snap where it stands. The controls pick up from there. */
+  private cancelSnap(): void {
+    this.snap = null;
+  }
+
+  /**
+   * Pointer handling for the orientation widget.
+   *
+   * The widget is drawn into the canvas, so its clicks arrive as canvas clicks
+   * and something has to take them first. Capture phase on the host rather than
+   * on the canvas: at the target element listeners run in the order they were
+   * added whatever phase they claim, and OrbitControls got there first.
+   *
+   * The rule is that a press either belongs to the widget entirely or does not
+   * touch it. Nothing downstream — initPicking, OrbitControls, the gizmo — has
+   * to know this exists.
+   */
+  private initTriadPicking(): void {
+    const opt = { capture: true, signal: this.listeners.signal };
+    const dom = this.renderer.domElement;
+    // A footprint tool owns every click on the ground; the widget must not
+    // swallow one and turn a corner into a view change.
+    const hit = (e: PointerEvent): ViewAxis | null =>
+      this.active && !this.drawTool ? this.triad.pick(e, dom, this.rightInset) : null;
+
+    this.host.addEventListener(
+      'pointerdown',
+      (e) => {
+        const axis = hit(e);
+        if (!axis) return this.cancelSnap(); // a press anywhere else ends a tween
+        this.triadPress = { axis, x: e.clientX, y: e.clientY };
+        this.host.setPointerCapture(e.pointerId);
+        e.stopPropagation();
+        e.preventDefault();
+      },
+      opt,
+    );
+
+    this.host.addEventListener(
+      'pointerup',
+      (e) => {
+        const p = this.triadPress;
+        this.triadPress = null;
+        if (!p) return;
+        this.host.releasePointerCapture(e.pointerId);
+        e.stopPropagation();
+        e.preventDefault();
+        // The same click-versus-orbit threshold the scene pick uses, so a slip
+        // of the pointer on the widget is a miss rather than a view change.
+        if (Math.hypot(e.clientX - p.x, e.clientY - p.y) <= CLICK_PX) this.snapTo(p.axis);
+      },
+      opt,
+    );
+
+    this.host.addEventListener(
+      'pointermove',
+      (e) => {
+        if (this.triadPress) {
+          e.stopPropagation();
+          return;
+        }
+        this.host.style.cursor = hit(e) ? 'pointer' : '';
+      },
+      opt,
+    );
+
+    // Scrolling is a deliberate camera move, so it ends a tween — but it is
+    // still the controls' event and is left to reach them.
+    this.host.addEventListener('wheel', () => this.cancelSnap(), opt);
+  }
+
+  /** Hold the widget clear of whatever is docked on the right, in CSS pixels. */
+  setRightInset(px: number): void {
+    this.rightInset = px;
   }
 
   /** z0 is the site's ground elevation: model z is absolute where the scene has a
    *  vertical datum, so orbiting about z = 0 would put the pivot as far under the
    *  ground as the site is above sea level. */
   private frameCamera(radius: number, z0: number): void {
+    this.fitRadius = radius;
+    this.fitZ0 = z0;
     const dist = radius * 1.05 * 2.4;
     const target = new THREE.Vector3(0, 0, z0);
     if (this.firstFrame) {
@@ -415,13 +667,120 @@ export class Viewer {
       this.controls.target.copy(target);
       this.camera.position.copy(dir.multiplyScalar(dist)).add(target);
     }
-    this.camera.near = Math.max(0.5, dist / 2000);
-    this.camera.far = dist * 25;
-    this.camera.updateProjectionMatrix();
+    if (this.camera instanceof THREE.OrthographicCamera) {
+      // The framing an equivalent perspective camera would show from here, so a
+      // rebuild lands on the same view whichever projection is up.
+      const h = FOV_K * dist;
+      this.camera.top = h / 2;
+      this.camera.bottom = -h / 2;
+      this.camera.zoom = 1;
+    }
+    this.applyFrustum();
+    this.resize(); // left/right follow the new vertical extent
     this.controls.update();
+  }
 
-    // Sit the dome well inside [near, far] so it is never clipped at either end.
-    this.skyDome.scale.setScalar(this.camera.far * 0.4);
+  /**
+   * Near, far and the sky dome, for whichever camera is live.
+   *
+   * Split out of frameCamera because a projection swap has to redo all three
+   * without touching the eye — and because the two projections want genuinely
+   * different answers, not a shared one with a branch bolted on.
+   */
+  private applyFrustum(): void {
+    const c = this.camera;
+    const dist = c.position.distanceTo(this.controls.target);
+    // The site's own framing distance, not the current one: a user dollied
+    // right up to a wall should not drag near/far in with them.
+    const span = Math.max(dist, this.fitRadius * 2.52, 1);
+    if (c instanceof THREE.OrthographicCamera) {
+      // A parallel frustum is a box, not a cone. A slab starting at the eye
+      // clips whatever the orbit has left behind it, and there is no depth
+      // precision to buy back by keeping near positive — ortho depth is linear.
+      c.near = -span * 0.5;
+      c.far = span * 25;
+    } else {
+      c.near = Math.max(0.5, span / 2000);
+      c.far = span * 25;
+    }
+    c.updateProjectionMatrix();
+    this.syncSkyDome();
+  }
+
+  /**
+   * Size the sky dome for the projection in force.
+   *
+   * The dome is a sphere centred on the eye, so under parallel rays the
+   * gradient it shows is set purely by its radius: make it large and every
+   * pixel's view ray tilts by the same negligible amount, the gradient
+   * flattens to one fill and the horizon disappears. Sizing it to the distance
+   * a 45° cone would need to span the current frustum reproduces the
+   * perspective spread exactly, so the sky is unchanged across the toggle.
+   *
+   * That radius tracks zoom, which is why this runs per frame under parallel
+   * rather than only when the frustum is rebuilt — hold it fixed and the
+   * horizon crawls as you scroll. It leaves the dome small enough to sit inside
+   * the site, which is harmless: it writes no depth and draws first (sky.ts),
+   * so it is a backdrop wherever it lands. At ~1.21x the frustum height it
+   * still clears the half-diagonal at any sane aspect.
+   */
+  private syncSkyDome(): void {
+    const c = this.camera;
+    this.skyDome.scale.setScalar(
+      c instanceof THREE.OrthographicCamera ? (c.top - c.bottom) / c.zoom / FOV_K : c.far * 0.4,
+    );
+  }
+
+  /**
+   * Swap the projection, keeping the view.
+   *
+   * The framing that has to survive is the world height on show at the orbit
+   * target: FOV_K * distance under perspective, (top - bottom) / zoom under
+   * parallel. Equating the two gives both directions, so a round trip returns
+   * the eye to where it started — with any orthographic zooming done in
+   * between converted into distance, which is the only honest reading of it.
+   */
+  setProjection(ortho: boolean): void {
+    if (ortho === this.ortho) return;
+    const from = this.camera;
+    const to: ViewerCamera = ortho ? this.orthoCam : this.perspCam;
+    const target = this.controls.target;
+    const dist = Math.max(1e-3, from.position.distanceTo(target));
+
+    if (ortho) {
+      const h = FOV_K * dist;
+      this.orthoCam.top = h / 2;
+      this.orthoCam.bottom = -h / 2;
+      this.orthoCam.zoom = 1;
+      this.orthoCam.position.copy(from.position); // the eye does not move
+    } else {
+      const h = (this.orthoCam.top - this.orthoCam.bottom) / this.orthoCam.zoom;
+      const d = THREE.MathUtils.clamp(
+        h / FOV_K,
+        this.controls.minDistance,
+        this.controls.maxDistance,
+      );
+      const dir = from.position.clone().sub(target).normalize();
+      this.perspCam.position.copy(dir.multiplyScalar(d)).add(target);
+    }
+    to.quaternion.copy(from.quaternion);
+
+    // The dome is parented to the camera, so it has to travel with the swap;
+    // both cameras are already in the scene graph, so nothing else moves.
+    from.remove(this.skyDome);
+    to.add(this.skyDome);
+
+    this.camera = to;
+    this.ortho = ortho;
+    // Reassigning the controls' camera works because update() reads
+    // scope.object throughout. Its one bare `object` reference — the lookAt at
+    // OrbitControls.js:362 — sits behind zoomToCursor, which is off. Turning
+    // zoomToCursor on would break this.
+    this.controls.object = to;
+    this.gizmo.camera = to; // a defineProperty setter; TC already branches on ortho
+    this.applyFrustum();
+    this.resize();
+    this.controls.update();
   }
 
   private static disposeGroup(g: THREE.Object3D): void {
@@ -1422,6 +1781,12 @@ export class Viewer {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.resizeObserver.disconnect();
+    // These sit on the host, which is React's div and outlives the viewer —
+    // unlike initPicking's, which go with the canvas when it is removed below.
+    // Left behind, a disposed viewer would keep hit-testing on every pointer
+    // move, and StrictMode mounts twice.
+    this.listeners.abort();
+    this.triad.dispose();
     this.gizmo.detach();
     this.gizmo.dispose();
     this.controls.dispose();

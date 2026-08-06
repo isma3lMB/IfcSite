@@ -27,6 +27,7 @@ export const fr: Dict = {
   'ui.close': 'Fermer',
   'ui.options': 'Options',
   'ui.originMarker': 'Afficher l’origine du modèle',
+  'ui.projection': 'Vue orthographique',
 
   /* ---- barre d’outils : uniquement des icônes, donc chacun de ces libellés
      est tout ce que l’outil obtient — infobulle et aria-label à la fois. ---- */

@@ -1,7 +1,7 @@
 'use client';
 
 import type { RefObject } from 'react';
-import { IconCompass, IconOrigin } from '@/components/icons';
+import { IconCompass, IconOrigin, IconProjection } from '@/components/icons';
 import { LangToggle } from '@/components/lang-toggle';
 import { useT } from '@/lib/i18n/context';
 import type { ViewTab } from '@/lib/types';
@@ -11,6 +11,8 @@ export type UtilChipProps = {
   compassRef: RefObject<HTMLDivElement | null>;
   showOrigin: boolean;
   onShowOrigin: (v: boolean) => void;
+  ortho: boolean;
+  onOrtho: (v: boolean) => void;
   infoOpen: boolean;
   onInfo: () => void;
 };
@@ -42,19 +44,32 @@ export function UtilChip(p: UtilChipProps) {
         <IconCompass />
       </div>
 
-      {/* Only means anything with the 3D view up — it toggles a marker in the
-          scene, and the origin it belongs to reads out in the status bar. */}
+      {/* Both only mean anything with the 3D view up: one toggles a marker in
+          the scene, the other the projection it is drawn with. */}
       {!isMap && (
-        <button
-          type="button"
-          className={`iconBtn${p.showOrigin ? ' on' : ''}`}
-          title={t('ui.originMarker')}
-          aria-label={t('ui.originMarker')}
-          aria-pressed={p.showOrigin}
-          onClick={() => p.onShowOrigin(!p.showOrigin)}
-        >
-          <IconOrigin />
-        </button>
+        <>
+          <button
+            type="button"
+            className={`iconBtn${p.showOrigin ? ' on' : ''}`}
+            title={t('ui.originMarker')}
+            aria-label={t('ui.originMarker')}
+            aria-pressed={p.showOrigin}
+            onClick={() => p.onShowOrigin(!p.showOrigin)}
+          >
+            <IconOrigin />
+          </button>
+
+          <button
+            type="button"
+            className={`iconBtn${p.ortho ? ' on' : ''}`}
+            title={t('ui.projection')}
+            aria-label={t('ui.projection')}
+            aria-pressed={p.ortho}
+            onClick={() => p.onOrtho(!p.ortho)}
+          >
+            <IconProjection />
+          </button>
+        </>
       )}
 
       <button

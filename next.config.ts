@@ -19,6 +19,9 @@ const nextConfig: NextConfig = {
     // Next reaches for by default; this routes type checking through the CLI.
     useTypeScriptCli: true,
   },
+  allowedDevOrigins: ['192.168.1.12']
 };
-
+// module.exports = {
+//   allowedDevOrigins: ['192.168.1.12'],
+// }
 export default nextConfig;

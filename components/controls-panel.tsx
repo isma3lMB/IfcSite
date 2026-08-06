@@ -1,15 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { PlaceSearch } from '@/components/place-search';
 import { ACCURACY_CELL, MAX_GRID_N, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
 import { useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
-import type { Place } from '@/lib/sources/nominatim';
 import type { BuildOptions, Provider, SiteRect, TerrainAccuracy } from '@/lib/types';
 
 /**
@@ -42,8 +39,6 @@ export type ControlsPanelProps = {
   form: BuildOptions;
   onChange: (patch: Partial<BuildOptions>) => void;
   rect: SiteRect | null;
-  onPickPlace: (p: Place) => void;
-  onSearchFailed: (error: unknown) => void;
   onClose: () => void;
 };
 
@@ -59,11 +54,6 @@ export type ControlsPanelProps = {
 export function ControlsPanel(p: ControlsPanelProps) {
   const { t, n } = useT();
   const ign = p.form.provider === 'ign';
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  // Opening the panel is almost always the start of "go somewhere", so the
-  // caret lands in the search box — the same courtesy the confirm card does.
-  useEffect(() => searchRef.current?.focus(), []);
 
   /* The trigger shows the label of the selected option rather than the bare
      value ("2154", "osm") only if the root is handed the whole map, so the list
@@ -114,12 +104,6 @@ export function ControlsPanel(p: ControlsPanelProps) {
           ✕
         </button>
       </div>
-
-      <PlaceSearch
-        inputRef={searchRef}
-        onPickPlace={p.onPickPlace}
-        onSearchFailed={p.onSearchFailed}
-      />
 
       {/* No site-extent box here any more: the rectangle's size is in the status
           bar the moment there is one, and stating it twice is what made the

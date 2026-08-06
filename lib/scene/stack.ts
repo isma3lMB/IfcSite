@@ -58,11 +58,11 @@ export const TERRAIN_COLOR = 0xe8e7e4;
 /** Trees, for the same reason again: the preview draws instanced cones and the
  *  export bakes one faceset, and the canopy colour used to be written out twice. */
 export const TREE_TRUNK_COLOR = 0x833e2f;
-export const TREE_CANOPY_COLOR = 0x5cbe3a;
+export const TREE_CANOPY_COLOR = 0x51a634;
 
 /** Roads. Unlike everything else here this one is drawn unlit in the preview
  *  (MeshBasicMaterial, so it reaches the screen as written) but will be lit by
  *  whatever an IFC viewer does, so it reads a little darker in the file than on
  *  screen. Shared anyway — one value that is slightly differently lit beats two
  *  values that can drift apart. */
-export const ROAD_COLOR = 0xc4c4c4;
+export const ROAD_COLOR = 0xb0b0b0;

@@ -39,6 +39,15 @@ export const IconOptions = () => (
   </Svg>
 );
 
+/* A magnifying glass — the one pictogram for "find a place" that needs no
+   caption of its own. */
+export const IconSearch = () => (
+  <Svg>
+    <circle cx="6.6" cy="6.6" r="4.4" />
+    <path d="M9.8 9.8 14 14" />
+  </Svg>
+);
+
 /* Literally the gesture: a dashed rectangle and the two corners you click. */
 export const IconDrawSite = () => (
   <Svg>
@@ -129,6 +138,17 @@ export const IconRedo = () => (
       <path d="M5.2 3.6 2.2 6.6l3 3" />
       <path d="M2.2 6.6h6.4a3.9 3.9 0 1 1 0 7.8H5.4" />
     </g>
+  </Svg>
+);
+
+/* A box drawn in parallel projection — every edge that is parallel in the model
+   is parallel here, which is the whole of what the toggle does. A perspective
+   icon would have to converge, and two vanishing points do not survive 16 px. */
+export const IconProjection = () => (
+  <Svg>
+    <rect x="2.5" y="5.5" width="7" height="7" />
+    <path d="M2.5 5.5 6 2h7v7l-3.5 3.5" />
+    <path d="M9.5 5.5 13 2" />
   </Svg>
 );
 
