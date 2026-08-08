@@ -1,14 +1,26 @@
 import * as THREE from 'three';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
+import {
+  appendGeometry,
+  treeCanopyGeometry,
+  treeTrunkGeometry,
+  treeTrunkHeight,
+} from '@/lib/geo/treeShape';
 import type { SampleZ, ToGeo, Tree, Vec2, Vec3 } from '@/lib/types';
 
-/** three.js already ships an earcut implementation; no reason to carry a second. */
-export function triangulate(ring: Vec2[]): number[][] {
+/**
+ * three.js already ships an earcut implementation; no reason to carry a
+ * second. `holes`, when given, follows earcut/ShapeUtils convention: the
+ * returned index triples index into the CONCATENATION of `ring`'s points
+ * followed by each hole's points in order, so a caller must push `ring`'s
+ * verts then each hole's verts, in that same order, before mapping faces.
+ */
+export function triangulate(ring: Vec2[], holes: Vec2[][] = []): number[][] {
   if (ring.length < 3) return [];
   try {
     return THREE.ShapeUtils.triangulateShape(
       ring.map((p) => new THREE.Vector2(p[0], p[1])),
-      [],
+      holes.map((h) => h.map((p) => new THREE.Vector2(p[0], p[1]))),
     );
   } catch {
     return [];
@@ -65,29 +77,26 @@ export function prismInto(
 }
 
 /**
- * A 6-sided trunk and a 6-sided canopy cone, appended into shared arrays.
- * ~24 triangles a tree: enough to read as planting, cheap enough to merge.
+ * A tree's trunk and canopy, appended into shared arrays at the LOCAL
+ * origin — not at the tree's x/y/z. The IFC writer places each tree
+ * individually (see addTree in lib/ifc/writer), the same way a building's
+ * profile is local to its own centre; the live viewer builds the identical
+ * shapes from the same lib/geo/treeShape helpers, so the exported tree always
+ * matches the one on screen.
  */
-export const TREE_SIDES = 6;
-
-export function treeProxy(t: Tree, verts: Vec3[], faces: number[][]): void {
-  const base = verts.length;
-  const trunkH = Math.max(t.h * 0.35, 0.6);
-  for (let i = 0; i < TREE_SIDES; i++) {
-    const a = (i / TREE_SIDES) * Math.PI * 2;
-    const cx = Math.cos(a);
-    const sy = Math.sin(a);
-    verts.push([t.x + cx * t.tr, t.y + sy * t.tr, t.z]); // trunk foot
-    verts.push([t.x + cx * t.tr, t.y + sy * t.tr, t.z + trunkH]); // trunk top
-    verts.push([t.x + cx * t.cr, t.y + sy * t.cr, t.z + trunkH]); // canopy skirt
-  }
-  const apex = verts.length;
-  verts.push([t.x, t.y, t.z + t.h]);
-  for (let i = 0; i < TREE_SIDES; i++) {
-    const p = base + i * 3;
-    const q = base + ((i + 1) % TREE_SIDES) * 3;
-    faces.push([p, q, q + 1], [p, q + 1, p + 1]); // trunk wall
-    faces.push([p + 2, q + 2, apex]); // canopy cone
-    faces.push([p + 1, q + 1, q + 2], [p + 1, q + 2, p + 2]); // skirt underside
-  }
+export function treeProxy(
+  t: Pick<Tree, 'h' | 'cr' | 'tr'>,
+  verts: Vec3[],
+  faces: number[][],
+): void {
+  const trunkH = treeTrunkHeight(t.h);
+  const canopyH = Math.max(t.h - trunkH, 0.1);
+  const m = new THREE.Matrix4();
+  appendGeometry(treeTrunkGeometry(), m.makeScale(t.tr, t.tr, trunkH), verts, faces);
+  appendGeometry(
+    treeCanopyGeometry(),
+    m.makeScale(t.cr, t.cr, canopyH / 2).setPosition(0, 0, trunkH + canopyH / 2),
+    verts,
+    faces,
+  );
 }

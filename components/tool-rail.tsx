@@ -13,6 +13,7 @@ import {
   IconScale,
   IconSearch,
   IconSelect,
+  IconTree,
   IconUndo,
   IconZoomSite,
 } from '@/components/icons';
@@ -96,6 +97,13 @@ export function ToolRail(p: ToolRailProps) {
             tip: t('rail.drawPoly'),
             on: p.drawTool === 'polygon',
             onClick: () => p.onDrawTool('polygon'),
+          },
+          {
+            key: 'tree',
+            icon: <IconTree />,
+            tip: t('rail.drawTree'),
+            on: p.drawTool === 'tree',
+            onClick: () => p.onDrawTool('tree'),
           },
         ],
         [

@@ -33,6 +33,7 @@ export const en = {
   'rail.select': 'Select (Esc)',
   'rail.drawBox': 'Draw a box footprint',
   'rail.drawPoly': 'Draw a polygon footprint',
+  'rail.drawTree': 'Plant a tree',
 
   /* ---- status bar: the one place anything is stated ---- */
   'bar.site': 'Site',
@@ -41,10 +42,12 @@ export const en = {
   'bar.stale': 'Site moved since the last build — rebuild before exporting.',
   'bar.drawHeight': 'H (m)',
   'bar.newHeightTitle': 'Height of the next drawn building (m)',
+  'bar.newTreeHeightTitle': 'Height of the next planted tree (m)',
   'bar.drawHintRect': 'Drag on the ground to box out a footprint. Esc cancels.',
   'bar.drawHintPoly':
     'Click each corner on the ground — no crossing edges. Enter or the first corner closes it, Esc cancels.',
   'bar.drawHintPoints': '{n} corners — Enter closes, Esc cancels.',
+  'bar.drawHintTree': 'Click on the ground to plant a tree. Esc cancels.',
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Find a place',
@@ -109,6 +112,7 @@ export const en = {
   'ed.delete': 'Delete',
   'ed.deleteTitle': 'Delete (Del)',
   'ed.drawnName': 'Drawn building',
+  'ed.drawnTreeName': 'Drawn tree',
   'ed.position': 'Position offset (m)',
   'ed.rotation': 'Rotation (°)',
   'ed.scaleLabel': 'Scale',
@@ -192,12 +196,12 @@ export const en = {
   /* ---- confirmations ----
      Singular and plural are separate entries rather than an "(s)": this card
      exists to be read carefully, and one drawn building is the common case. */
-  'confirm.discardTitle': 'Discard drawn buildings?',
-  'confirm.discardTitleOne': 'Discard the drawn building?',
+  'confirm.discardTitle': 'Discard drawn elements?',
+  'confirm.discardTitleOne': 'Discard the drawn element?',
   'confirm.discardDrawn':
-    'Rebuilding re-fetches the site from its sources, and {n} hand-drawn buildings are not in them. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
+    'Rebuilding re-fetches the site from its sources, and {n} hand-drawn buildings and trees are not in them. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.discardDrawnOne':
-    'Rebuilding re-fetches the site from its sources, and your hand-drawn building is not in them. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
+    'Rebuilding re-fetches the site from its sources, and your hand-drawn element is not in them. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.rebuildAnyway': 'Rebuild anyway',
   'confirm.keep': 'Keep editing',
 

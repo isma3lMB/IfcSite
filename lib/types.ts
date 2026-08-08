@@ -92,6 +92,27 @@ export type Grid = {
 };
 
 /**
+ * What every opaque cutting layer (water, vegetation, roads, ...) feeds
+ * lib/geo/conform's final terrain pass, threaded through lib/build/run and
+ * accumulated per-layer by lib/sources/ign's fetchThemeLayer and
+ * lib/scene/push's finishRoads.
+ *
+ * `coverage` is the existing fractional map, keyed by terrain face index,
+ * used as a cheap pre-filter (drop a face once it reads ~fully covered).
+ * `touched`/`rings` are what let a partially-covered face be split exactly
+ * along the true boundary instead of kept whole: `touched` names the real
+ * terrain faces some ring's own boundary actually crosses, and `rings` is
+ * the flat list of contributing rings (local metres, post site-clip) that a
+ * touched face re-clips against on demand — no per-triangle geometry is
+ * stored during the walk, only these two small, boundary-bounded collections.
+ */
+export type CutAccumulator = {
+  coverage: Map<number, number>;
+  touched: Set<number>;
+  rings: Vec2[][];
+};
+
+/**
  * A draped, triangulated context layer (vegetation, water, parcels, merged
  * hedges). Every vertex carries its own elevation, so a layer follows the
  * terrain instead of taking one arbitrary corner's height.
@@ -110,6 +131,7 @@ export type Surface = {
 };
 
 export type Tree = {
+  id: string;
   x: number;
   y: number;
   z: number;
@@ -121,6 +143,10 @@ export type Tree = {
   tr: number;
   name: string;
   props: PropBag;
+  xf: Xf;
+  /** Fetched vs hand-placed — same narrow purpose as Building.src: only to
+   *  drive the "discard hand-drawn work" rebuild warning, not colour. */
+  src: 'osm' | 'user';
 };
 
 /**

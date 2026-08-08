@@ -55,8 +55,9 @@ export const layerOpacity = (layer?: string): number => LAYER_OPACITY[layer ?? '
  *  reads as comes from. */
 export const TERRAIN_COLOR = 0xe8e7e4;
 
-/** Trees, for the same reason again: the preview draws instanced cones and the
- *  export bakes one faceset, and the canopy colour used to be written out twice. */
+/** Trees, for the same reason again: the preview draws its own low-poly
+ *  meshes and the export bakes the same shape per element, so the canopy
+ *  colour is not written out twice by hand. */
 export const TREE_TRUNK_COLOR = 0x833e2f;
 export const TREE_CANOPY_COLOR = 0x51a634;
 

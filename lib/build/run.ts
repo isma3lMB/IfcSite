@@ -1,6 +1,6 @@
 import proj4 from 'proj4';
 import { AppError } from '@/lib/errors';
-import { cutCovered } from '@/lib/geo/conform';
+import { cutAndSplitCovered } from '@/lib/geo/conform';
 import { resolveCRS } from '@/lib/geo/crs';
 import { ACCURACY_CELL } from '@/lib/geo/grid';
 import {
@@ -15,12 +15,13 @@ import {
 } from '@/lib/sources/ign';
 import { TREE_CAP, osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
 import { terrariumGrid } from '@/lib/sources/terrain';
-import { BUILDING_CAP } from '@/lib/scene/push';
+import { BUILDING_CAP, finishRoads } from '@/lib/scene/push';
 import { emptyScene } from '@/lib/types';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
   BuildOptions,
   BuildSummary,
+  CutAccumulator,
   SampleZ,
   SceneData,
   Site,
@@ -157,6 +158,7 @@ export async function runBuild(
 
   let tagged = 0;
   let capped = false;
+  let roadRings: Vec2[][] = [];
 
   try {
     if (ign) {
@@ -172,10 +174,13 @@ export async function runBuild(
       );
       tagged = r.tagged;
       capped = r.over;
+      roadRings = r.roadRings;
     } else {
       onStatus('status.queryingOverpass');
       const data = await overpass(site, opts.roads);
-      tagged = parseOSM(scene, data, site, toLocal, toGeo, sampleZ, fallbackH, opts.roads);
+      const r = parseOSM(scene, data, site, toLocal, sampleZ, fallbackH, opts.roads);
+      tagged = r.tagged;
+      roadRings = r.roadRings;
       capped = scene.buildings.length >= BUILDING_CAP;
     }
   } catch (e) {
@@ -185,32 +190,32 @@ export async function runBuild(
   // Theme layers are context: one failing or empty layer must never cost you
   // the build, so each is reported and skipped on its own.
   const skipped: LayerKey[] = [];
-  // How much of each terrain face the opaque layers end up burying.
-  const coverage = new Map<number, number>();
+  // How much of each terrain face the opaque layers (and, after finishRoads,
+  // roads) end up burying, plus enough of their own boundary geometry to
+  // split a partially-covered face exactly instead of keeping it whole.
+  const cut: CutAccumulator = { coverage: new Map(), touched: new Set(), rings: [] };
   for (const key of themes) {
     const label = IGN_LAYERS[key].label!;
     onStatus('status.fetchingIgnLayer', { layer: label });
     try {
-      await fetchThemeLayer(
-        scene,
-        key,
-        site,
-        toLocal,
-        toGeo,
-        sampleZ,
-        LAYER_IFC_NAME[key],
-        coverage,
-      );
+      await fetchThemeLayer(scene, key, site, toLocal, toGeo, sampleZ, LAYER_IFC_NAME[key], cut);
     } catch {
       skipped.push(label);
     }
   }
 
+  // Unions every road-segment quad collected above into clean ribbons, drapes
+  // them onto the terrain, and folds their coverage into `cut` the same way
+  // the theme layers above just did.
+  finishRoads(scene, roadRings, toGeo, sampleZ, cut);
+
   // Ground that is completely under an opaque layer is ground nobody can see,
-  // and leaving it in only gives a viewer's depth buffer an argument to lose.
-  // Safe here: nothing reads terrain.faces during the build — conformToTerrain
-  // works off verts/n, and sample closes over its own grid.
-  if (scene.terrain) scene.terrain = cutCovered(scene.terrain, coverage);
+  // and leaving it in only gives a viewer's depth buffer an argument to lose;
+  // a face only partly covered is now split exactly along the true boundary
+  // instead of kept whole. Safe here: nothing reads terrain.faces during the
+  // build — conformToTerrain works off verts/n, and sample closes over its
+  // own grid.
+  if (scene.terrain) scene.terrain = cutAndSplitCovered(scene.terrain, cut, toGeo);
 
   if (opts.trees) {
     onStatus('status.queryingTrees');

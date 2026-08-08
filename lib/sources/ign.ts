@@ -1,5 +1,5 @@
 import { AppError } from '@/lib/errors';
-import { conformToTerrain } from '@/lib/geo/conform';
+import { conformToTerrain, touchedFaces } from '@/lib/geo/conform';
 import { MAX_GRID_N, gridSampler, gridSize } from '@/lib/geo/grid';
 import { prismInto } from '@/lib/geo/mesh';
 import { clipToBox, dedupe, densify } from '@/lib/geo/rings';
@@ -7,6 +7,7 @@ import { BUILDING_CAP, pushBuilding, pushRoadway } from '@/lib/scene/push';
 import { LAYER_DZ, layerOpacity } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
+  CutAccumulator,
   Grid,
   HeightSource,
   PropBag,
@@ -336,11 +337,12 @@ export async function parseIGN(
   fallbackH: number,
   wantRoads: boolean,
   onStatus: StatusFn,
-): Promise<{ tagged: number; over: boolean }> {
+): Promise<{ tagged: number; over: boolean; roadRings: Vec2[][] }> {
   const box = site;
   const inSite = (x: number, y: number) => Math.abs(x) <= site.halfX && Math.abs(y) <= site.halfY;
   let tagged = 0;
   let over = false;
+  const roadRings: Vec2[][] = [];
 
   onStatus('status.fetchingIgnBuildings');
   const bat = await wfs(
@@ -440,11 +442,11 @@ export async function parseIGN(
         // That test kept a whole 5 km troncon for one vertex inside, and dropped
         // a road crossing the site cleanly with every vertex outside it — routine
         // on a small site, where a straight run spans the box in one segment.
-        pushRoadway(scene, r.map((c): Vec2 => toLocal(c[0], c[1])), w, toGeo, sampleZ, site);
+        pushRoadway(roadRings, r.map((c): Vec2 => toLocal(c[0], c[1])), w, site);
       }
     }
   }
-  return { tagged, over };
+  return { tagged, over, roadRings };
 }
 
 /**
@@ -461,7 +463,7 @@ export async function fetchThemeLayer(
   toGeo: ToGeo,
   sampleZ: SampleZ,
   layerName: string,
-  coverage?: Map<number, number>,
+  cut?: CutAccumulator,
 ): Promise<number> {
   const L = IGN_LAYERS[key];
   const hx = site.halfX;
@@ -476,7 +478,8 @@ export async function fetchThemeLayer(
   // Tallied per layer and merged by max at the end: two neighbouring water
   // bodies each taking part of a face should add up, but water lying over
   // vegetation must not, or their two partial claims would sum into a hole.
-  const mine = coverage && layerOpacity(layer) >= 1 ? new Map<number, number>() : undefined;
+  const mine = cut && layerOpacity(layer) >= 1 ? new Map<number, number>() : undefined;
+  const mineRings: Vec2[][] = [];
   let n = 0;
 
   // Every vertex of every prism gets its own elevation, so the base follows the
@@ -544,6 +547,7 @@ export async function fetchThemeLayer(
       // what makes the centimetre offsets in lib/scene/stack decide the order.
       const { verts, faces } = conformToTerrain(ring, scene.terrain, toGeo, sampleZ, L.dz!, mine);
       if (!faces.length) continue;
+      if (mine) mineRings.push(ring);
       scene.surfaces.push({
         verts,
         faces,
@@ -566,7 +570,12 @@ export async function fetchThemeLayer(
       name: `${layerName} (BD TOPO)`,
     });
 
-  if (coverage && mine)
-    for (const [k, v] of mine) coverage.set(k, Math.max(coverage.get(k) ?? 0, v));
+  if (cut && mine) {
+    for (const rr of mineRings) {
+      cut.rings.push(rr);
+      for (const f of touchedFaces(rr, scene.terrain)) cut.touched.add(f);
+    }
+    for (const [k, v] of mine) cut.coverage.set(k, Math.max(cut.coverage.get(k) ?? 0, v));
+  }
   return n;
 }

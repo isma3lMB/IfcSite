@@ -36,6 +36,7 @@ export const fr: Dict = {
   'rail.select': 'Sélectionner (Échap)',
   'rail.drawBox': 'Tracer une emprise rectangulaire',
   'rail.drawPoly': 'Tracer une emprise polygonale',
+  'rail.drawTree': 'Planter un arbre',
 
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
   'bar.site': 'Site',
@@ -44,10 +45,12 @@ export const fr: Dict = {
   'bar.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
   'bar.drawHeight': 'H (m)',
   'bar.newHeightTitle': 'Hauteur du prochain bâtiment tracé (m)',
+  'bar.newTreeHeightTitle': 'Hauteur du prochain arbre planté (m)',
   'bar.drawHintRect': 'Glissez sur le sol pour tracer une emprise rectangulaire. Échap annule.',
   'bar.drawHintPoly':
     'Cliquez chaque sommet sur le sol — sans arêtes croisées. Entrée ou le premier sommet ferme le contour, Échap annule.',
   'bar.drawHintPoints': '{n} sommets — Entrée ferme, Échap annule.',
+  'bar.drawHintTree': 'Cliquez sur le sol pour planter un arbre. Échap annule.',
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Rechercher un lieu',
@@ -108,6 +111,7 @@ export const fr: Dict = {
   'ed.delete': 'Supprimer',
   'ed.deleteTitle': 'Supprimer (Suppr)',
   'ed.drawnName': 'Bâtiment tracé',
+  'ed.drawnTreeName': 'Arbre planté',
   'ed.position': 'Décalage de position (m)',
   'ed.rotation': 'Rotation (°)',
   'ed.scaleLabel': 'Échelle',
@@ -191,12 +195,12 @@ export const fr: Dict = {
   'edit.originReset': 'Origine recentrée',
 
   /* ---- confirmations ---- */
-  'confirm.discardTitle': 'Supprimer les bâtiments tracés ?',
-  'confirm.discardTitleOne': 'Supprimer le bâtiment tracé ?',
+  'confirm.discardTitle': 'Supprimer les éléments tracés ?',
+  'confirm.discardTitleOne': 'Supprimer l’élément tracé ?',
   'confirm.discardDrawn':
-    'Reconstruire recharge le site depuis ses sources, où vos {n} bâtiments tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Reconstruire recharge le site depuis ses sources, où vos {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.discardDrawnOne':
-    'Reconstruire recharge le site depuis ses sources, où votre bâtiment tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Reconstruire recharge le site depuis ses sources, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.rebuildAnyway': 'Reconstruire quand même',
   'confirm.keep': 'Continuer l’édition',
 

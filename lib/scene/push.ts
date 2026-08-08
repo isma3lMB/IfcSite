@@ -1,15 +1,18 @@
+import { unionRings } from '@/lib/geo/boolean';
+import { conformToTerrain, touchedFaces } from '@/lib/geo/conform';
 import { clipPolyline, clipToBox, dedupe, densify, ensureCCW, ringCentre } from '@/lib/geo/rings';
 import { LAYER_DZ } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
 import type {
+  CutAccumulator,
   HeightSource,
   PropBag,
   SampleZ,
   SceneData,
   Site,
   ToGeo,
+  Tree,
   Vec2,
-  Vec3,
 } from '@/lib/types';
 
 /** Past this the browser, not the services, becomes the bottleneck. */
@@ -47,14 +50,48 @@ export function pushBuilding(
   return true;
 }
 
+/**
+ * Crown/trunk radius for a tree of the given height, when nothing more
+ * specific is known. Mirrors the OSM-tag fallback in lib/sources/overpass so
+ * a hand-placed tree and an untagged fetched one read the same size.
+ */
+export function defaultTreeDims(h: number): { cr: number; tr: number } {
+  return { cr: Math.max(Math.min(2.5, h * 0.32), 0.4), tr: 0.15 };
+}
+
+/** A single planted tree — fetched or hand-placed, both go through here. */
+export function pushTree(
+  scene: SceneData,
+  x: number,
+  y: number,
+  z: number,
+  h: number,
+  cr: number,
+  tr: number,
+  id: string,
+  name: string,
+  props: PropBag,
+  src: Tree['src'],
+): void {
+  scene.trees.push({ id, x, y, z, h, cr, tr, name, props, xf: newXf(), src });
+}
+
 /** Stations closer than this add vertices without adding fidelity: the IGN grid
  * is ~15 m, so two samples a cell is already more than the DEM knows. */
 const ROAD_STEP = 8;
 
 /**
- * One quad per centreline segment, cut to the site box. Crude at junctions, but
- * it needs no buffer/union library. For clean joins bring in turf or
- * polygon-clipping.
+ * One quad per centreline segment, cut to the site box, unioned into one (or
+ * a handful, if the clip split the road into separate runs) clean ribbon per
+ * road before it's appended to the caller-owned `rings` collector — rather
+ * than drapped or pushed into the scene directly. Unioning here, per road,
+ * fixes a single road's own bend/junction raggedness (each segment stops
+ * being its own independent, unjoined quad) and keeps the batch handed to
+ * the boolean library small: finishRoads below still does one more union
+ * across every road's ribbon to merge where distinct roads cross, but by
+ * then the input is a few dozen simple polygons instead of thousands of raw
+ * quads, which is both cheaper and far less likely to hit the sweep line's
+ * failure modes on real-world road geometry.
  *
  * The clip is not cosmetic. Overpass `out geom` and the IGN WFS BBOX are both
  * *intersects* filters, so a motorway that catches one corner of the site
@@ -68,33 +105,14 @@ const ROAD_STEP = 8;
  * Order matters here. The centreline is filtered first, against the box grown
  * by half a carriageway so a road running just outside still contributes the
  * half of its surface that is inside; only what survives is densified and
- * draped. Doing it the other way round pays ~10000 proj4 inversions per long
+ * buffered. Doing it the other way round pays ~10000 proj4 inversions per long
  * way to produce a handful of quads, and lets DENSIFY_CAP run out before
  * reaching the stretch that is actually on site.
- *
- * Elevation is looked up at every corner rather than at the centreline:
- * a carriageway is up to 13 m wide, so a quad held flat across its width cuts
- * into the hillside on any cross-slope and the road vanishes behind the ground.
- * Draping every corner banks the ribbon with the terrain — not how a road is
- * built, but at this level of detail a ribbon that never buries and never
- * floats beats a geometrically honest one that does both. Draping *after* the
- * clip is what makes the cut edge sit flush: the vertices the clip introduces on
- * the boundary get their own sample instead of one interpolated from off-site.
  */
-export function pushRoadway(
-  scene: SceneData,
-  pts: Vec2[],
-  w: number,
-  toGeo: ToGeo,
-  sampleZ: SampleZ,
-  site: Site,
-): void {
+export function pushRoadway(rings: Vec2[][], pts: Vec2[], w: number, site: Site): void {
   const { halfX, halfY } = site;
   const m = w / 2;
-  const z = (x: number, y: number): number => {
-    const [lo, la] = toGeo(x, y);
-    return sampleZ(la, lo) + LAYER_DZ.road;
-  };
+  const quads: Vec2[][] = [];
   for (const run of clipPolyline(pts, -halfX - m, -halfY - m, halfX + m, halfY + m)) {
     const line = densify(run, ROAD_STEP);
     for (let i = 0; i < line.length - 1; i++) {
@@ -118,8 +136,54 @@ export function pushRoadway(
         halfX,
         halfY,
       );
-      if (face.length < 3) continue;
-      scene.roads.push(face.map((p): Vec3 => [p[0], p[1], z(p[0], p[1])]));
+      if (face.length >= 3) quads.push(face);
     }
+  }
+  for (const { outer } of unionRings(quads)) rings.push(outer);
+}
+
+/**
+ * The other half of what pushRoadway started. Every road's own ribbon,
+ * collected across the whole build — both providers push into the same
+ * array — is unioned once more here, which is what merges the overlap where
+ * two distinct roads cross (the raggedness within a single road's own bends
+ * was already resolved per-road, inside pushRoadway, before it got here).
+ * A ribbon's holes are dropped: a road ribbon degenerating into a donut
+ * (a roundabout fully encircling paved-free ground) is rare, and geoRings()
+ * in lib/sources/ign already discards holes from every source polygon the
+ * same way, so this is consistent with, not a regression from, the rest of
+ * the pipeline.
+ *
+ * Each merged ribbon then goes through conformToTerrain exactly like a water
+ * or vegetation ring — real terrain-conforming geometry instead of a flat
+ * per-corner drape, and real coverage so cutAndSplitCovered can finally take
+ * the ground out from under a road. roadCoverage is local and merged into
+ * `cut` by max, same discipline lib/sources/ign's fetchThemeLayer already
+ * uses: a face partly under water and partly under a road keeps whichever
+ * fraction is larger, and a face only one of them touches is untouched by
+ * the other's merge.
+ */
+export function finishRoads(
+  scene: SceneData,
+  rings: Vec2[][],
+  toGeo: ToGeo,
+  sampleZ: SampleZ,
+  cut: CutAccumulator,
+): void {
+  if (!rings.length) return;
+  for (const { outer } of unionRings(rings)) {
+    const roadCoverage = new Map<number, number>();
+    const { verts, faces } = conformToTerrain(
+      outer,
+      scene.terrain,
+      toGeo,
+      sampleZ,
+      LAYER_DZ.road,
+      roadCoverage,
+    );
+    for (const t of faces) scene.roads.push([verts[t[0]], verts[t[1]], verts[t[2]]]);
+    for (const [k, v] of roadCoverage) cut.coverage.set(k, Math.max(cut.coverage.get(k) ?? 0, v));
+    cut.rings.push(outer);
+    for (const f of touchedFaces(outer, scene.terrain)) cut.touched.add(f);
   }
 }

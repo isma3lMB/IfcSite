@@ -1,6 +1,5 @@
-import { treeProxy } from '@/lib/geo/mesh';
 import { ContextModel } from '@/lib/ifc/writer';
-import { ROAD_COLOR, TERRAIN_COLOR, TREE_CANOPY_COLOR, layerOpacity } from '@/lib/scene/stack';
+import { ROAD_COLOR, TERRAIN_COLOR, layerOpacity } from '@/lib/scene/stack';
 import type { IfcStats, SceneData, SiteMeta, Vec3 } from '@/lib/types';
 
 /**
@@ -69,14 +68,9 @@ export function emitIFC(
       1 - layerOpacity(s.layer),
     );
 
-  // One faceset for the lot. A dense quarter of Paris carries 1200 trees, and
-  // 1200 separate elements would cost more than the buildings do.
-  if (scene.trees.length) {
-    const verts: Vec3[] = [];
-    const faces: number[][] = [];
-    for (const t of scene.trees) treeProxy(t, verts, faces);
-    model.addSurface(verts, faces, 'Trees (OSM)', 'VEGETATION', TREE_CANOPY_COLOR);
-  }
+  // One element per tree, same as buildings — see addTree in lib/ifc/writer
+  // for why this stopped being a single merged faceset.
+  for (const t of scene.trees) model.addTree(t);
 
   const text = model.build();
   return {

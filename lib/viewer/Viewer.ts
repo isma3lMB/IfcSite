@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { BUILDING_CAP, pushBuilding } from '@/lib/scene/push';
+import { treeCanopyGeometry, treeTrunkGeometry, treeTrunkHeight } from '@/lib/geo/treeShape';
+import { BUILDING_CAP, defaultTreeDims, pushBuilding, pushTree } from '@/lib/scene/push';
 import {
   ROAD_COLOR,
   TERRAIN_COLOR,
@@ -15,7 +16,7 @@ import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/or
 import { SKY, createSkyDome } from '@/lib/viewer/sky';
 import { type ViewAxis, type ViewTriad, axisEye, createViewTriad } from '@/lib/viewer/viewTriad';
 import type { EditLabelKey, Params, StatusKey } from '@/lib/i18n/keys';
-import type { Building, GizmoMode, SceneData, Site, Vec2, Vec3, Xf } from '@/lib/types';
+import type { Building, GizmoMode, SceneData, Site, Tree, Vec2, Vec3, Xf } from '@/lib/types';
 
 const lighten = (hex: number, t: number): number =>
   new THREE.Color(hex).lerp(new THREE.Color(0xffffff), t).getHex();
@@ -50,7 +51,7 @@ export type Selection = {
    * its offset in xf.pos with an identity rot/scale, so the editor's position
    * row renders it with no second code path; rot, scale and colour do not apply.
    */
-  kind: 'building' | 'origin';
+  kind: 'building' | 'tree' | 'origin';
   id: string;
   name: string;
   xf: Xf;
@@ -68,8 +69,9 @@ export type Selection = {
 /** The id reported for the origin marker — it has no Building behind it. */
 export const ORIGIN_ID = '__origin__';
 
-/** Which footprint tool the ground clicks are feeding, if any. */
-export type DrawTool = 'rect' | 'polygon';
+/** Which footprint tool the ground clicks are feeding, if any. 'tree' is a
+ *  single click rather than a footprint — no drag, no ring. */
+export type DrawTool = 'rect' | 'polygon' | 'tree';
 
 export type ViewerCallbacks = {
   onSelect: (sel: Selection | null) => void;
@@ -99,6 +101,7 @@ export type ViewerCallbacks = {
  */
 type Target =
   | { kind: 'building'; obj: THREE.Mesh; b: Building }
+  | { kind: 'tree'; obj: THREE.Group; t: Tree }
   | { kind: 'origin'; obj: THREE.Object3D };
 
 /**
@@ -123,8 +126,18 @@ type Cmd =
       beforeH: number;
       afterH: number;
     }
+  | {
+      label: EditLabelKey;
+      kind: 'tree';
+      t: Tree;
+      before: Xf;
+      after: Xf;
+      beforeH: number;
+      afterH: number;
+    }
   | { label: EditLabelKey; kind: 'origin'; before: Vec3; after: Vec3 }
-  | { label: EditLabelKey; kind: 'life'; b: Building; index: number; added: boolean };
+  | { label: EditLabelKey; kind: 'life'; b: Building; index: number; added: boolean }
+  | { label: EditLabelKey; kind: 'treeLife'; t: Tree; index: number; added: boolean };
 
 /**
  * The name the origin reports. A dictionary key rather than a string: the status
@@ -171,6 +184,8 @@ const originXf = (off: THREE.Vector3): Xf => ({
 const MIN_FOOTPRINT_M2 = 1;
 /** Shortest extrusion the editor will accept, in metres. */
 const MIN_HEIGHT = 0.5;
+/** Same purpose as BUILDING_CAP, for the tree tool. */
+const TREE_DRAW_CAP = 4000;
 /** Click-versus-orbit threshold, in CSS pixels. A press that travels further
  *  than this was a camera move, whether it was aimed at picking or at drawing. */
 const CLICK_PX = 5;
@@ -254,6 +269,8 @@ export class Viewer {
   private drawHeight = 9;
   private drawName = 'Building';
   private drawSeq = 0;
+  private drawTreeName = 'Tree';
+  private drawTreeSeq = 0;
   /** Where a rectangle drag started; null unless one is in progress. */
   private rectAnchor: THREE.Vector3 | null = null;
 
@@ -263,6 +280,7 @@ export class Viewer {
   private fitRadius = 0;
   private fitZ0 = 0;
   private buildingMeshes: THREE.Mesh[] = [];
+  private treeMeshes: THREE.Group[] = [];
   private selected: Target | null = null;
   /** false while the 2D map covers the viewport — nothing to draw behind it. */
   private active = false;
@@ -281,6 +299,7 @@ export class Viewer {
   };
   private pending:
     | { kind: 'building'; b: Building; before: Xf; beforeH: number }
+    | { kind: 'tree'; t: Tree; before: Xf; beforeH: number }
     | { kind: 'origin'; before: Vec3 }
     | null = null;
 
@@ -377,9 +396,12 @@ export class Viewer {
         this.originOffset.copy(this.originMarker.position);
         this.cb.onOrigin(this.originOffset.toArray() as Vec3);
         this.cb.onTransform(originXf(this.originOffset), 0);
-      } else {
+      } else if (t.kind === 'building') {
         this.readMeshInto(t.obj, t.b.xf);
         this.cb.onTransform(cloneXf(t.b.xf), t.b.h);
+      } else {
+        this.readTreeMeshInto(t.obj, t.t.xf);
+        this.cb.onTransform(cloneXf(t.t.xf), t.t.h);
       }
       this.cb.onDirty();
     });
@@ -799,6 +821,7 @@ export class Viewer {
     this.setDrawMode(null);
     this.selectTarget(null);
     this.buildingMeshes = [];
+    this.treeMeshes = [];
     this.groundMesh = null;
     Viewer.disposeGroup(this.contentGroup);
     // A rebuild re-derives the site, so an offset measured against the old one
@@ -953,42 +976,11 @@ export class Viewer {
       this.contentGroup.add(mesh);
     }
 
-    if (scene.trees.length) {
-      // Shared geometry, one draw call each — a dense quarter runs to 1200 trees.
-      const trunkGeo = new THREE.CylinderGeometry(1, 1, 1, 6);
-      const canopyGeo = new THREE.ConeGeometry(1, 1, 7);
-      // three.js is Y-up, data is Z-up
-      trunkGeo.rotateX(Math.PI / 2);
-      canopyGeo.rotateX(Math.PI / 2);
-      trunkGeo.translate(0, 0, 0.5);
-      canopyGeo.translate(0, 0, 0.5);
-      const trunks = new THREE.InstancedMesh(
-        trunkGeo,
-        new THREE.MeshLambertMaterial({ color: TREE_TRUNK_COLOR, flatShading: true }),
-        scene.trees.length,
-      );
-      const canopies = new THREE.InstancedMesh(
-        canopyGeo,
-        new THREE.MeshLambertMaterial({ color: TREE_CANOPY_COLOR, flatShading: true }),
-        scene.trees.length,
-      );
-      const m = new THREE.Matrix4();
-      scene.trees.forEach((t, i) => {
-        const trunkH = Math.max(t.h * 0.35, 0.6);
-        trunks.setMatrixAt(i, m.makeScale(t.tr, t.tr, trunkH).setPosition(t.x, t.y, t.z));
-        canopies.setMatrixAt(
-          i,
-          m.makeScale(t.cr, t.cr, t.h - trunkH).setPosition(t.x, t.y, t.z + trunkH),
-        );
-      });
-      trunks.instanceMatrix.needsUpdate = true;
-      canopies.instanceMatrix.needsUpdate = true;
-      // Opaque, so normal depth-testing is enough on its own; the render order
-      // just keeps them drawn last, top of the stack, matching lib/scene/stack.
-      trunks.renderOrder = 6;
-      canopies.renderOrder = 6;
-      this.contentGroup.add(trunks, canopies);
-    }
+    // One group per tree, same as buildings — individually pickable, editable
+    // and undoable, at the cost of the single shared InstancedMesh draw call
+    // this used to be. BUILDING_CAP already proves individual meshes hold up
+    // at thousands of objects, and TREE_CAP is smaller still.
+    for (const t of scene.trees) this.addTreeMesh(t);
 
     this.frameCamera(site.radius, z0);
   }
@@ -1168,16 +1160,156 @@ export class Viewer {
     return this.buildingMeshes.find((m) => m.userData.building === b);
   }
 
+  /* ---- tree editing ----------------------------------------------------
+     A tree has no footprint to extrude, so unlike a building its two parts
+     (trunk, canopy) are just scaled/repositioned children of a group rather
+     than a geometry rebuilt from scratch — see rebuildTreeGeometry below. */
+
+  /** Trunk + canopy at unit size, scaled and placed for one tree's own
+   *  dimensions. Each tree gets its own geometry clone (cheap — a handful of
+   *  triangles) so removing one tree's group can dispose its geometry without
+   *  taking a shared buffer out from under every other tree. */
+  private static treeGroup(t: Tree): THREE.Group {
+    const trunk = new THREE.Mesh(
+      treeTrunkGeometry(),
+      new THREE.MeshLambertMaterial({ color: TREE_TRUNK_COLOR, flatShading: true }),
+    );
+    const canopy = new THREE.Mesh(
+      treeCanopyGeometry(),
+      new THREE.MeshLambertMaterial({ color: TREE_CANOPY_COLOR, flatShading: true }),
+    );
+    // Opaque, so normal depth-testing is enough on its own; the render order
+    // just keeps them drawn last, top of the stack, matching lib/scene/stack.
+    trunk.renderOrder = 6;
+    canopy.renderOrder = 6;
+    const group = new THREE.Group();
+    group.add(trunk, canopy);
+    Viewer.sizeTreeGroup(group, t);
+    return group;
+  }
+
+  /** Rescale the trunk/canopy children for the tree's current h/cr/tr —
+   *  everything a height edit changes. No geometry to dispose or rebuild: the
+   *  unit shapes just get re-scaled and re-placed, unlike a building's prism. */
+  private static sizeTreeGroup(group: THREE.Group, t: Tree): void {
+    const [trunk, canopy] = group.children as THREE.Mesh[];
+    const trunkH = treeTrunkHeight(t.h);
+    const canopyH = Math.max(t.h - trunkH, 0.1);
+    trunk.scale.set(t.tr, t.tr, trunkH);
+    canopy.scale.set(t.cr, t.cr, canopyH / 2);
+    canopy.position.set(0, 0, trunkH + canopyH / 2);
+  }
+
+  private rebuildTreeGeometry(group: THREE.Group, t: Tree): void {
+    Viewer.sizeTreeGroup(group, t);
+  }
+
+  /** One tree's group, added to the scene and to the pick list. Parallels
+   *  addBuildingMesh — see its comment for why this is its own method rather
+   *  than only living inside setScene. */
+  private addTreeMesh(t: Tree): THREE.Group {
+    const group = Viewer.treeGroup(t);
+    group.userData.tree = t;
+    // Picking hits a child mesh (trunk or canopy); this is how it finds the
+    // group that is the actual pickable entity.
+    for (const child of group.children) child.userData.treeRoot = group;
+    this.applyTreeXf(group, t);
+    this.paintTreeMesh(group, t);
+    this.contentGroup.add(group);
+    this.treeMeshes.push(group);
+    return group;
+  }
+
+  private removeTreeMesh(t: Tree): void {
+    const group = this.groupFor(t);
+    if (!group) return;
+    this.treeMeshes.splice(this.treeMeshes.indexOf(group), 1);
+    this.contentGroup.remove(group);
+    Viewer.disposeGroup(group);
+  }
+
+  private groupFor(t: Tree): THREE.Group | undefined {
+    return this.treeMeshes.find((g) => g.userData.tree === t);
+  }
+
+  private insertTree(t: Tree, index: number): void {
+    const s = this.scene;
+    if (!s) return;
+    s.trees.splice(Math.min(index, s.trees.length), 0, t);
+    const group = this.addTreeMesh(t);
+    if (!this.drawTool) this.selectTarget({ kind: 'tree', obj: group, t });
+  }
+
+  private detachTree(t: Tree): void {
+    const s = this.scene;
+    if (!s) return;
+    const i = s.trees.indexOf(t);
+    if (i >= 0) s.trees.splice(i, 1);
+    if (this.selected?.kind === 'tree' && this.selected.t === t) this.selectTarget(null);
+    this.removeTreeMesh(t);
+  }
+
+  // data -> mesh
+  private applyTreeXf(group: THREE.Object3D, t: Tree): void {
+    const xf = t.xf;
+    group.position.set(t.x + xf.pos[0], t.y + xf.pos[1], t.z + xf.pos[2]);
+    group.rotation.set(xf.rot[0], xf.rot[1], xf.rot[2], 'XYZ');
+    group.scale.set(xf.scale[0], xf.scale[1], xf.scale[2]);
+  }
+
+  // mesh -> data, after a gizmo drag
+  private readTreeMeshInto(group: THREE.Object3D, xf: Xf): void {
+    const t = group.userData.tree as Tree;
+    xf.pos = [group.position.x - t.x, group.position.y - t.y, group.position.z - t.z];
+    xf.rot = [group.rotation.x, group.rotation.y, group.rotation.z];
+    xf.scale = [
+      Math.max(group.scale.x, MIN_SCALE),
+      Math.max(group.scale.y, MIN_SCALE),
+      Math.max(group.scale.z, MIN_SCALE),
+    ];
+    group.scale.fromArray(xf.scale);
+  }
+
+  private paintTreeMesh(group: THREE.Group, t: Tree): void {
+    const [trunk, canopy] = group.children as THREE.Mesh[];
+    const trunkMat = trunk.material as THREE.MeshLambertMaterial;
+    const canopyMat = canopy.material as THREE.MeshLambertMaterial;
+    canopyMat.color.setHex(t.xf.color ?? TREE_CANOPY_COLOR);
+
+    // Selection reads as a faint emissive wash, the same supporting role it
+    // plays on a building — see paintMesh.
+    const sel = this.selected?.kind === 'tree' && this.selected.obj === group;
+    trunkMat.emissive.setHex(sel ? 0x16304a : 0x000000);
+    canopyMat.emissive.setHex(sel ? 0x16304a : 0x000000);
+
+    const a = t.xf.opacity;
+    for (const m of [trunkMat, canopyMat]) {
+      m.transparent = a < 1;
+      m.opacity = a;
+      m.depthWrite = a >= 1;
+    }
+    const order = a < 1 ? 7 : 6;
+    trunk.renderOrder = order;
+    canopy.renderOrder = order;
+  }
+
+  private treeTarget(group: THREE.Group | null | undefined): Target | null {
+    return group ? { kind: 'tree', obj: group, t: group.userData.tree as Tree } : null;
+  }
+
   private selectTarget(t: Target | null): void {
     const prev = this.selected;
     this.selected = t;
     if (prev?.kind === 'building' && prev.obj !== t?.obj && prev.obj.parent)
       this.paintMesh(prev.obj, prev.b);
+    if (prev?.kind === 'tree' && prev.obj !== t?.obj && prev.obj.parent)
+      this.paintTreeMesh(prev.obj, prev.t);
     if (prev?.kind === 'origin' && t?.kind !== 'origin') setMarkerActive(this.originMarker, false);
 
     if (t) {
       this.gizmo.attach(t.obj);
       if (t.kind === 'building') this.paintMesh(t.obj, t.b);
+      else if (t.kind === 'tree') this.paintTreeMesh(t.obj, t.t);
       else {
         setMarkerActive(this.originMarker, true);
         // A point has nothing to turn or stretch, so the mode is not the user's
@@ -1203,6 +1335,15 @@ export class Viewer {
         xf: originXf(this.originOffset),
         h: 0,
         defaultColor: 0,
+      };
+    if (t.kind === 'tree')
+      return {
+        kind: 'tree',
+        id: t.t.id,
+        name: t.t.name,
+        xf: cloneXf(t.t.xf),
+        h: t.t.h,
+        defaultColor: TREE_CANOPY_COLOR,
       };
     return {
       kind: 'building',
@@ -1314,13 +1455,28 @@ export class Viewer {
         return;
       }
 
+      if (this.drawTool === 'tree') {
+        if (e.button !== 0) return this.cancelDraw();
+        const p = this.pickGround(e);
+        if (p) this.commitTreePlacement(p);
+        return;
+      }
+
       this.setRay(e);
       // The marker draws over everything, so it picks over everything too —
       // otherwise it would be unreachable wherever it sits inside a building.
       if (this.originMarker.visible && this.raycaster.intersectObject(this.originPick).length)
         return this.selectTarget({ kind: 'origin', obj: this.originMarker });
-      const hit = this.raycaster.intersectObjects(this.buildingMeshes, false)[0];
-      this.selectTarget(this.buildingTarget(hit?.object as THREE.Mesh | undefined));
+      // Two separate raycasts, not one combined list: buildingMeshes are picked
+      // non-recursively (their outline child is deliberately unpickable), while
+      // a tree is a Group whose trunk/canopy children are the actual geometry,
+      // so it needs a recursive one. Comparing distances keeps the nearer
+      // object winning regardless of which kind it is.
+      const bHit = this.raycaster.intersectObjects(this.buildingMeshes, false)[0];
+      const tHit = this.raycaster.intersectObjects(this.treeMeshes, true)[0];
+      if (tHit && (!bHit || tHit.distance < bHit.distance))
+        this.selectTarget(this.treeTarget(tHit.object.userData.treeRoot as THREE.Group));
+      else this.selectTarget(this.buildingTarget(bHit?.object as THREE.Mesh | undefined));
     });
 
     // Closing on a double-click means the second click has already been taken
@@ -1385,7 +1541,9 @@ export class Viewer {
         this.originMarker.visible ? { kind: 'origin', obj: this.originMarker } : null,
       );
     const mesh = this.buildingMeshes.find((m) => (m.userData.building as Building).id === id);
-    this.selectTarget(this.buildingTarget(mesh));
+    if (mesh) return this.selectTarget(this.buildingTarget(mesh));
+    const group = this.treeMeshes.find((g) => (g.userData.tree as Tree).id === id);
+    this.selectTarget(this.treeTarget(group));
   }
 
   /* ---- the model origin ----------------------------------------------
@@ -1439,7 +1597,9 @@ export class Viewer {
     this.pending =
       t.kind === 'origin'
         ? { kind: 'origin', before: this.originOffset.toArray() as Vec3 }
-        : { kind: 'building', b: t.b, before: cloneXf(t.b.xf), beforeH: t.b.h };
+        : t.kind === 'building'
+          ? { kind: 'building', b: t.b, before: cloneXf(t.b.xf), beforeH: t.b.h }
+          : { kind: 'tree', t: t.t, before: cloneXf(t.t.xf), beforeH: t.t.h };
   }
 
   /**
@@ -1469,6 +1629,16 @@ export class Viewer {
       const after = this.originOffset.toArray() as Vec3;
       if (p.before.every((v, i) => v === after[i])) return;
       this.pushCmd({ label, kind: 'origin', before: p.before, after }, ORIGIN_NAME);
+      return;
+    }
+
+    if (p.kind === 'tree') {
+      const after = cloneXf(p.t.xf);
+      if (sameXf(p.before, after) && p.beforeH === p.t.h) return;
+      this.pushCmd(
+        { label, kind: 'tree', t: p.t, before: p.before, after, beforeH: p.beforeH, afterH: p.t.h },
+        p.t.name,
+      );
       return;
     }
 
@@ -1508,6 +1678,22 @@ export class Viewer {
     this.cb.onDirty();
   }
 
+  private applyXfCmdTree(t: Tree, xf: Xf, h: number): void {
+    t.xf = cloneXf(xf);
+    const heightChanged = t.h !== h;
+    t.h = h;
+    const group = this.groupFor(t);
+    if (group) {
+      if (this.selected?.kind !== 'tree' || this.selected.obj !== group)
+        this.selectTarget(this.treeTarget(group));
+      if (heightChanged) this.rebuildTreeGeometry(group, t);
+      this.applyTreeXf(group, t);
+      this.paintTreeMesh(group, t);
+    }
+    this.cb.onTransform(cloneXf(t.xf), t.h);
+    this.cb.onDirty();
+  }
+
   /** Replay one command in either direction; `to` is its before or its after. */
   private applyCmd(c: Cmd, to: 'before' | 'after'): void {
     if (c.kind === 'origin') {
@@ -1523,11 +1709,19 @@ export class Viewer {
       if (present) this.insertBuilding(c.b, c.index);
       else this.detachBuilding(c.b);
       this.cb.onDirty();
+    } else if (c.kind === 'treeLife') {
+      const present = to === 'after' ? c.added : !c.added;
+      if (present) this.insertTree(c.t, c.index);
+      else this.detachTree(c.t);
+      this.cb.onDirty();
+    } else if (c.kind === 'tree') {
+      this.applyXfCmdTree(c.t, c[to], to === 'after' ? c.afterH : c.beforeH);
     } else this.applyXfCmd(c.b, c[to], to === 'after' ? c.afterH : c.beforeH);
   }
 
   private cmdName(c: Cmd): string {
-    return c.kind === 'origin' ? ORIGIN_NAME : c.b.name;
+    if (c.kind === 'origin') return ORIGIN_NAME;
+    return c.kind === 'tree' || c.kind === 'treeLife' ? c.t.name : c.b.name;
   }
 
   undo(): void {
@@ -1546,7 +1740,50 @@ export class Viewer {
     this.cb.onStatus('status.redone', { label: c.label, name: this.cmdName(c) });
   }
 
-  /* ---- editor panel writes ------------------------------------------ */
+  /* ---- editor panel writes ------------------------------------------
+     Building and tree selections are edited through the same handful of
+     methods below — both are just "an id with an xf and a height", so
+     `editable()` gives each method one body instead of a building/tree branch
+     apiece. The origin is different in kind (no xf, no height) and keeps its
+     own explicit handling where it applies at all. ------------------------- */
+
+  /** A uniform view onto whatever is selected that has an xf and a height —
+   *  building or tree. Null for no selection and for the origin, which has
+   *  neither, so every method below reduces to a no-op for it automatically. */
+  private editable(): {
+    xf: Xf;
+    getH: () => number;
+    setH: (h: number) => void;
+    apply: () => void;
+    paint: () => void;
+    rebuild: () => void;
+  } | null {
+    const t = this.selected;
+    if (!t) return null;
+    if (t.kind === 'building')
+      return {
+        xf: t.b.xf,
+        getH: () => t.b.h,
+        setH: (h) => {
+          t.b.h = h;
+        },
+        apply: () => this.applyXf(t.obj, t.b),
+        paint: () => this.paintMesh(t.obj, t.b),
+        rebuild: () => this.rebuildGeometry(t.obj, t.b),
+      };
+    if (t.kind === 'tree')
+      return {
+        xf: t.t.xf,
+        getH: () => t.t.h,
+        setH: (h) => {
+          t.t.h = h;
+        },
+        apply: () => this.applyTreeXf(t.obj, t.t),
+        paint: () => this.paintTreeMesh(t.obj, t.t),
+        rebuild: () => this.rebuildTreeGeometry(t.obj, t.t),
+      };
+    return null;
+  }
 
   /**
    * `commit` is false while the user is still typing (live preview) and true on
@@ -1569,41 +1806,41 @@ export class Viewer {
       return;
     }
 
-    const b = t.b;
-    const xf = b.xf;
+    const e = this.editable();
+    if (!e) return;
     this.beginEdit();
 
     if (key === 'scale') {
       const v = Math.max(MIN_SCALE, raw); // no mirroring: it would flip ring winding
-      if (uniform) xf.scale = [v, v, v];
-      else xf.scale[i] = v;
-    } else if (key === 'rot') xf.rot[i] = (raw * Math.PI) / 180;
-    else xf.pos[i] = raw;
+      if (uniform) e.xf.scale = [v, v, v];
+      else e.xf.scale[i] = v;
+    } else if (key === 'rot') e.xf.rot[i] = (raw * Math.PI) / 180;
+    else e.xf.pos[i] = raw;
 
-    this.applyXf(t.obj, b);
-    this.cb.onTransform(cloneXf(xf), b.h);
+    e.apply();
+    this.cb.onTransform(cloneXf(e.xf), e.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit(key === 'pos' ? 'edit.move' : key === 'rot' ? 'edit.rotate' : 'edit.scale');
   }
 
   setColor(hex: number, commit: boolean): void {
-    const t = this.selected;
-    if (t?.kind !== 'building') return;
+    const e = this.editable();
+    if (!e) return;
     this.beginEdit();
-    t.b.xf.color = hex;
-    this.paintMesh(t.obj, t.b);
-    this.cb.onTransform(cloneXf(t.b.xf), t.b.h);
+    e.xf.color = hex;
+    e.paint();
+    this.cb.onTransform(cloneXf(e.xf), e.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit('edit.colour');
   }
 
   resetColor(): void {
-    const t = this.selected;
-    if (t?.kind !== 'building') return;
+    const e = this.editable();
+    if (!e) return;
     this.beginEdit();
-    t.b.xf.color = null;
-    this.paintMesh(t.obj, t.b);
-    this.cb.onTransform(cloneXf(t.b.xf), t.b.h);
+    e.xf.color = null;
+    e.paint();
+    this.cb.onTransform(cloneXf(e.xf), e.getH());
     this.commitEdit('edit.colourReset');
     this.cb.onDirty();
   }
@@ -1611,46 +1848,55 @@ export class Viewer {
   /** `a` is opacity, 0..1. Same live/commit split as the colour swatch: the
    *  slider previews continuously and the undo boundary is the drag ending. */
   setOpacity(a: number, commit: boolean): void {
-    const t = this.selected;
-    if (t?.kind !== 'building' || !Number.isFinite(a)) return;
+    const e = this.editable();
+    if (!e || !Number.isFinite(a)) return;
     this.beginEdit();
-    t.b.xf.opacity = Math.min(1, Math.max(0, a));
-    this.paintMesh(t.obj, t.b);
-    this.cb.onTransform(cloneXf(t.b.xf), t.b.h);
+    e.xf.opacity = Math.min(1, Math.max(0, a));
+    e.paint();
+    this.cb.onTransform(cloneXf(e.xf), e.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit('edit.opacity');
   }
 
   /**
-   * Set the extrusion height in metres.
-   *
-   * Height is baked into the geometry rather than carried on the transform, so
-   * this rebuilds the prism instead of writing a matrix — which is also why it
-   * rides the same begin/commit pair as everything else on the panel: a typed
-   * height and a gizmo drag in one gesture must still be one undo step.
+   * Set the extrusion height in metres — a building's own dimension, not
+   * something layered on the transform, so this rebuilds/rescales the shape
+   * instead of writing a matrix. Rides the same begin/commit pair as
+   * everything else on the panel: a typed height and a gizmo drag in one
+   * gesture must still be one undo step.
    */
   setHeight(h: number, commit: boolean): void {
-    const t = this.selected;
-    if (t?.kind !== 'building' || !Number.isFinite(h)) return;
+    const e = this.editable();
+    if (!e || !Number.isFinite(h)) return;
     this.beginEdit();
-    t.b.h = Math.max(MIN_HEIGHT, h);
-    this.rebuildGeometry(t.obj, t.b);
-    this.cb.onTransform(cloneXf(t.b.xf), t.b.h);
+    e.setH(Math.max(MIN_HEIGHT, h));
+    e.rebuild();
+    this.cb.onTransform(cloneXf(e.xf), e.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit('edit.height');
   }
 
-  /** Remove the selected building from the scene. Undoable: the record itself
-   *  rides on the command, so an undo restores it exactly where it was. */
+  /** Remove the selected building or tree from the scene. Undoable: the
+   *  record itself rides on the command, so an undo restores it exactly
+   *  where it was. */
   deleteSelected(): void {
     const t = this.selected;
     const s = this.scene;
-    if (t?.kind !== 'building' || !s) return;
-    const b = t.b;
-    const index = s.buildings.indexOf(b);
-    if (index < 0) return;
-    this.detachBuilding(b);
-    this.pushCmd({ label: 'edit.delete', kind: 'life', b, index, added: false }, b.name);
+    if (!t || !s) return;
+    if (t.kind === 'building') {
+      const index = s.buildings.indexOf(t.b);
+      if (index < 0) return;
+      this.detachBuilding(t.b);
+      this.pushCmd({ label: 'edit.delete', kind: 'life', b: t.b, index, added: false }, t.b.name);
+    } else if (t.kind === 'tree') {
+      const index = s.trees.indexOf(t.t);
+      if (index < 0) return;
+      this.detachTree(t.t);
+      this.pushCmd(
+        { label: 'edit.delete', kind: 'treeLife', t: t.t, index, added: false },
+        t.t.name,
+      );
+    }
   }
 
   /* ---- drawing a footprint --------------------------------------------
@@ -1670,12 +1916,13 @@ export class Viewer {
     this.cb.onDraw(tool, 0);
   }
 
-  /** Height and name for the next footprint. Both come from React: the height
-   *  is the dock's default, and a name has to be translated, which nothing
-   *  under lib/viewer is allowed to do. */
-  setDrawOptions(opts: { height: number; name: string }): void {
+  /** Height and name for the next footprint or tree. Both come from React:
+   *  the height is the dock's default, and a name has to be translated,
+   *  which nothing under lib/viewer is allowed to do. */
+  setDrawOptions(opts: { height: number; name: string; treeName: string }): void {
     if (Number.isFinite(opts.height)) this.drawHeight = Math.max(MIN_HEIGHT, opts.height);
     if (opts.name) this.drawName = opts.name;
+    if (opts.treeName) this.drawTreeName = opts.treeName;
   }
 
   isDrawing(): boolean {
@@ -1699,10 +1946,14 @@ export class Viewer {
     this.commitFootprint(this.drawPts);
   }
 
-  /** How many hand-drawn buildings the scene holds — what a rebuild is about
-   *  to discard. */
+  /** How many hand-drawn buildings and trees the scene holds — what a
+   *  rebuild is about to discard. */
   drawnCount(): number {
-    return this.scene?.buildings.filter((b) => b.src === 'user').length ?? 0;
+    if (!this.scene) return 0;
+    return (
+      this.scene.buildings.filter((b) => b.src === 'user').length +
+      this.scene.trees.filter((t) => t.src === 'user').length
+    );
   }
 
   /**
@@ -1756,14 +2007,54 @@ export class Viewer {
     this.pushCmd({ label: 'edit.add', kind: 'life', b, index, added: true }, b.name);
   }
 
+  /** Turn a single ground click into a planted tree — no ring, so this is
+   *  the whole gesture rather than something a drag or a corner count feeds
+   *  into. The tool stays armed, same reasoning as commitFootprint: planting
+   *  several trees in a row shouldn't mean re-arming each time. */
+  private commitTreePlacement(p: THREE.Vector3): void {
+    const s = this.scene;
+    if (!s) return;
+    if (s.trees.length >= TREE_DRAW_CAP)
+      return this.cb.onStatus('status.drawFull', { cap: TREE_DRAW_CAP });
+
+    const n = ++this.drawTreeSeq;
+    const { cr, tr } = defaultTreeDims(this.drawHeight);
+    pushTree(
+      s,
+      p.x,
+      p.y,
+      p.z,
+      this.drawHeight,
+      cr,
+      tr,
+      `drawn-tree-${n}`,
+      `${this.drawTreeName} ${n}`,
+      { Source: 'drawn' },
+      'user',
+    );
+
+    const index = s.trees.length - 1;
+    const t = s.trees[index];
+    this.addTreeMesh(t);
+    // Deliberately not selected, same reasoning as commitFootprint: the tool
+    // stays armed, and a gizmo on the last tree would sit over the ground the
+    // next click is aimed at.
+    this.pushCmd({ label: 'edit.add', kind: 'treeLife', t, index, added: true }, t.name);
+  }
+
   resetElement(): void {
-    const t = this.selected;
-    if (t?.kind !== 'building') return;
+    const e = this.editable();
+    if (!e) return;
     this.beginEdit();
-    t.b.xf = newXf();
-    this.applyXf(t.obj, t.b);
-    this.paintMesh(t.obj, t.b);
-    this.cb.onTransform(cloneXf(t.b.xf), t.b.h);
+    const fresh = newXf();
+    e.xf.pos = fresh.pos;
+    e.xf.rot = fresh.rot;
+    e.xf.scale = fresh.scale;
+    e.xf.color = fresh.color;
+    e.xf.opacity = fresh.opacity;
+    e.apply();
+    e.paint();
+    this.cb.onTransform(cloneXf(e.xf), e.getH());
     this.commitEdit('edit.reset');
     this.cb.onDirty();
   }

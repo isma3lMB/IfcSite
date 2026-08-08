@@ -1,6 +1,7 @@
 import { AppError } from '@/lib/errors';
 import { BUILDING_CAP, pushBuilding, pushRoadway } from '@/lib/scene/push';
 import { LAYER_DZ } from '@/lib/scene/stack';
+import { newXf } from '@/lib/scene/xf';
 import type {
   HeightSource,
   PropBag,
@@ -8,7 +9,6 @@ import type {
   SceneData,
   Site,
   SiteRect,
-  ToGeo,
   ToLocal,
   Tree,
   Vec2,
@@ -96,6 +96,7 @@ export async function osmTrees(box: SiteRect, toLocal: ToLocal, sampleZ: SampleZ
     const crown = parseFloat(t.diameter_crown);
     const circ = parseFloat(t.circumference);
     out.push({
+      id: 'osm-node/' + el.id,
       x,
       y,
       // Trees are the top of the stack, so a trunk foot clears the road ribbon
@@ -112,6 +113,8 @@ export async function osmTrees(box: SiteRect, toLocal: ToLocal, sampleZ: SampleZ
         ...(t.genus ? { genus: t.genus } : {}),
         ...(t.leaf_type ? { leaf_type: t.leaf_type } : {}),
       },
+      xf: newXf(),
+      src: 'osm',
     });
     if (out.length >= TREE_CAP) break;
   }
@@ -141,11 +144,10 @@ export function parseOSM(
   data: OverpassResponse,
   site: Site,
   toLocal: ToLocal,
-  toGeo: ToGeo,
   sampleZ: SampleZ,
   fallbackH: number,
   wantRoads: boolean,
-): number {
+): { tagged: number; roadRings: Vec2[][] } {
   let tagged = 0;
   const rings: [OverpassGeom[], Record<string, string>, number][] = [];
   for (const el of data.elements) {
@@ -176,21 +178,15 @@ export function parseOSM(
     if (ok && src !== 'fallback') tagged++;
   }
 
+  const roadRings: Vec2[][] = [];
   if (wantRoads) {
     for (const el of data.elements) {
       if (el.type !== 'way' || !el.tags || !el.tags.highway || !el.geometry) continue;
       const lanes =
         parseFloat(el.tags.lanes) || (/motorway|trunk|primary/.test(el.tags.highway) ? 4 : 2);
       const w = Math.max(parseFloat(el.tags.width) || lanes * 3.25, 3);
-      pushRoadway(
-        scene,
-        el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)),
-        w,
-        toGeo,
-        sampleZ,
-        site,
-      );
+      pushRoadway(roadRings, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
     }
   }
-  return tagged;
+  return { tagged, roadRings };
 }

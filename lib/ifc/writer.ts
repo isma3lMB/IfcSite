@@ -1,7 +1,9 @@
 import { xfAxes } from '@/lib/geo/euler';
+import { treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
+import { TREE_CANOPY_COLOR } from '@/lib/scene/stack';
 import { defaultColors } from '@/lib/scene/xf';
-import type { Building, PropBag, SiteMeta, Vec2, Vec3 } from '@/lib/types';
+import type { Building, PropBag, SiteMeta, Tree, Vec2, Vec3 } from '@/lib/types';
 
 /* =====================================================================
    ifc-writer — dependency-free IFC4 SPF serialiser
@@ -517,6 +519,57 @@ export class ContextModel {
       transparency > 0 ? transparency : undefined,
     );
     this.pset(el, 'Pset_SiteContext', b.props);
+    this.elements.push(el);
+    return el;
+  }
+
+  // t is a scene.trees record: cr/tr/h are its own dimensions and t.xf holds
+  // the user's edits, same split as addBuilding. A tree has no 2D profile to
+  // scale separately from its height, so xf.scale bakes straight into the
+  // dimensions treeProxy is given; position and rotation ride on the
+  // placement exactly as addBuilding's do. treeProxy builds the shape at the
+  // tree's own local origin — the same shape lib/viewer/Viewer draws — so
+  // this is one element per tree rather than a single merged mesh, matching
+  // how buildings export.
+  addTree(t: Tree): Ref | null {
+    const f = this.f;
+    const xf = t.xf;
+    const [sx, sy, sz] = xf.scale;
+    const verts: Vec3[] = [];
+    const faces: number[][] = [];
+    treeProxy(
+      { h: Math.max(t.h * sz, 0.1), cr: Math.max(t.cr * sx, 0.05), tr: Math.max(t.tr * sy, 0.02) },
+      verts,
+      faces,
+    );
+    if (!verts.length || !faces.length) return null;
+    const coords = f.add('IfcCartesianPointList3D', [
+      verts.map((v) => [R(v[0]), R(v[1]), R(v[2])]),
+      null,
+    ]);
+    const fr = faces.map((tri) => f.add('IfcIndexedPolygonalFace', [tri.map((i) => I(i + 1))]));
+    const fs = f.add('IfcPolygonalFaceSet', [coords, null, fr, null]);
+    const shp = f.add('IfcShapeRepresentation', [this.body, S('Body'), S('Tessellation'), [fs]]);
+    const pds = f.add('IfcProductDefinitionShape', [null, null, [shp]]);
+    const ax = xfAxes(xf.rot);
+    const el = f.add('IfcBuildingElementProxy', [
+      S(ifcGuid()),
+      null,
+      S(t.name),
+      null,
+      null,
+      this.placement(
+        [t.x + xf.pos[0], t.y + xf.pos[1], t.z + xf.pos[2]],
+        ax && ax.axis,
+        ax && ax.refDir,
+      ),
+      pds,
+      null,
+      E('ELEMENT'),
+    ]);
+    const transparency = 1 - xf.opacity;
+    this.style(fs, xf.color ?? TREE_CANOPY_COLOR, transparency > 0 ? transparency : undefined);
+    this.pset(el, 'Pset_SiteContext', t.props);
     this.elements.push(el);
     return el;
   }

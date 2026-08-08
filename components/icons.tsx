@@ -100,6 +100,16 @@ export const IconPolygon = () => (
   </Svg>
 );
 
+/* A faceted canopy over a trunk, and the solid dot every other draw tool here
+   uses to mark where a click lands — this one takes just the one. */
+export const IconTree = () => (
+  <Svg>
+    <path d="M8 2 11.6 7.6 9.4 7.6 12 11.6H4L6.6 7.6H4.4Z" />
+    <path d="M8 11.6V13.2" />
+    <circle cx="8" cy="14" r="1.4" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 /* An axis gizmo, not the four-arrow cross — that one is Pan, and the two sit
    four buttons apart on the same rail. */
 export const IconMove = () => (

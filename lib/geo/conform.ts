@@ -1,7 +1,8 @@
+import { differenceRings } from '@/lib/geo/boolean';
 import { MAX_GRID_N } from '@/lib/geo/grid';
 import { drape, triangulate } from '@/lib/geo/mesh';
-import { clipToConvex, dedupe, ensureCCW, signedArea } from '@/lib/geo/rings';
-import type { Grid, SampleZ, ToGeo, Vec2, Vec3 } from '@/lib/types';
+import { clipToConvex, dedupe, densify, ensureCCW, signedArea } from '@/lib/geo/rings';
+import type { CutAccumulator, Grid, SampleZ, ToGeo, Vec2, Vec3 } from '@/lib/types';
 
 /* =====================================================================
    Cutting a flat context layer onto the terrain it is draped over.
@@ -54,6 +55,60 @@ const PAD = 2;
  *  back at 1 to within rounding, so the slack is only for that. */
 const FULLY_COVERED = 1 - 1e-6;
 
+type LatticeFrame = {
+  n: number;
+  at: (i: number, j: number) => Vec2;
+  toIndex: (p: Vec2) => Vec2;
+  cell: number;
+  ccw: boolean;
+};
+
+/**
+ * The terrain lattice's local affine basis — how index space (i, j) maps to
+ * world metres and back. Pulled out of conformToTerrain so touchedFaces can
+ * walk the same lattice the same way; the two must never disagree about
+ * where a cell actually sits.
+ */
+function latticeFrame(terrain: Grid | null): LatticeFrame | null {
+  if (!terrain || terrain.n < 1) return null;
+  const n = terrain.n;
+  const V = terrain.verts;
+  const o = V[0];
+  const pi = V[n];
+  const pj = V[n * (n + 1)];
+  // One cell along each lattice axis. Taking these off the lattice itself
+  // absorbs grid convergence exactly: the rows are turned by a few degrees
+  // against the site box, and this is that turn.
+  const ei: Vec2 = [(pi[0] - o[0]) / n, (pi[1] - o[1]) / n];
+  const ej: Vec2 = [(pj[0] - o[0]) / n, (pj[1] - o[1]) / n];
+  const det = ei[0] * ej[1] - ei[1] * ej[0];
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
+
+  /**
+   * The lattice continued past its own edge. halfX/halfY bound the *projected*
+   * WGS84 rectangle while the lattice is that rectangle turned by convergence,
+   * so the site box a ring was clipped to overhangs the lattice at the
+   * corners — up to ~15 m on a 600 m site. Extrapolating affinely gives those
+   * corners somewhere to land; sampleZ already clamps out there, so they get
+   * the edge elevation, which is exactly what the un-conformed path gave the
+   * whole polygon. Without this they would simply be dropped.
+   */
+  const at = (i: number, j: number): Vec2 => {
+    const ci = i < 0 ? 0 : i > n ? n : i;
+    const cj = j < 0 ? 0 : j > n ? n : j;
+    const p = V[cj * (n + 1) + ci];
+    const di = i - ci;
+    const dj = j - cj;
+    return [p[0] + di * ei[0] + dj * ej[0], p[1] + di * ei[1] + dj * ej[1]];
+  };
+  const toIndex = (p: Vec2): Vec2 => {
+    const dx = p[0] - o[0];
+    const dy = p[1] - o[1];
+    return [(dx * ej[1] - dy * ej[0]) / det, (dy * ei[0] - dx * ei[1]) / det];
+  };
+  return { n, at, toIndex, cell: Math.hypot(ei[0], ei[1]), ccw: det > 0 };
+}
+
 /**
  * Drape `ring` onto the terrain, cut on the terrain's own triangles, lifted by
  * `dz`. Returns the same vertex/face pair a Surface wants.
@@ -86,38 +141,9 @@ export function conformToTerrain(
   // No terrain means sampleZ is a constant — either the flat datum or the IGN
   // single post — so a boundary-only drape is already exact and there is
   // nothing to conform to. This is the cheap path this module replaced.
-  if (r.length < 3 || !terrain || terrain.n < 1) return flat();
-
-  const n = terrain.n;
-  const V = terrain.verts;
-  const o = V[0];
-  const pi = V[n];
-  const pj = V[n * (n + 1)];
-  // One cell along each lattice axis. Taking these off the lattice itself
-  // absorbs grid convergence exactly: the rows are turned by a few degrees
-  // against the site box, and this is that turn.
-  const ei: Vec2 = [(pi[0] - o[0]) / n, (pi[1] - o[1]) / n];
-  const ej: Vec2 = [(pj[0] - o[0]) / n, (pj[1] - o[1]) / n];
-  const det = ei[0] * ej[1] - ei[1] * ej[0];
-  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return flat();
-
-  /**
-   * The lattice continued past its own edge. halfX/halfY bound the *projected*
-   * WGS84 rectangle while the lattice is that rectangle turned by convergence,
-   * so the site box the ring was clipped to overhangs the lattice at the
-   * corners — up to ~15 m on a 600 m site. Extrapolating affinely gives those
-   * corners somewhere to land; sampleZ already clamps out there, so they get
-   * the edge elevation, which is exactly what the un-conformed path gave the
-   * whole polygon. Without this they would simply be dropped.
-   */
-  const at = (i: number, j: number): Vec2 => {
-    const ci = i < 0 ? 0 : i > n ? n : i;
-    const cj = j < 0 ? 0 : j > n ? n : j;
-    const p = V[cj * (n + 1) + ci];
-    const di = i - ci;
-    const dj = j - cj;
-    return [p[0] + di * ei[0] + dj * ej[0], p[1] + di * ei[1] + dj * ej[1]];
-  };
+  const frame = latticeFrame(terrain);
+  if (r.length < 3 || !frame) return flat();
+  const { n, at } = frame;
 
   // Ring bbox -> index window. An affine map takes a rectangle's corners to the
   // image parallelogram's corners, so the four corners bound it exactly.
@@ -135,16 +161,14 @@ export function conformToTerrain(
   let j0 = Infinity;
   let i1 = -Infinity;
   let j1 = -Infinity;
-  for (const [x, y] of [
+  const corners: Vec2[] = [
     [bx0, by0],
     [bx1, by0],
     [bx1, by1],
     [bx0, by1],
-  ]) {
-    const dx = x - o[0];
-    const dy = y - o[1];
-    const fi = (dx * ej[1] - dy * ej[0]) / det;
-    const fj = (dy * ei[0] - dx * ei[1]) / det;
+  ];
+  for (const c of corners) {
+    const [fi, fj] = frame.toIndex(c);
     if (fi < i0) i0 = fi;
     if (fi > i1) i1 = fi;
     if (fj < j0) j0 = fj;
@@ -163,8 +187,7 @@ export function conformToTerrain(
   // cells. Block corners are still draped through sampleZ and so still exact;
   // only a block's interior approximates, by the margin ROAD_STEP already
   // accepts everywhere else.
-  const cell = Math.hypot(ei[0], ei[1]);
-  let stride = Math.max(1, Math.round(CONFORM_STEP / Math.max(cell, 1e-6)));
+  let stride = Math.max(1, Math.round(CONFORM_STEP / Math.max(frame.cell, 1e-6)));
   const blocks = (): number =>
     Math.ceil((i1 - i0) / stride) * Math.ceil((j1 - j0) / stride);
   while (blocks() > MAX_BLOCKS) stride++;
@@ -210,7 +233,7 @@ export function conformToTerrain(
   // window wound the wrong way keeps the complement and returns nothing, so
   // the sign is taken off the lattice rather than assumed.
   const emit = (w: Vec2[], covers: number[]): void => {
-    const win = det > 0 ? w : w.slice().reverse();
+    const win = frame.ccw ? w : w.slice().reverse();
     const piece = dedupe(clipToConvex(r, win));
     const area = Math.abs(signedArea(piece));
     if (coverage && covers.length) {
@@ -255,7 +278,58 @@ export function conformToTerrain(
 }
 
 /**
- * Drop the terrain faces an opaque layer has completely buried.
+ * Real terrain faces (indices into terrain.faces, at the lattice's native
+ * per-cell resolution — never coarsened by CONFORM_STEP/stride) whose
+ * triangle is crossed by `ring`'s own boundary. Bounded by O(ring boundary
+ * length / terrain cell size): only the edges are walked, never the ring's
+ * interior or conformToTerrain's full index-space bbox, so this stays cheap
+ * even on a large or complex ring.
+ *
+ * Densifying at half a cell keeps two consecutive samples from ever
+ * straddling a whole cell, and marking the 2x2 block behind each sample
+ * absorbs the same floating-point margin PAD exists for above: a sample
+ * landing a hair on the wrong side of a lattice line still marks the cell it
+ * was meant to.
+ */
+export function touchedFaces(ring: Vec2[], terrain: Grid | null): Set<number> {
+  const out = new Set<number>();
+  const frame = latticeFrame(terrain);
+  const r = dedupe(ring);
+  if (!frame || r.length < 2) return out;
+  const { n, toIndex, cell } = frame;
+  const step = Math.max(cell / 2, 1e-6);
+  const mark = (fi: number, fj: number): void => {
+    const ci = Math.floor(fi);
+    const cj = Math.floor(fj);
+    for (let dj = -1; dj <= 0; dj++) {
+      const jj = cj + dj;
+      if (jj < 0 || jj >= n) continue;
+      for (let di = -1; di <= 0; di++) {
+        const ii = ci + di;
+        if (ii < 0 || ii >= n) continue;
+        const base = 2 * (jj * n + ii);
+        out.add(base);
+        out.add(base + 1);
+      }
+    }
+  };
+  for (const p of densify(r, step, true)) {
+    const [fi, fj] = toIndex(p);
+    mark(fi, fj);
+  }
+  return out;
+}
+
+/** How many pieces one triangle split may produce before it's cheaper to
+ *  keep the whole triangle than to trust the answer — a real cut resolves to
+ *  a handful of pieces, so past this the rings crossing this triangle are
+ *  pathological rather than more precision being available to extract. Same
+ *  defensive posture as MIN_AREA/PAD above. */
+const MAX_SPLIT_PIECES = 16;
+
+/**
+ * Cut the terrain triangle-by-triangle instead of leaving a partly-covered
+ * one whole.
  *
  * Two surfaces a few centimetres apart and exactly parallel — which is what
  * conforming makes them — is the worst case a depth buffer can be handed, and
@@ -264,13 +338,99 @@ export function conformToTerrain(
  * not contain the argument in the first place. Ground nobody can see is ground
  * worth leaving out.
  *
- * Only *fully* covered faces go. A partly covered one is still visible at the
- * layer's edge, and keeping it guarantees the layer overlaps what remains
- * rather than leaving a hole along the boundary. Orphaned vertices stay put:
- * they cost a handful of points and keep every face index meaning what it did.
+ * `coverage`'s fraction is still the fast path: fully covered drops outright,
+ * and untouched-or-uncovered stays exactly as drawn. Only a face that is both
+ * partly covered AND named in `touched` pays for an exact split — re-clipping
+ * `rings` against just that one triangle, which is cheap precisely because
+ * `touched` bounded the candidates to the cutting features' own boundaries.
+ * A face terrain.faces[k]'s corners are already CCW in local metres (see the
+ * comment where ign.ts/terrain.ts build them), so the triangle needs no
+ * winding correction the way conformToTerrain's generic window does.
  */
-export function cutCovered(terrain: Grid, coverage: Map<number, number>): Grid {
+export function cutAndSplitCovered(terrain: Grid, cut: CutAccumulator, toGeo: ToGeo): Grid {
+  const { coverage, touched, rings } = cut;
   if (!coverage.size) return terrain;
-  const faces = terrain.faces.filter((_, k) => (coverage.get(k) ?? 0) < FULLY_COVERED);
-  return faces.length === terrain.faces.length ? terrain : { ...terrain, faces };
+
+  const verts: Vec3[] = terrain.verts.slice();
+  const faces: number[][] = [];
+  const seen = new Map<string, number>();
+  const pushVert = (p: Vec2): number => {
+    const k = `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
+    const hit = seen.get(k);
+    if (hit !== undefined) return hit;
+    const [lonv, latv] = toGeo(p[0], p[1]);
+    const idx = verts.length;
+    verts.push([p[0], p[1], terrain.sample(latv, lonv)]);
+    seen.set(k, idx);
+    return idx;
+  };
+
+  let changed = false;
+  for (let k = 0; k < terrain.faces.length; k++) {
+    const face = terrain.faces[k];
+    const cov = coverage.get(k) ?? 0;
+    if (cov >= FULLY_COVERED) {
+      changed = true;
+      continue;
+    }
+    if (cov <= 0 || !touched.has(k)) {
+      faces.push(face);
+      continue;
+    }
+
+    const [ia, ib, ic] = face;
+    const tri: Vec2[] = [verts[ia], verts[ib], verts[ic]].map(([x, y]): Vec2 => [x, y]);
+    let tx0 = Infinity;
+    let ty0 = Infinity;
+    let tx1 = -Infinity;
+    let ty1 = -Infinity;
+    for (const [x, y] of tri) {
+      if (x < tx0) tx0 = x;
+      if (x > tx1) tx1 = x;
+      if (y < ty0) ty0 = y;
+      if (y > ty1) ty1 = y;
+    }
+
+    const clippedPieces: Vec2[][] = [];
+    for (const ring of rings) {
+      let rx0 = Infinity;
+      let ry0 = Infinity;
+      let rx1 = -Infinity;
+      let ry1 = -Infinity;
+      for (const [x, y] of ring) {
+        if (x < rx0) rx0 = x;
+        if (x > rx1) rx1 = x;
+        if (y < ry0) ry0 = y;
+        if (y > ry1) ry1 = y;
+      }
+      if (rx1 < tx0 || rx0 > tx1 || ry1 < ty0 || ry0 > ty1) continue;
+      const piece = dedupe(clipToConvex(ring, tri));
+      if (piece.length < 3 || Math.abs(signedArea(piece)) < MIN_AREA) continue;
+      clippedPieces.push(piece);
+    }
+    if (!clippedPieces.length) {
+      faces.push(face);
+      continue;
+    }
+
+    const remaining = differenceRings(tri, clippedPieces);
+    if (!remaining.length) {
+      changed = true;
+      continue;
+    }
+    if (remaining.length > MAX_SPLIT_PIECES) {
+      faces.push(face);
+      continue;
+    }
+
+    changed = true;
+    for (const { outer, holes } of remaining) {
+      const oIdx = outer.map(pushVert);
+      const hIdx = holes.map((h) => h.map(pushVert));
+      const allIdx = [...oIdx, ...hIdx.flat()];
+      for (const t of triangulate(outer, holes)) faces.push([allIdx[t[0]], allIdx[t[1]], allIdx[t[2]]]);
+    }
+  }
+
+  return changed ? { ...terrain, verts, faces } : terrain;
 }

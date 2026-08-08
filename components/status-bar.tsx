@@ -59,9 +59,11 @@ export function StatusBar(p: StatusBarProps) {
     ? null
     : p.drawTool === 'rect'
       ? t('bar.drawHintRect')
-      : p.drawPoints > 0
-        ? t('bar.drawHintPoints', { n: p.drawPoints })
-        : t('bar.drawHintPoly');
+      : p.drawTool === 'tree'
+        ? t('bar.drawHintTree')
+        : p.drawPoints > 0
+          ? t('bar.drawHintPoints', { n: p.drawPoints })
+          : t('bar.drawHintPoly');
 
   const fileSize = (): string | null => {
     if (!p.stats) return null;
@@ -120,7 +122,10 @@ export function StatusBar(p: StatusBarProps) {
       {/* Not information, but the bar is the only horizontal surface left and
           the field is short-lived — it exists only while a tool is armed. */}
       {p.drawTool && (
-        <label className="barHeight" title={t('bar.newHeightTitle')}>
+        <label
+          className="barHeight"
+          title={t(p.drawTool === 'tree' ? 'bar.newTreeHeightTitle' : 'bar.newHeightTitle')}
+        >
           <span>{t('bar.drawHeight')}</span>
           <input
             type="number"
@@ -128,7 +133,7 @@ export function StatusBar(p: StatusBarProps) {
             min={0.5}
             step={0.5}
             value={String(p.drawHeight)}
-            aria-label={t('bar.newHeightTitle')}
+            aria-label={t(p.drawTool === 'tree' ? 'bar.newTreeHeightTitle' : 'bar.newHeightTitle')}
             onChange={(e) => {
               const v = parseFloat(e.target.value);
               if (Number.isFinite(v)) p.onDrawHeight(v);

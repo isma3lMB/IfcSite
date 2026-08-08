@@ -212,7 +212,11 @@ export function IfcSite() {
      down from here — and re-pushed on a language change, which is why `t` is a
      dependency rather than a value read once. */
   useEffect(() => {
-    viewerRef.current?.setDrawOptions({ height: drawHeight, name: t('ed.drawnName') });
+    viewerRef.current?.setDrawOptions({
+      height: drawHeight,
+      name: t('ed.drawnName'),
+      treeName: t('ed.drawnTreeName'),
+    });
   }, [drawHeight, t]);
 
   /* ---- view tab -------------------------------------------------------- */
