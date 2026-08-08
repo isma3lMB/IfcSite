@@ -58,9 +58,9 @@ export function PlaceSearch({ onPickPlace, onSearchFailed, inputRef }: PlaceSear
 
   return (
     <div className="field searchWrap" ref={wrapRef}>
-      <label className="eyebrow block mb-1.5" htmlFor="placeSearch">
+      {/* <label className="eyebrow block mb-1.5" htmlFor="placeSearch">
         {t('ctl.findPlace')}
-      </label>
+      </label> */}
       <input
         id="placeSearch"
         ref={inputRef}

@@ -1,6 +1,5 @@
 import proj4 from 'proj4';
 import { AppError } from '@/lib/errors';
-import { cutAndSplitCovered } from '@/lib/geo/conform';
 import { resolveCRS } from '@/lib/geo/crs';
 import { ACCURACY_CELL } from '@/lib/geo/grid';
 import {
@@ -21,7 +20,6 @@ import type { LayerKey } from '@/lib/i18n/keys';
 import type {
   BuildOptions,
   BuildSummary,
-  CutAccumulator,
   SampleZ,
   SceneData,
   Site,
@@ -190,32 +188,19 @@ export async function runBuild(
   // Theme layers are context: one failing or empty layer must never cost you
   // the build, so each is reported and skipped on its own.
   const skipped: LayerKey[] = [];
-  // How much of each terrain face the opaque layers (and, after finishRoads,
-  // roads) end up burying, plus enough of their own boundary geometry to
-  // split a partially-covered face exactly instead of keeping it whole.
-  const cut: CutAccumulator = { coverage: new Map(), touched: new Set(), rings: [] };
   for (const key of themes) {
     const label = IGN_LAYERS[key].label!;
     onStatus('status.fetchingIgnLayer', { layer: label });
     try {
-      await fetchThemeLayer(scene, key, site, toLocal, toGeo, sampleZ, LAYER_IFC_NAME[key], cut);
+      await fetchThemeLayer(scene, key, site, toLocal, toGeo, sampleZ, LAYER_IFC_NAME[key]);
     } catch {
       skipped.push(label);
     }
   }
 
-  // Unions every road-segment quad collected above into clean ribbons, drapes
-  // them onto the terrain, and folds their coverage into `cut` the same way
-  // the theme layers above just did.
-  finishRoads(scene, roadRings, toGeo, sampleZ, cut);
-
-  // Ground that is completely under an opaque layer is ground nobody can see,
-  // and leaving it in only gives a viewer's depth buffer an argument to lose;
-  // a face only partly covered is now split exactly along the true boundary
-  // instead of kept whole. Safe here: nothing reads terrain.faces during the
-  // build — conformToTerrain works off verts/n, and sample closes over its
-  // own grid.
-  if (scene.terrain) scene.terrain = cutAndSplitCovered(scene.terrain, cut, toGeo);
+  // Unions every road-segment quad collected above into clean ribbons and
+  // drapes them onto the terrain.
+  finishRoads(scene, roadRings, toGeo, sampleZ);
 
   if (opts.trees) {
     onStatus('status.queryingTrees');

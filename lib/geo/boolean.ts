@@ -6,7 +6,7 @@ import type { Vec2 } from '@/lib/types';
 // The package's ESM build exports only a default object (union/difference/...
 // as properties) — its own .d.ts promises named exports that don't exist at
 // this build's runtime, so these are pulled off the default instead.
-const { union, difference } = polygonClipping;
+const { union } = polygonClipping;
 
 /**
  * The one file that knows polygon-clipping's coordinate convention differs
@@ -63,28 +63,5 @@ export function unionRings(rings: Vec2[][]): SplitPolygon[] {
     return fromMultiPolygon(union(first, ...rest));
   } catch {
     return clean.map((r) => ({ outer: dedupe(r), holes: [] }));
-  }
-}
-
-/**
- * subject minus the union of every ring in clips, as outer+hole pieces ready
- * for lib/geo/mesh's triangulate(outer, holes). Used by lib/geo/conform to
- * split a terrain triangle exactly along the cutting rings that cross it,
- * instead of keeping a partially-covered triangle whole.
- *
- * Same defensive posture as unionRings: on a sweep-line failure, fall back to
- * keeping `subject` whole — precisely what cutAndSplitCovered already does
- * when a split isn't worth trusting (see its MAX_SPLIT_PIECES fallback), so
- * a pathological triangle just stays unsplit rather than aborting the cut.
- */
-export function differenceRings(subject: Vec2[], clips: Vec2[][]): SplitPolygon[] {
-  const clipRings = clips.filter((r) => r.length >= 3);
-  if (!clipRings.length) return [{ outer: dedupe(subject), holes: [] }];
-  try {
-    const subj = [close(subject)];
-    const clipPolys = clipRings.map((r) => [close(r)]);
-    return fromMultiPolygon(difference(subj, ...clipPolys));
-  } catch {
-    return [{ outer: dedupe(subject), holes: [] }];
   }
 }

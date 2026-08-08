@@ -1,13 +1,12 @@
 import { AppError } from '@/lib/errors';
-import { conformToTerrain, touchedFaces } from '@/lib/geo/conform';
+import { conformToTerrain } from '@/lib/geo/conform';
 import { MAX_GRID_N, gridSampler, gridSize } from '@/lib/geo/grid';
-import { prismInto } from '@/lib/geo/mesh';
+import { prismInto, skirtInto } from '@/lib/geo/mesh';
 import { clipToBox, dedupe, densify } from '@/lib/geo/rings';
 import { BUILDING_CAP, pushBuilding, pushRoadway } from '@/lib/scene/push';
-import { LAYER_DZ, layerOpacity } from '@/lib/scene/stack';
+import { LAYER_DZ, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
-  CutAccumulator,
   Grid,
   HeightSource,
   PropBag,
@@ -463,7 +462,6 @@ export async function fetchThemeLayer(
   toGeo: ToGeo,
   sampleZ: SampleZ,
   layerName: string,
-  cut?: CutAccumulator,
 ): Promise<number> {
   const L = IGN_LAYERS[key];
   const hx = site.halfX;
@@ -473,13 +471,14 @@ export async function fetchThemeLayer(
   // Distinguishes vegetation/water/parcel/hedge for the viewer's render-order
   // tiers, since `L.ifc` alone can't (vegetation and hedges both say VEGETATION).
   const layer = key === 'veg' ? 'vegetation' : key;
-  // Only a layer you cannot see through may take the ground out from under
-  // itself — a cadastral overlay is meant to be read against the terrain.
-  // Tallied per layer and merged by max at the end: two neighbouring water
-  // bodies each taking part of a face should add up, but water lying over
-  // vegetation must not, or their two partial claims would sum into a hole.
-  const mine = cut && layerOpacity(layer) >= 1 ? new Map<number, number>() : undefined;
-  const mineRings: Vec2[][] = [];
+  // Which of the opaque flat drapes this is, if it is one. Named rather than
+  // looked up through a cast: a parcel is a cadastral tint meant to be read
+  // through, and a hedge never reaches the drape below — it takes the `L.line`
+  // branch and is already extruded as a real prism — so neither is a
+  // SkirtLayer, and a cast would quietly hand back undefined instead of
+  // saying so.
+  const solid: SkirtLayer | undefined =
+    layer === 'vegetation' || layer === 'water' ? layer : undefined;
   let n = 0;
 
   // Every vertex of every prism gets its own elevation, so the base follows the
@@ -545,9 +544,13 @@ export async function fetchThemeLayer(
       // triangles stretched between its boundary elevations — a tilted plane
       // through the hillside and through every layer above it. Conforming is
       // what makes the centimetre offsets in lib/scene/stack decide the order.
-      const { verts, faces } = conformToTerrain(ring, scene.terrain, toGeo, sampleZ, L.dz!, mine);
+      const { verts, faces } = conformToTerrain(ring, scene.terrain, toGeo, sampleZ, L.dz!);
       if (!faces.length) continue;
-      if (mine) mineRings.push(ring);
+      // Close the drape into a solid that reaches under the terrain, so the
+      // layer is a grounded slab rather than a skin hovering over the ground
+      // it covers — and so anything below it in the stack ends up enclosed
+      // rather than merely a few centimetres lower. See lib/scene/stack.
+      if (solid) skirtInto(verts, faces, skirtDepth(solid));
       scene.surfaces.push({
         verts,
         faces,
@@ -570,12 +573,5 @@ export async function fetchThemeLayer(
       name: `${layerName} (BD TOPO)`,
     });
 
-  if (cut && mine) {
-    for (const rr of mineRings) {
-      cut.rings.push(rr);
-      for (const f of touchedFaces(rr, scene.terrain)) cut.touched.add(f);
-    }
-    for (const [k, v] of mine) cut.coverage.set(k, Math.max(cut.coverage.get(k) ?? 0, v));
-  }
   return n;
 }

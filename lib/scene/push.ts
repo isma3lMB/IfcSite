@@ -1,10 +1,10 @@
 import { unionRings } from '@/lib/geo/boolean';
-import { conformToTerrain, touchedFaces } from '@/lib/geo/conform';
+import { conformToTerrain } from '@/lib/geo/conform';
+import { skirtInto } from '@/lib/geo/mesh';
 import { clipPolyline, clipToBox, dedupe, densify, ensureCCW, ringCentre } from '@/lib/geo/rings';
-import { LAYER_DZ } from '@/lib/scene/stack';
+import { LAYER_DZ, skirtDepth } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
 import type {
-  CutAccumulator,
   HeightSource,
   PropBag,
   SampleZ,
@@ -13,6 +13,7 @@ import type {
   ToGeo,
   Tree,
   Vec2,
+  Vec3,
 } from '@/lib/types';
 
 /** Past this the browser, not the services, becomes the bottleneck. */
@@ -156,34 +157,26 @@ export function pushRoadway(rings: Vec2[][], pts: Vec2[], w: number, site: Site)
  *
  * Each merged ribbon then goes through conformToTerrain exactly like a water
  * or vegetation ring — real terrain-conforming geometry instead of a flat
- * per-corner drape, and real coverage so cutAndSplitCovered can finally take
- * the ground out from under a road. roadCoverage is local and merged into
- * `cut` by max, same discipline lib/sources/ign's fetchThemeLayer already
- * uses: a face partly under water and partly under a road keeps whichever
- * fraction is larger, and a face only one of them touches is untouched by
- * the other's merge.
+ * per-corner drape — and skirtInto closes it into a solid off that same
+ * surface's own outline, so the wall cannot come apart from the skin it hangs
+ * from. The skirt goes into `roadWalls`, kept separate from `roads` so the
+ * viewer's EdgesGeometry outline pass — built off `roads` alone — doesn't pick
+ * up the skirt's vertical and floor edges; `skirtInto`'s return index is what
+ * splits the one faceset back into those two.
  */
 export function finishRoads(
   scene: SceneData,
   rings: Vec2[][],
   toGeo: ToGeo,
   sampleZ: SampleZ,
-  cut: CutAccumulator,
 ): void {
   if (!rings.length) return;
   for (const { outer } of unionRings(rings)) {
-    const roadCoverage = new Map<number, number>();
-    const { verts, faces } = conformToTerrain(
-      outer,
-      scene.terrain,
-      toGeo,
-      sampleZ,
-      LAYER_DZ.road,
-      roadCoverage,
-    );
-    for (const t of faces) scene.roads.push([verts[t[0]], verts[t[1]], verts[t[2]]]);
-    for (const [k, v] of roadCoverage) cut.coverage.set(k, Math.max(cut.coverage.get(k) ?? 0, v));
-    cut.rings.push(outer);
-    for (const f of touchedFaces(outer, scene.terrain)) cut.touched.add(f);
+    const { verts, faces } = conformToTerrain(outer, scene.terrain, toGeo, sampleZ, LAYER_DZ.road);
+    if (!faces.length) continue;
+    const skirt = skirtInto(verts, faces, skirtDepth('road'));
+    const tri = (t: number[]): Vec3[] => [verts[t[0]], verts[t[1]], verts[t[2]]];
+    for (let i = 0; i < skirt; i++) scene.roads.push(tri(faces[i]));
+    for (let i = skirt; i < faces.length; i++) scene.roadWalls.push(tri(faces[i]));
   }
 }

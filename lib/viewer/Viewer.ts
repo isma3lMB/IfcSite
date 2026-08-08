@@ -895,6 +895,31 @@ export class Viewer {
       this.contentGroup.add(roadEdges);
     }
 
+    if (scene.roadWalls.length) {
+      // The skirt that closes the road ribbon into a solid (see skirtDepth in
+      // lib/scene/stack, hung by finishRoads) — same tier and material as the
+      // top surface above, but its own mesh so the crisp EdgesGeometry outline
+      // above stays built from the top surface alone, not the skirt's
+      // vertical and floor edges too.
+      const pos: number[] = [];
+      for (const f of scene.roadWalls)
+        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const wallMesh = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({
+          color: ROAD_COLOR,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        }),
+      );
+      wallMesh.renderOrder = 4;
+      this.contentGroup.add(wallMesh);
+    }
+
     for (const b of scene.buildings) this.addBuildingMesh(b);
 
     if (scene.terrain) {

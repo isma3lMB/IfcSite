@@ -33,11 +33,14 @@ export function emitIFC(
   // is reconstructible without storing it twice. A face is a buffered quad after
   // the site clip has cut it, so three to five corners — but always convex, and
   // a fan off the first vertex triangulates a convex polygon exactly.
+  // scene.roadWalls is the skirt that closes the ribbon into a solid (see
+  // skirtDepth in lib/scene/stack) — folded into the same element rather than
+  // exported as its own, since on screen and in the file it reads as one road.
   let roadFaces = 0;
-  if (scene.roads.length) {
+  if (scene.roads.length || scene.roadWalls.length) {
     const verts: Vec3[] = [];
     const faces: number[][] = [];
-    for (const q of scene.roads) {
+    for (const q of [...scene.roads, ...scene.roadWalls]) {
       const b = verts.length;
       for (const p of q) verts.push(p);
       for (let k = 2; k < q.length; k++) faces.push([b, b + k - 1, b + k]);

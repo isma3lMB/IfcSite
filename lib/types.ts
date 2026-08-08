@@ -92,27 +92,6 @@ export type Grid = {
 };
 
 /**
- * What every opaque cutting layer (water, vegetation, roads, ...) feeds
- * lib/geo/conform's final terrain pass, threaded through lib/build/run and
- * accumulated per-layer by lib/sources/ign's fetchThemeLayer and
- * lib/scene/push's finishRoads.
- *
- * `coverage` is the existing fractional map, keyed by terrain face index,
- * used as a cheap pre-filter (drop a face once it reads ~fully covered).
- * `touched`/`rings` are what let a partially-covered face be split exactly
- * along the true boundary instead of kept whole: `touched` names the real
- * terrain faces some ring's own boundary actually crosses, and `rings` is
- * the flat list of contributing rings (local metres, post site-clip) that a
- * touched face re-clips against on demand — no per-triangle geometry is
- * stored during the walk, only these two small, boundary-bounded collections.
- */
-export type CutAccumulator = {
-  coverage: Map<number, number>;
-  touched: Set<number>;
-  rings: Vec2[][];
-};
-
-/**
  * A draped, triangulated context layer (vegetation, water, parcels, merged
  * hedges). Every vertex carries its own elevation, so a layer follows the
  * terrain instead of taking one arbitrary corner's height.
@@ -159,6 +138,12 @@ export type RoadFace = Vec3[];
 export type SceneData = {
   buildings: Building[];
   roads: RoadFace[];
+  /** Vertical skirt (wall + bottom cap) under each road ribbon, giving it
+   *  real thickness instead of a paper-thin drape. Kept separate from
+   *  `roads` — the top surface — so the viewer's road outline (built from an
+   *  EdgesGeometry pass over just the top) doesn't pick up the skirt's own
+   *  vertical/bottom edges. See lib/scene/push's finishRoads. */
+  roadWalls: RoadFace[];
   terrain: Grid | null;
   terrainSource?: string;
   vectorSource?: string;
@@ -181,6 +166,7 @@ export type SceneData = {
 export const emptyScene = (): SceneData => ({
   buildings: [],
   roads: [],
+  roadWalls: [],
   terrain: null,
   datumZ: null,
   surfaces: [],

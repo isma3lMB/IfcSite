@@ -31,8 +31,9 @@ export function sameXf(a: Xf, b: Xf): boolean {
   );
 }
 
-/** off-white = tagged height, a cooler grey = estimated, blue = drawn here. Read
- *  straight off the height source.
+/** off-white = sourced massing, blue = drawn here. Height source no longer tints
+ *  the massing: tagged and estimated buildings read as one material, and the
+ *  estimated count stays legible in the status line instead.
  *
  *  These are base colours, not screen colours. The hemisphere fill in
  *  lib/viewer/Viewer lands an up-facing surface at ~1.11 and a wall at ~0.74, so
@@ -42,12 +43,8 @@ export function sameXf(a: Xf, b: Xf): boolean {
  *
  *  Off-white rather than pure white because this is also what the IFC carries
  *  (see addBuilding in lib/ifc/writer): white on screen is the light's doing, and
- *  a file claiming #ffffff would be claiming something the preview never had. The
- *  estimated grey is kept cool against it — that contrast, not lightness alone,
- *  is what keeps the two legible side by side. */
-export const defaultColors = (b: Building): { wall: number; cap: number } => {
-  if (b.src === 'user') return { wall: 0x4aa8d8, cap: 0x86c4e0 };
-  return b.src === 'fallback'
-    ? { wall: 0xdfe3e5, cap: 0xdfe3e5 }
+ *  a file claiming #ffffff would be claiming something the preview never had. */
+export const defaultColors = (b: Building): { wall: number; cap: number } =>
+  b.src === 'user'
+    ? { wall: 0x4aa8d8, cap: 0x86c4e0 }
     : { wall: 0xf4f1ec, cap: 0xf4f1ec };
-};

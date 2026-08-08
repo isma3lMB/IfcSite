@@ -1,37 +1,99 @@
 /**
- * Drape clearance above the terrain, in metres. Everything here rides on the
- * same sampled ground, so these numbers are the whole stacking order — keep them
- * in one place or the layers silently trade ranks.
+ * Drape clearance above the terrain, in metres, for the four FLAT layers.
+ * Everything here rides on the same sampled ground, so these numbers are the
+ * whole stacking order — keep them in one place or the layers silently trade
+ * ranks. Bottom to top: terrain (0) - parcels - vegetation - water - roads.
+ * The viewer and the exported IFC both read the z these produce rather than
+ * re-deriving one, so the order is identical in the preview and in the
+ * deliverable.
  *
- * Bottom to top: terrain (0) - parcels - vegetation - water - roads - trees -
- * hedges. The viewer and the exported IFC both read the z these produce
- * rather than re-deriving one, so the order is identical in the preview and
- * in the deliverable.
+ * These used to be centimetres, and could be, because the terrain was cut out
+ * from under every opaque layer: a lake had no ground beneath it to argue
+ * with, so `dz` only had to order the layers against each other, and two
+ * layers rarely cover the same spot. That cut is gone (see lib/geo/conform,
+ * which now only drapes), so every flat layer has real terrain directly under
+ * it across its whole area and this number is the only thing holding the two
+ * apart.
  *
- * Small numbers are enough for the geometry: the sampler agrees with the
- * rendered ground (see lib/geo/grid.ts) and the flat layers are cut onto the
- * terrain's own triangles (see lib/geo/conform.ts), so a layer only has to
- * clear the one below it, not the error between two different readings of the
- * same hillside. Trees and hedges keep the widest gap not because they need it
- * for the sampler's sake but because they're the top of the stack by
- * definition — everything else drapes flat, these two rise from their base
- * with their own real height.
+ * What actually orders the stack, though, is not this number — it is
+ * CONTAINMENT. Every layer here except parcels is built as a closed opaque
+ * solid spanning [terrain - bite, terrain + dz] (see skirtDepth below and
+ * skirtInto in lib/geo/mesh). Where two of them overlap in plan, the lower
+ * one's top skin therefore lies strictly INSIDE the higher one's solid —
+ * enclosed, not "a few centimetres below and hoping the depth buffer agrees".
+ * That is exact at any positive rung and it survives into a viewer that has no
+ * polygon offset and no render order to lean on, which is the whole problem
+ * this file exists to solve. The rungs only have to be positive and ordered.
  *
- * What the geometry does not decide is depth-buffer precision. Zoomed out, an
- * IFC viewer pushes its far plane out and a couple of centimetres stops
- * surviving the round trip, so the whole ladder carries 5 cm of clearance over
- * the ground it would not otherwise need. It costs nothing at any viewing angle
- * a site model is read at, and it is the one number to raise if a viewer still
- * flickers.
+ * So these are far smaller than the depth-precision argument alone would ask
+ * for, and that is deliberate: the ladder is what sets how bulky the model
+ * reads at street level, and containment lets it be thin. It is also the one
+ * dial — the skirt depth is derived from it below, so lowering a rung thins
+ * its slab automatically and a slab can never end up floating.
+ *
+ * PARCELS ARE THE EXCEPTION and the reason the ladder does not go lower still.
+ * A cadastral overlay is a transparent tint meant to be read against the
+ * ground, so it gets no skirt, so nothing contains it: its rung is the only
+ * one still doing real depth-buffer work. It keeps a wider gap over the
+ * terrain than its neighbour above it needs, while staying inside vegetation's
+ * solid so a real surface still covers it.
+ *
+ * Trees and hedges are deliberately NOT on this ladder. Their number is the
+ * base of a solid with real height, not the clearance of a flat skin, so
+ * nothing of theirs is ever coplanar with the ground and they need no gap at
+ * all — lifting them would only leave a tree visibly hovering over its own
+ * shadow. They sit a few centimetres INTO the ground instead, so a base cap
+ * never hangs in the air on a slope.
  */
 export const LAYER_DZ = {
-  parcel: 0.07,
+  parcel: 0.05,
   vegetation: 0.1,
   water: 0.15,
-  road: 0.25,
-  tree: 0.33,
-  hedge: 0.37,
+  road: 0.2,
+  tree: -0.05,
+  hedge: -0.05,
 } as const;
+
+/**
+ * How far each flat layer's skirt reaches BELOW the terrain, in metres.
+ *
+ * Only the bite lives here; the depth itself is arithmetic (see skirtDepth).
+ * There used to be a second table of absolute thicknesses beside LAYER_DZ, and
+ * the two silently drifted apart until every slab's bottom sat above the
+ * ground it was supposed to be buried in — the layers turned back into sheets
+ * of paper hovering over the terrain, with open air underneath. A number that
+ * has to be kept consistent with another number by hand eventually will not
+ * be, so this one cannot be: the depth is computed, and the only way to make a
+ * slab thinner is to lower its rung.
+ *
+ * The bite does NOT have to absorb terrain relief. conformToTerrain puts the
+ * top skin exactly `dz` above the drawn ground at every vertex, and the skirt
+ * drops each of those vertices by a constant, so the bottom is exactly `bite`
+ * below the drawn ground everywhere — at any bite at all. What it does have to
+ * cover is the coarse-lattice case: past MAX_GRID_N the conform walks in
+ * blocks rather than cells (CONFORM_STEP in lib/geo/conform), and a block's
+ * interior approximates by the terrain's sagitta across it. A decimetre or two
+ * covers that on anything short of a cliff.
+ *
+ * They differ per layer so that two layers overlapping in plan do not put
+ * their bottom caps on the same plane — the one coplanar pair containment
+ * cannot arbitrate, since neither encloses the other.
+ *
+ * Parcels are absent on purpose: see the exception noted above.
+ */
+export const LAYER_BITE = {
+  vegetation: 0.05,
+  water: 0.05,
+  road: 0.1,
+} as const;
+
+/** The layers built as solids rather than as a flat skin. */
+export type SkirtLayer = keyof typeof LAYER_BITE;
+
+/** How deep a layer's skirt hangs under its own conformed top surface. Reaches
+ *  past the terrain by LAYER_BITE, which is what makes the containment above
+ *  hold rather than merely being intended. */
+export const skirtDepth = (layer: SkirtLayer): number => LAYER_DZ[layer] + LAYER_BITE[layer];
 
 /**
  * How solid a context layer draws, 0..1. Parcels are a cadastral overlay rather

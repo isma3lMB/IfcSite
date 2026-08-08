@@ -243,3 +243,26 @@ export const ringCentre = (r: Vec2[]): Vec2 => [
   r.reduce((s, p) => s + p[0], 0) / r.length,
   r.reduce((s, p) => s + p[1], 0) / r.length,
 ];
+
+/**
+ * Even-odd ray cast. Winding-agnostic on purpose: the callers use it to decide
+ * which outer ring a hole belongs to, and a hole is wound against its outer by
+ * definition, so a winding-sensitive test would answer the wrong question.
+ *
+ * A point exactly on the boundary is not decided either way — for the
+ * containment questions asked here the candidates are a hole's own vertex
+ * against a different ring, so they never coincide.
+ */
+export function pointInRing(p: Vec2, ring: Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i];
+    const b = ring[j];
+    if (
+      a[1] > p[1] !== b[1] > p[1] &&
+      p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]
+    )
+      inside = !inside;
+  }
+  return inside;
+}
