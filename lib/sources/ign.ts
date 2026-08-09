@@ -5,7 +5,7 @@ import { MAX_GRID_N, gridSampler, gridSize } from '@/lib/geo/grid';
 import { prismInto, skirtInto } from '@/lib/geo/mesh';
 import { clipToBox, dedupe, densify } from '@/lib/geo/rings';
 import { BUILDING_CAP, pushBuilding, pushRoadway } from '@/lib/scene/push';
-import { LAYER_DZ, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
+import { LAYER_DZ, SURFACE_COLOR, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
   Grid,
@@ -59,7 +59,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     label: 'layer.vegetation',
     props: ['cleabs', 'nature'],
     ifc: 'VEGETATION',
-    color: 0xc0d4b6,
+    color: SURFACE_COLOR.vegetation,
     dz: LAYER_DZ.vegetation,
   },
   hedge: {
@@ -70,7 +70,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     // Deliberately stronger than the vegetation fill it usually sits on: a hedge
     // is an object, not more park, and at this palette a pale green loses it.
     ifc: 'VEGETATION',
-    color: 0x93c07e,
+    color: SURFACE_COLOR.hedge,
     line: true,
     dz: LAYER_DZ.hedge,
   },
@@ -80,7 +80,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     label: 'layer.water',
     props: ['cleabs', 'nature'],
     ifc: 'WATER',
-    color: 0xa3c1d2,
+    color: SURFACE_COLOR.water,
     dz: LAYER_DZ.water,
   },
   parcel: {
@@ -89,7 +89,7 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     label: 'layer.parcels',
     props: ['idu', 'section', 'numero', 'contenance'],
     ifc: 'USERDEFINED',
-    color: 0x6b6252,
+    color: SURFACE_COLOR.parcel,
     dz: LAYER_DZ.parcel,
   },
 };
@@ -328,6 +328,9 @@ export async function rgeAltiGrid(
  * is the roof outline, not the ground, so the base comes from
  * altitude_minimale_sol instead (min_sol + hauteur == max polygon Z).
  */
+/** Metres of ribbon width added per parallel track, absent a usable numeric width. */
+const RAIL_TRACK_WIDTH = 3.5;
+
 export async function parseIGN(
   scene: SceneData,
   site: Site,
@@ -335,88 +338,98 @@ export async function parseIGN(
   toGeo: ToGeo,
   sampleZ: SampleZ,
   fallbackH: number,
+  wantBuildings: boolean,
   wantRoads: boolean,
+  wantRailways: boolean,
   onStatus: StatusFn,
-): Promise<{ tagged: number; over: boolean; roadRibbons: SplitPolygon[] }> {
+): Promise<{
+  tagged: number;
+  over: boolean;
+  roadRibbons: SplitPolygon[];
+  railwayRibbons: SplitPolygon[];
+}> {
   const box = site;
   const inSite = (x: number, y: number) => Math.abs(x) <= site.halfX && Math.abs(y) <= site.halfY;
   let tagged = 0;
   let over = false;
   const roadRibbons: SplitPolygon[] = [];
+  const railwayRibbons: SplitPolygon[] = [];
 
-  onStatus('status.fetchingIgnBuildings');
-  const bat = await wfs(
-    {
-      type: 'BDTOPO_V3:batiment',
-      geom: 'geometrie',
-      props: [
-        'cleabs',
-        'hauteur',
-        'altitude_minimale_sol',
-        'nature',
-        'usage_1',
-        'nombre_d_etages',
-        'identifiants_rnb',
-      ],
-    },
-    box,
-  );
+  if (wantBuildings) {
+    onStatus('status.fetchingIgnBuildings');
+    const bat = await wfs(
+      {
+        type: 'BDTOPO_V3:batiment',
+        geom: 'geometrie',
+        props: [
+          'cleabs',
+          'hauteur',
+          'altitude_minimale_sol',
+          'nature',
+          'usage_1',
+          'nombre_d_etages',
+          'identifiants_rnb',
+        ],
+      },
+      box,
+    );
 
-  for (const f of bat) {
-    if (scene.buildings.length >= BUILDING_CAP) {
-      over = true;
-      break;
-    }
-    const p = f.properties || {};
-    let h = Number(p.hauteur);
-    let src: HeightSource = 'ign:hauteur';
-    if (!(h > 0)) {
-      h = Number(p.nombre_d_etages) * 3;
-      src = 'ign:etages';
-    }
-    if (!(h > 0)) {
-      h = fallbackH;
-      src = 'fallback';
-    }
-    for (const r of geoRings(f.geometry)) {
-      const ring = r.map((c): Vec2 => toLocal(c[0], c[1]));
-      if (ring.length < 4 || !ring.some((q) => inSite(q[0], q[1]))) continue;
-      // Two traps here. Number(null) is 0 and finite, and BD TOPO returns an
-      // explicit null on every building it has no surveyed ground altitude for —
-      // testing the converted number planted all of those at sea level. And the
-      // altitude is absolute NGF, which only means anything if the rest of the
-      // scene is on that datum too; without one it would float above ground that
-      // sampleZ has flattened to zero. So: check the property, then the datum.
-      const abs = Number(p.altitude_minimale_sol);
-      const baseZ =
-        scene.datumZ !== null && p.altitude_minimale_sol != null && Number.isFinite(abs)
-          ? abs
-          : sampleZ(r[0][1], r[0][0]);
-      // cleabs is BATIMENT0000000000162547 — unusable as a label, so the
-      // editor gets the nature plus the significant tail, like OSM's ids.
-      const tail = String(p.cleabs || f.id || '').replace(/^\D+0*/, '') || '?';
-      const nature = p.nature ? String(p.nature) : '';
-      const kind = nature && !/^Indifférenci/.test(nature) ? nature : 'Building';
-      const props: PropBag = {
-        ign_id: p.cleabs ? String(p.cleabs) : '',
-        height_source: src,
-        height_m: h,
-        ...(p.nature ? { nature: String(p.nature) } : {}),
-        ...(p.usage_1 ? { usage: String(p.usage_1) } : {}),
-        ...(p.nombre_d_etages ? { storeys: Number(p.nombre_d_etages) } : {}),
-        ...(p.identifiants_rnb ? { rnb_id: String(p.identifiants_rnb) } : {}),
-      };
-      const ok = pushBuilding(
-        scene,
-        ring,
-        h,
-        src,
-        baseZ,
-        String(p.cleabs || f.id || ''),
-        `${kind} ${tail}`,
-        props,
-      );
-      if (ok && src !== 'fallback') tagged++;
+    for (const f of bat) {
+      if (scene.buildings.length >= BUILDING_CAP) {
+        over = true;
+        break;
+      }
+      const p = f.properties || {};
+      let h = Number(p.hauteur);
+      let src: HeightSource = 'ign:hauteur';
+      if (!(h > 0)) {
+        h = Number(p.nombre_d_etages) * 3;
+        src = 'ign:etages';
+      }
+      if (!(h > 0)) {
+        h = fallbackH;
+        src = 'fallback';
+      }
+      for (const r of geoRings(f.geometry)) {
+        const ring = r.map((c): Vec2 => toLocal(c[0], c[1]));
+        if (ring.length < 4 || !ring.some((q) => inSite(q[0], q[1]))) continue;
+        // Two traps here. Number(null) is 0 and finite, and BD TOPO returns an
+        // explicit null on every building it has no surveyed ground altitude for —
+        // testing the converted number planted all of those at sea level. And the
+        // altitude is absolute NGF, which only means anything if the rest of the
+        // scene is on that datum too; without one it would float above ground that
+        // sampleZ has flattened to zero. So: check the property, then the datum.
+        const abs = Number(p.altitude_minimale_sol);
+        const baseZ =
+          scene.datumZ !== null && p.altitude_minimale_sol != null && Number.isFinite(abs)
+            ? abs
+            : sampleZ(r[0][1], r[0][0]);
+        // cleabs is BATIMENT0000000000162547 — unusable as a label, so the
+        // editor gets the nature plus the significant tail, like OSM's ids.
+        const tail = String(p.cleabs || f.id || '').replace(/^\D+0*/, '') || '?';
+        const nature = p.nature ? String(p.nature) : '';
+        const kind = nature && !/^Indifférenci/.test(nature) ? nature : 'Building';
+        const props: PropBag = {
+          ign_id: p.cleabs ? String(p.cleabs) : '',
+          height_source: src,
+          height_m: h,
+          ...(p.nature ? { nature: String(p.nature) } : {}),
+          ...(p.usage_1 ? { usage: String(p.usage_1) } : {}),
+          ...(p.nombre_d_etages ? { storeys: Number(p.nombre_d_etages) } : {}),
+          ...(p.identifiants_rnb ? { rnb_id: String(p.identifiants_rnb) } : {}),
+        };
+        const ok = pushBuilding(
+          scene,
+          ring,
+          h,
+          src,
+          baseZ,
+          String(p.cleabs || f.id || ''),
+          `${kind} ${tail}`,
+          props,
+        );
+        if (ok && src !== 'fallback') tagged++;
+      }
     }
   }
 
@@ -446,7 +459,29 @@ export async function parseIGN(
       }
     }
   }
-  return { tagged, over, roadRibbons };
+
+  if (wantRailways) {
+    onStatus('status.fetchingIgnRailways');
+    const rf = await wfs(
+      {
+        type: 'BDTOPO_V3:troncon_de_voie_ferree',
+        geom: 'geometrie',
+        props: ['cleabs', 'nature', 'nombre_de_voies', 'largeur', 'electrifie'],
+      },
+      box,
+    );
+    for (const f of rf) {
+      const p = f.properties || {};
+      // `largeur` on this layer is a categorical string, not a metre value —
+      // size from track count instead, same as roads size from lane count.
+      const w = Math.max((Number(p.nombre_de_voies) || 1) * RAIL_TRACK_WIDTH, RAIL_TRACK_WIDTH);
+      for (const r of geoRings(f.geometry)) {
+        pushRoadway(railwayRibbons, r.map((c): Vec2 => toLocal(c[0], c[1])), w, site);
+      }
+    }
+  }
+
+  return { tagged, over, roadRibbons, railwayRibbons };
 }
 
 /**

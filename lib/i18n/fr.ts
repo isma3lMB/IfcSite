@@ -37,6 +37,7 @@ export const fr: Dict = {
   'rail.drawBox': 'Tracer une emprise rectangulaire',
   'rail.drawPoly': 'Tracer une emprise polygonale',
   'rail.drawTree': 'Planter un arbre',
+  'rail.model': 'Arborescence du modèle',
 
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
   'bar.site': 'Site',
@@ -64,7 +65,9 @@ export const fr: Dict = {
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — monde entier',
   'ctl.sourceIgn': 'IGN Géoplateforme — France',
   'ctl.include': 'Inclure',
+  'ctl.buildings': 'Emprises des bâtiments',
   'ctl.roads': 'Surfaces de voirie',
+  'ctl.railways': 'Voies ferrées',
   'ctl.terrain': 'Maillage du terrain',
   'ctl.terrainSrcOsm': 'Terrarium ~30 m',
   'ctl.terrainSrcIgn': 'RGE ALTI ~1 m',
@@ -131,6 +134,22 @@ export const fr: Dict = {
   'ed.resetPlacement': 'Réinitialiser le calage',
   'ed.projectHint':
     'Donnez au point d’origine les coordonnées propres à votre projet et orientez les axes sur son quadrillage. Cela devient le calage du site dans l’IFC ; le géoréférencement est inchangé. Saisis, non glissés — ces champs sont hors de l’historique.',
+  'ed.layer': 'Calque sélectionné',
+  'ed.layerStyleHint':
+    'S’applique d’un coup à tous les éléments du calque, dans l’aperçu comme dans le fichier exporté, où cela devient le style de surface IFC. Un élément restylé ensuite individuellement garde sa propre couleur.',
+  'ed.layerPosition': 'Décalage du calque (m)',
+  'ed.layerMoveHint':
+    'Déplace le calque entier, et l’IFC exporté porte le même décalage. Voiries, voies ferrées et surfaces drapées ont été découpées sur le terrain : un décalage — vertical surtout — les décolle du sol ou les y enfonce.',
+
+  /* ---- arborescence du modèle ---- */
+  'tree.title': 'Arborescence du modèle',
+  'tree.empty': 'Construisez une maquette pour voir ses calques.',
+  'tree.filter': 'Filtrer les éléments…',
+  'tree.noMatch': 'Aucun résultat.',
+  'tree.expand': 'Déplier : {layer}',
+  'tree.collapse': 'Replier : {layer}',
+  'tree.colourOf': 'Couleur : {layer}',
+  'tree.merged': 'Un seul élément fusionné — recolorez-le ou déplacez-le depuis le calque ci-dessus.',
 
   /* ---- status ---- */
   /* L’instruction complète est status.drawPrompt, émis dès que la carte s’arme
@@ -140,6 +159,7 @@ export const fr: Dict = {
   'status.queryingTrees': 'Interrogation des arbres OSM…',
   'status.fetchingIgnBuildings': 'Récupération des bâtiments IGN BD TOPO…',
   'status.fetchingIgnRoads': 'Récupération des voiries IGN BD TOPO…',
+  'status.fetchingIgnRailways': 'Récupération des voies ferrées IGN BD TOPO…',
   'status.fetchingIgnLayer': 'Récupération des données IGN : {layer}…',
   'status.samplingAlti': 'Échantillonnage du RGE ALTI de l’IGN…',
   'status.samplingAltiChunk': 'Échantillonnage du RGE ALTI de l’IGN — lot {done} sur {total}…',
@@ -174,6 +194,10 @@ export const fr: Dict = {
   'sum.skipped': 'Aucune donnée renvoyée : {layers}.',
 
   /* ---- layer names ---- */
+  'layer.terrain': 'terrain',
+  'layer.buildings': 'bâtiments',
+  'layer.roads': 'voiries',
+  'layer.railways': 'voies ferrées',
   'layer.vegetation': 'végétation',
   'layer.hedges': 'haies',
   'layer.water': 'surfaces en eau',

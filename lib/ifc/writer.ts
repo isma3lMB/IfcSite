@@ -574,6 +574,17 @@ export class ContextModel {
     return el;
   }
 
+  /**
+   * One tessellated context element — terrain, the merged roadway, a draped
+   * layer polygon.
+   *
+   * `offset` is the layer offset from the model tree. The geometry stays in
+   * absolute site coordinates and the placement carries the move instead, which
+   * is what keeps the file's numbers the same numbers the preview drew: the
+   * viewer applies exactly this vector as its layer group's transform. Note
+   * that a moved layer no longer satisfies the IfcMapConversion promise for its
+   * own geometry — that is inherent to moving it, and the UI says so.
+   */
   addSurface(
     verts: Vec3[],
     faces: number[][],
@@ -582,6 +593,7 @@ export class ContextModel {
     color?: number | null,
     props?: PropBag,
     transparency?: number,
+    offset?: Vec3,
   ): Ref | null {
     const f = this.f;
     if (!verts.length || !faces.length) return null;
@@ -605,7 +617,7 @@ export class ContextModel {
       S(name),
       null,
       pre === 'USERDEFINED' && type ? S(type) : null,
-      this.placement(null),
+      this.placement(offset ?? null),
       pds,
       null,
       E(pre),

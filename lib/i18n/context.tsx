@@ -12,7 +12,9 @@ const DICTS: Record<Lang, Dict> = { fr, en: en as unknown as Dict };
 const STORAGE_KEY = 'ifcsite.lang';
 export const DEFAULT_LANG: Lang = 'fr';
 
-type StringKey = Exclude<keyof Dict, 'notes'>;
+/** Exported so a component holding a key the pure layer emitted — a LayerKey off
+ *  the model tree, say — can hand it back to `t` without widening it to string. */
+export type StringKey = Exclude<keyof Dict, 'notes'>;
 
 export type T = {
   lang: Lang;

@@ -34,6 +34,7 @@ export const en = {
   'rail.drawBox': 'Draw a box footprint',
   'rail.drawPoly': 'Draw a polygon footprint',
   'rail.drawTree': 'Plant a tree',
+  'rail.model': 'Model tree',
 
   /* ---- status bar: the one place anything is stated ---- */
   'bar.site': 'Site',
@@ -61,7 +62,9 @@ export const en = {
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — worldwide',
   'ctl.sourceIgn': 'IGN Géoplateforme — France',
   'ctl.include': 'Include',
+  'ctl.buildings': 'Building footprints',
   'ctl.roads': 'Road surfaces',
+  'ctl.railways': 'Railway tracks',
   'ctl.terrain': 'Terrain mesh',
   'ctl.terrainSrcOsm': 'Terrarium ~30 m',
   'ctl.terrainSrcIgn': 'RGE ALTI ~1 m',
@@ -132,6 +135,22 @@ export const en = {
   'ed.resetPlacement': 'Reset placement',
   'ed.projectHint':
     'Give the origin point your project’s own coordinates and turn the axes to its grid. This becomes the IFC site placement; the georeferencing is unchanged. Typed, not dragged — these fields are outside the undo history.',
+  'ed.layer': 'Selected layer',
+  'ed.layerStyleHint':
+    'Applies to every element in the layer at once, in the preview and in the exported file, where it becomes the IFC surface style. An element you restyle on its own afterwards keeps its own colour.',
+  'ed.layerPosition': 'Layer offset (m)',
+  'ed.layerMoveHint':
+    'Moves the whole layer, and the exported IFC carries the same offset. Roads, tracks and draped surfaces were cut onto the terrain, so an offset — a vertical one above all — lifts them off the ground or sinks them into it.',
+
+  /* ---- model tree ---- */
+  'tree.title': 'Model tree',
+  'tree.empty': 'Build a sheet to see its layers.',
+  'tree.filter': 'Filter elements…',
+  'tree.noMatch': 'Nothing matches.',
+  'tree.expand': 'Expand {layer}',
+  'tree.collapse': 'Collapse {layer}',
+  'tree.colourOf': 'Colour of {layer}',
+  'tree.merged': 'One merged element — recolour or move it from the layer above.',
 
   /* ---- status ---- */
   /* The full instruction is status.drawPrompt, which fires the moment the map
@@ -141,6 +160,7 @@ export const en = {
   'status.queryingTrees': 'Querying OSM trees…',
   'status.fetchingIgnBuildings': 'Fetching IGN BD TOPO buildings…',
   'status.fetchingIgnRoads': 'Fetching IGN BD TOPO roads…',
+  'status.fetchingIgnRailways': 'Fetching IGN BD TOPO railways…',
   'status.fetchingIgnLayer': 'Fetching IGN {layer}…',
   'status.samplingAlti': 'Sampling IGN RGE ALTI…',
   'status.samplingAltiChunk': 'Sampling IGN RGE ALTI — batch {done} of {total}…',
@@ -173,6 +193,10 @@ export const en = {
   'sum.skipped': 'No {layers} returned.',
 
   /* ---- layer names (UI only; the IFC keeps stable English names) ---- */
+  'layer.terrain': 'terrain',
+  'layer.buildings': 'buildings',
+  'layer.roads': 'roads',
+  'layer.railways': 'railways',
   'layer.vegetation': 'vegetation',
   'layer.hedges': 'hedges',
   'layer.water': 'water',

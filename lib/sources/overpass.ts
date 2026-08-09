@@ -24,6 +24,10 @@ const ENDPOINTS = [
 const ROADS =
   'motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian|service';
 
+// Surface rail only — subway is normally underground infrastructure, and
+// disused/abandoned track is not really "there" for a site context model.
+const RAILWAYS = 'rail|light_rail|tram|narrow_gauge|funicular|monorail';
+
 // [out:json][timeout:40] only binds the server's own work. A mirror that is
 // overloaded sits on the connection and 504s much later, so without a client
 // deadline three wedged mirrors can stall a build for minutes — twice over now
@@ -71,12 +75,18 @@ async function overpassQuery(q: string): Promise<OverpassResponse> {
 // north,east) — the site is no longer a circle around a point.
 const overpassBox = (b: SiteRect) => `${b.minLat},${b.minLon},${b.maxLat},${b.maxLon}`;
 
-export async function overpass(box: SiteRect, wantRoads: boolean): Promise<OverpassResponse> {
+export async function overpass(
+  box: SiteRect,
+  wantBuildings: boolean,
+  wantRoads: boolean,
+  wantRailways: boolean,
+): Promise<OverpassResponse> {
   const bb = overpassBox(box);
   return overpassQuery(`[out:json][timeout:40];(
-    way["building"](${bb});
-    relation["building"]["type"="multipolygon"](${bb});
+    ${wantBuildings ? `way["building"](${bb});` : ''}
+    ${wantBuildings ? `relation["building"]["type"="multipolygon"](${bb});` : ''}
     ${wantRoads ? `way["highway"~"^(${ROADS})$"](${bb});` : ''}
+    ${wantRailways ? `way["railway"~"^(${RAILWAYS})$"](${bb});` : ''}
   );out geom;`);
 }
 
@@ -139,6 +149,9 @@ export function parseHeight(
   return [fallback, 'fallback'];
 }
 
+/** Metres of ribbon width added per parallel track, absent an explicit `width`. */
+const RAIL_TRACK_WIDTH = 3.5;
+
 /** Returns how many buildings arrived with a real height tag. */
 export function parseOSM(
   scene: SceneData,
@@ -147,36 +160,40 @@ export function parseOSM(
   toLocal: ToLocal,
   sampleZ: SampleZ,
   fallbackH: number,
+  wantBuildings: boolean,
   wantRoads: boolean,
-): { tagged: number; roadRibbons: SplitPolygon[] } {
+  wantRailways: boolean,
+): { tagged: number; roadRibbons: SplitPolygon[]; railwayRibbons: SplitPolygon[] } {
   let tagged = 0;
-  const rings: [OverpassGeom[], Record<string, string>, number][] = [];
-  for (const el of data.elements) {
-    if (el.tags && el.tags.building) {
-      if (el.type === 'way' && el.geometry) rings.push([el.geometry, el.tags, el.id]);
-      else if (el.type === 'relation' && el.members) {
-        for (const m of el.members)
-          if (m.role === 'outer' && m.geometry) rings.push([m.geometry, el.tags, el.id]);
+  if (wantBuildings) {
+    const rings: [OverpassGeom[], Record<string, string>, number][] = [];
+    for (const el of data.elements) {
+      if (el.tags && el.tags.building) {
+        if (el.type === 'way' && el.geometry) rings.push([el.geometry, el.tags, el.id]);
+        else if (el.type === 'relation' && el.members) {
+          for (const m of el.members)
+            if (m.role === 'outer' && m.geometry) rings.push([m.geometry, el.tags, el.id]);
+        }
       }
     }
-  }
-  for (const [geom, tags, id] of rings) {
-    if (scene.buildings.length >= BUILDING_CAP) break;
-    const ring = geom.map((p) => toLocal(p.lon, p.lat));
-    if (ring.length < 4) continue;
-    const [h, src] = parseHeight(tags, fallbackH);
-    const props: PropBag = { osm_id: 'way/' + id, height_source: src, height_m: h };
-    const ok = pushBuilding(
-      scene,
-      ring,
-      h,
-      src,
-      sampleZ(geom[0].lat, geom[0].lon),
-      'way/' + id,
-      tags.name || `Building ${id}`,
-      props,
-    );
-    if (ok && src !== 'fallback') tagged++;
+    for (const [geom, tags, id] of rings) {
+      if (scene.buildings.length >= BUILDING_CAP) break;
+      const ring = geom.map((p) => toLocal(p.lon, p.lat));
+      if (ring.length < 4) continue;
+      const [h, src] = parseHeight(tags, fallbackH);
+      const props: PropBag = { osm_id: 'way/' + id, height_source: src, height_m: h };
+      const ok = pushBuilding(
+        scene,
+        ring,
+        h,
+        src,
+        sampleZ(geom[0].lat, geom[0].lon),
+        'way/' + id,
+        tags.name || `Building ${id}`,
+        props,
+      );
+      if (ok && src !== 'fallback') tagged++;
+    }
   }
 
   const roadRibbons: SplitPolygon[] = [];
@@ -189,5 +206,15 @@ export function parseOSM(
       pushRoadway(roadRibbons, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
     }
   }
-  return { tagged, roadRibbons };
+
+  const railwayRibbons: SplitPolygon[] = [];
+  if (wantRailways) {
+    for (const el of data.elements) {
+      if (el.type !== 'way' || !el.tags || !el.tags.railway || !el.geometry) continue;
+      const tracks = parseFloat(el.tags.tracks) || 1;
+      const w = Math.max(parseFloat(el.tags.width) || tracks * RAIL_TRACK_WIDTH, RAIL_TRACK_WIDTH);
+      pushRoadway(railwayRibbons, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
+    }
+  }
+  return { tagged, roadRibbons, railwayRibbons };
 }

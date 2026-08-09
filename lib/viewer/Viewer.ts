@@ -2,13 +2,29 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { treeCanopyGeometry, treeTrunkGeometry, treeTrunkHeight } from '@/lib/geo/treeShape';
+import {
+  LAYER_LABEL,
+  MOVABLE_LAYERS,
+  type Style,
+  type Styled,
+  cloneLayerXf,
+  defaultLayerColor,
+  defaultLayerOpacity,
+  layerAlpha,
+  layerCount,
+  readStyle,
+  sameLayerXf,
+  sameStyle,
+  styledOf,
+  writeStyle,
+} from '@/lib/scene/layers';
 import { BUILDING_CAP, defaultTreeDims, pushBuilding, pushTree } from '@/lib/scene/push';
 import {
+  RAILWAY_COLOR,
   ROAD_COLOR,
   TERRAIN_COLOR,
   TREE_CANOPY_COLOR,
   TREE_TRUNK_COLOR,
-  layerOpacity,
 } from '@/lib/scene/stack';
 import { MIN_SCALE, cloneXf, defaultColors, newXf, sameXf } from '@/lib/scene/xf';
 import { type FootprintDraft, createFootprintDraft } from '@/lib/viewer/footprintDraft';
@@ -16,7 +32,20 @@ import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/or
 import { SKY, createSkyDome } from '@/lib/viewer/sky';
 import { type ViewAxis, type ViewTriad, axisEye, createViewTriad } from '@/lib/viewer/viewTriad';
 import type { EditLabelKey, Params, StatusKey } from '@/lib/i18n/keys';
-import type { Building, GizmoMode, SceneData, Site, Tree, Vec2, Vec3, Xf } from '@/lib/types';
+import {
+  type Building,
+  type GizmoMode,
+  LAYER_IDS,
+  type LayerId,
+  type LayerXf,
+  type SceneData,
+  type Site,
+  type Surface,
+  type Tree,
+  type Vec2,
+  type Vec3,
+  type Xf,
+} from '@/lib/types';
 
 const lighten = (hex: number, t: number): number =>
   new THREE.Color(hex).lerp(new THREE.Color(0xffffff), t).getHex();
@@ -50,9 +79,21 @@ export type Selection = {
    * 'origin' is the scene's own centre point rather than a building. It carries
    * its offset in xf.pos with an identity rot/scale, so the editor's position
    * row renders it with no second code path; rot, scale and colour do not apply.
+   *
+   * 'layer' is a whole category from the model tree — every road, or every
+   * building. It borrows the same trick: its LayerXf is presented as an Xf with
+   * the offset in pos and an identity rot/scale, so the editor reuses the
+   * position row and the colour swatch unchanged. Rotation, scale, opacity and
+   * height do not apply and the editor does not offer them.
    */
-  kind: 'building' | 'tree' | 'origin';
+  kind: 'building' | 'tree' | 'origin' | 'layer';
+  /** For a layer, the prefixed form — see layerSelId. */
   id: string;
+  /**
+   * The label. A dictionary key rather than a sentence for the origin and for
+   * every layer, since neither has a name of its own that the viewer could
+   * know — see ORIGIN_NAME.
+   */
   name: string;
   xf: Xf;
   /**
@@ -68,6 +109,38 @@ export type Selection = {
 
 /** The id reported for the origin marker — it has no Building behind it. */
 export const ORIGIN_ID = '__origin__';
+
+/** The id reported for a layer, and the form `select()` recognises. Prefixed
+ *  for the same reason ORIGIN_ID is: a Selection.id is one flat namespace, and
+ *  a building is entitled to be called anything at all. */
+export const layerSelId = (id: LayerId): string => `__layer:${id}`;
+/** The inverse. Null for anything that is not a layer id, which is how React
+ *  tells a layer selection from an element one without a second field. */
+export const layerIdOf = (selId: string): LayerId | null => {
+  const raw = selId.startsWith('__layer:') ? selId.slice(8) : null;
+  return raw && (LAYER_IDS as readonly string[]).includes(raw) ? (raw as LayerId) : null;
+};
+
+/**
+ * One row of the model tree.
+ *
+ * Two levels, so a node is a category and its `items` are its leaves. The
+ * merged layers — terrain, roads, railways — are one element on screen and one
+ * element in the file, so they report a single item rather than pretending to a
+ * structure they do not have.
+ */
+export type LayerNode = {
+  id: LayerId;
+  /** A LayerKey; the panel translates it. */
+  label: string;
+  count: number;
+  /** What the swatch shows: the layer's override, or the palette default. */
+  color: number;
+  /** Whether the layer accepts an offset. See MOVABLE_LAYERS. */
+  movable: boolean;
+  /** Individually selectable leaves. Empty for the merged layers. */
+  items: { id: string; name: string }[];
+};
 
 /** Which footprint tool the ground clicks are feeding, if any. 'tree' is a
  *  single click rather than a footprint — no drag, no ring. */
@@ -87,6 +160,16 @@ export type ViewerCallbacks = {
   /** The scene gained or lost a building, so the readout can follow. */
   onCount: (n: number) => void;
   /**
+   * What the model tree lists has changed — a layer recoloured or moved, an
+   * element added or removed, a scene rebuilt, an edit undone.
+   *
+   * Fired on committed changes only, never on the live previews between them:
+   * a colour drag repaints the scene continuously, and re-deriving a few
+   * thousand leaf rows per mouse-move to tell the panel what its own swatch is
+   * already showing would be the one slow thing in it.
+   */
+  onLayers: () => void;
+  /**
    * The draw tool or the corner count changed. The viewer cancels a gesture on
    * its own (Esc, a completed shape), so the toolbar has to be told rather than
    * assuming the mode it last asked for is still live.
@@ -102,7 +185,8 @@ export type ViewerCallbacks = {
 type Target =
   | { kind: 'building'; obj: THREE.Mesh; b: Building }
   | { kind: 'tree'; obj: THREE.Group; t: Tree }
-  | { kind: 'origin'; obj: THREE.Object3D };
+  | { kind: 'origin'; obj: THREE.Object3D }
+  | { kind: 'layer'; obj: THREE.Group; id: LayerId };
 
 /**
  * One undoable gesture.
@@ -137,7 +221,27 @@ type Cmd =
     }
   | { label: EditLabelKey; kind: 'origin'; before: Vec3; after: Vec3 }
   | { label: EditLabelKey; kind: 'life'; b: Building; index: number; added: boolean }
-  | { label: EditLabelKey; kind: 'treeLife'; t: Tree; index: number; added: boolean };
+  | { label: EditLabelKey; kind: 'treeLife'; t: Tree; index: number; added: boolean }
+  | {
+      label: EditLabelKey;
+      kind: 'layer';
+      id: LayerId;
+      before: LayerXf;
+      after: LayerXf;
+      /**
+       * The per-record appearance a restyle stamped over.
+       *
+       * A layer's colour and opacity are written through into the records that
+       * have somewhere to keep them (see styledOf in lib/scene/layers), so
+       * undoing means putting every one of them back. The records are held by
+       * reference, the way 'life' holds its Building, rather than by index into
+       * an array a later add or delete is free to reorder.
+       *
+       * Empty for a move, and for the merged layers, whose values live on
+       * LayerXf and travel in before/after above.
+       */
+      styles: { rec: Styled; before: Style; after: Style }[];
+    };
 
 /**
  * The name the origin reports. A dictionary key rather than a string: the status
@@ -179,6 +283,22 @@ const originXf = (off: THREE.Vector3): Xf => ({
   color: null,
   opacity: 1,
 });
+
+/** A LayerXf dressed as an Xf, so the element editor's position row, colour
+ *  swatch and opacity slider render a layer with no second code path — same
+ *  trick as originXf. Opacity is resolved rather than passed through, since an
+ *  Xf has no null to mean "whatever the stack says this tier draws at". */
+const layerXf = (id: LayerId, l: LayerXf): Xf => ({
+  pos: [...l.offset] as Vec3,
+  rot: [0, 0, 0],
+  scale: [1, 1, 1],
+  color: l.color,
+  opacity: l.opacity ?? defaultLayerOpacity(id),
+});
+
+/** What a mesh inside a layer group is for, so a recolour knows which of them
+ *  take the layer's colour and which take the accent derived from it. */
+type LayerRole = 'fill' | 'edge';
 
 /** Below this a drawn footprint is a slip of the pointer, not a building. */
 const MIN_FOOTPRINT_M2 = 1;
@@ -281,6 +401,21 @@ export class Viewer {
   private fitZ0 = 0;
   private buildingMeshes: THREE.Mesh[] = [];
   private treeMeshes: THREE.Group[] = [];
+  /**
+   * One group per category, under contentGroup — what the model tree selects,
+   * recolours and moves.
+   *
+   * LOAD-BEARING: only the groups in MOVABLE_LAYERS ever hold a transform, and
+   * nothing individually selectable lives inside one. The buildings and trees
+   * groups stay at identity for exactly that reason, so applyXf, applyTreeXf
+   * and every world/local conversion the gizmo makes on an element selection
+   * are unaffected by their meshes having gained a parent.
+   */
+  private readonly layerGroups = new Map<LayerId, THREE.Group>();
+  /** The box drawn round the selected layer. Layers have no outline of their
+   *  own to recolour the way a building does, and tinting their materials would
+   *  fight the colour being edited. */
+  private readonly layerBox: THREE.Box3Helper;
   private selected: Target | null = null;
   /** false while the 2D map covers the viewport — nothing to draw behind it. */
   private active = false;
@@ -301,6 +436,12 @@ export class Viewer {
     | { kind: 'building'; b: Building; before: Xf; beforeH: number }
     | { kind: 'tree'; t: Tree; before: Xf; beforeH: number }
     | { kind: 'origin'; before: Vec3 }
+    | {
+        kind: 'layer';
+        id: LayerId;
+        before: LayerXf;
+        styles: { rec: Styled; before: Style }[];
+      }
     | null = null;
 
   constructor(host: HTMLElement, cb: ViewerCallbacks) {
@@ -399,6 +540,13 @@ export class Viewer {
       } else if (t.kind === 'building') {
         this.readMeshInto(t.obj, t.b.xf);
         this.cb.onTransform(cloneXf(t.b.xf), t.b.h);
+      } else if (t.kind === 'layer') {
+        // The group's transform IS the offset, so there is nothing to convert.
+        const l = this.layerState(t.id);
+        if (!l) return;
+        l.offset = t.obj.position.toArray() as Vec3;
+        this.syncLayerBox();
+        this.cb.onTransform(layerXf(t.id, l), 0);
       } else {
         this.readTreeMeshInto(t.obj, t.t.xf);
         this.cb.onTransform(cloneXf(t.t.xf), t.t.h);
@@ -422,6 +570,12 @@ export class Viewer {
     // has to survive the disposeGroup that clears contentGroup on a rebuild.
     this.draft = createFootprintDraft();
     this.sceneGL.add(this.originMarker, this.pivotGhost, this.draft.group);
+
+    // Same reason again — and it is drawn round contentGroup's children, so
+    // being one of them would make it enclose itself.
+    this.layerBox = new THREE.Box3Helper(new THREE.Box3(), new THREE.Color(0x1f8ac0));
+    this.layerBox.visible = false;
+    this.sceneGL.add(this.layerBox);
 
     this.triad = createViewTriad();
 
@@ -818,6 +972,143 @@ export class Viewer {
     while (g.children.length) g.remove(g.children[0]);
   }
 
+  /* ---- layers ---------------------------------------------------------
+     A category, as one node of the scene graph. Grouping is what makes the
+     model tree possible at all: before it, everything but the buildings, the
+     trees and the terrain was an anonymous local const dropped into
+     contentGroup, with nothing to select, recolour or move.
+
+     Created lazily, so a group only exists for a layer the build actually
+     produced — an empty group would report itself to the tree as a layer that
+     is there and simply has nothing in it. disposeGroup traverses, so a
+     rebuild still tears these down with contentGroup; setScene only has to
+     forget the handles.
+     ------------------------------------------------------------------- */
+
+  private layerGroup(id: LayerId): THREE.Group {
+    const held = this.layerGroups.get(id);
+    if (held) return held;
+    const g = new THREE.Group();
+    g.name = id;
+    g.userData.layer = id;
+    // The offset is scene state, not view state, so a group built for a scene
+    // that already carries one starts where that scene says — which is what an
+    // undo replaying through setScene would need if it ever did.
+    g.position.fromArray(this.layerState(id)?.offset ?? [0, 0, 0]);
+    this.contentGroup.add(g);
+    this.layerGroups.set(id, g);
+    return g;
+  }
+
+  private layerState(id: LayerId): LayerXf | null {
+    return this.scene?.layers[id] ?? null;
+  }
+
+  /** Redraw the selection box round whatever layer is selected. Recomputed
+   *  rather than translated: a drag is the only thing that moves it, and
+   *  setFromObject is cheap beside the frame it lands in. */
+  private syncLayerBox(): void {
+    const t = this.selected;
+    if (t?.kind !== 'layer') {
+      this.layerBox.visible = false;
+      return;
+    }
+    this.layerBox.box.setFromObject(t.obj);
+    this.layerBox.visible = !this.layerBox.box.isEmpty();
+  }
+
+  /**
+   * Repaint one layer from the model.
+   *
+   * Where the colour is read from depends on where it is kept, which is the
+   * same split tintedOf makes: buildings, trees and context surfaces carry
+   * their own and were stamped in place, so their existing paint methods do the
+   * work; terrain, roads and railways are one merged element apiece with
+   * nowhere to keep one, so they read LayerXf.color.
+   */
+  private paintLayer(id: LayerId): void {
+    const s = this.scene;
+    const g = this.layerGroups.get(id);
+    if (!s || !g) return;
+
+    if (id === 'buildings') {
+      for (const m of this.buildingMeshes) this.paintMesh(m, m.userData.building as Building);
+      return;
+    }
+    if (id === 'trees') {
+      for (const gr of this.treeMeshes) this.paintTreeMesh(gr, gr.userData.tree as Tree);
+      return;
+    }
+
+    const fallback = defaultLayerColor(id);
+    // Opacity is layer-level for everything painted here: a Surface has never
+    // carried one of its own. Below 1 it must not write depth, or the layer
+    // hides what it is meant to be a tint over — including its own far side,
+    // which is what makes a ghosted layer readable at all. Render order is
+    // deliberately left alone: the stacking ladder in lib/scene/stack still
+    // decides who wins, and promoting a translucent layer to the top would
+    // reorder it against the ones it is now being seen through.
+    const a = layerAlpha(s, id);
+    for (const o of g.children) {
+      const role = o.userData.layerRole as LayerRole | undefined;
+      if (!role) continue;
+      const mat = (o as THREE.Mesh).material as THREE.Material & { color: THREE.Color };
+      mat.transparent = a < 1;
+      mat.opacity = a;
+      mat.depthWrite = a >= 1;
+      if (role === 'fill') {
+        const own = (o.userData.surface as Surface | undefined)?.color;
+        mat.color.setHex(own ?? s.layers[id].color ?? fallback);
+        continue;
+      }
+      // The accent line on a road or a track. Left at its hand-picked constant
+      // while the layer is at its default — those two pairs were tuned together
+      // — and derived from the override otherwise, since a recoloured ribbon
+      // with the old grey edging reads as a mistake rather than as a choice.
+      const over = s.layers[id].color;
+      mat.color.setHex(over === null ? (o.userData.edgeColor as number) : lighten(over, 0.18));
+    }
+  }
+
+  /**
+   * The model tree, derived rather than stored.
+   *
+   * React holds no scene — it sees derived numbers and the selected element's
+   * snapshot — so the tree is pulled from here whenever the counts change,
+   * which is a signal onCount already sends. That is one fewer callback than
+   * pushing it, and it cannot go stale against the scene it describes.
+   */
+  layerTree(): LayerNode[] {
+    const s = this.scene;
+    if (!s) return [];
+    return LAYER_IDS.map((id) => {
+      const count = layerCount(s, id);
+      const items =
+        id === 'buildings'
+          ? s.buildings.map((b) => ({ id: b.id, name: b.name }))
+          : id === 'trees'
+            ? s.trees.map((t) => ({ id: t.id, name: t.name }))
+            : [];
+      return {
+        id,
+        label: LAYER_LABEL[id],
+        count,
+        color: s.layers[id].color ?? defaultLayerColor(id),
+        movable: MOVABLE_LAYERS.has(id),
+        items,
+      };
+    }).filter((n) => n.count > 0);
+  }
+
+  /** Select a whole category. The tree's own affordance: layers are deliberately
+   *  not raycast (see initPicking), or every click on the ground would take the
+   *  selection off the building the user was aiming at. */
+  selectLayer(id: LayerId | null): void {
+    if (id === null) return this.selectTarget(null);
+    const g = this.layerGroups.get(id);
+    this.selectTarget(g ? { kind: 'layer', obj: g, id } : null);
+  }
+
   setScene(scene: SceneData, site: Site): void {
     this.scene = scene;
     this.clearHistory();
@@ -826,6 +1117,7 @@ export class Viewer {
     this.buildingMeshes = [];
     this.treeMeshes = [];
     this.groundMesh = null;
+    this.layerGroups.clear();
     Viewer.disposeGroup(this.contentGroup);
     // A rebuild re-derives the site, so an offset measured against the old one
     // means nothing — the origin goes back to the centre with it.
@@ -885,7 +1177,8 @@ export class Viewer {
         }),
       );
       roadMesh.renderOrder = 4;
-      this.contentGroup.add(roadMesh);
+      roadMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      this.layerGroup('roads').add(roadMesh);
       const roadEdges = new THREE.LineSegments(
         new THREE.EdgesGeometry(geo),
         new THREE.LineBasicMaterial({
@@ -896,7 +1189,9 @@ export class Viewer {
         }),
       );
       roadEdges.renderOrder = 4;
-      this.contentGroup.add(roadEdges);
+      roadEdges.userData.layerRole = 'edge' satisfies LayerRole;
+      roadEdges.userData.edgeColor = 0xaeaeae;
+      this.layerGroup('roads').add(roadEdges);
     }
 
     if (scene.roadWalls.length) {
@@ -921,7 +1216,72 @@ export class Viewer {
         }),
       );
       wallMesh.renderOrder = 4;
-      this.contentGroup.add(wallMesh);
+      wallMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      this.layerGroup('roads').add(wallMesh);
+    }
+
+    // Railways are the road pair again, one rung up the ladder: same ribbon
+    // built by the same pushRoadway, same top/skirt split, drawn with the same
+    // unlit material. Tier 5 rather than the roads' 4 because LAYER_DZ puts
+    // railway above road, and draw order has to march with the stacking order
+    // (see the SURFACE_TIER note below) so a level crossing resolves the way
+    // the z ladder says it should rather than the way the sort happens to land.
+    if (scene.railways.length) {
+      const pos: number[] = [];
+      for (const f of scene.railways)
+        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const railMesh = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({
+          color: RAILWAY_COLOR,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        }),
+      );
+      railMesh.renderOrder = 5;
+      railMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      this.layerGroup('railways').add(railMesh);
+      // Built off the top surface alone, for the same reason the road outline
+      // is — the skirt below has its own mesh so its vertical and floor edges
+      // stay out of this pass.
+      const railEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({
+          color: 0x8d7f6e,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        }),
+      );
+      railEdges.renderOrder = 5;
+      railEdges.userData.layerRole = 'edge' satisfies LayerRole;
+      railEdges.userData.edgeColor = 0x8d7f6e;
+      this.layerGroup('railways').add(railEdges);
+    }
+
+    if (scene.railwayWalls.length) {
+      const pos: number[] = [];
+      for (const f of scene.railwayWalls)
+        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const railWallMesh = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({
+          color: RAILWAY_COLOR,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        }),
+      );
+      railWallMesh.renderOrder = 5;
+      railWallMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      this.layerGroup('railways').add(railWallMesh);
     }
 
     for (const b of scene.buildings) this.addBuildingMesh(b);
@@ -944,7 +1304,8 @@ export class Viewer {
           polygonOffsetUnits: 1,
         }),
       );
-      this.contentGroup.add(this.groundMesh);
+      this.groundMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      this.layerGroup('terrain').add(this.groundMesh);
     } else {
       // A flat build has no terrain mesh, and since the reference grid went away
       // it would otherwise have nothing under it at all — buildings hanging in
@@ -968,6 +1329,10 @@ export class Viewer {
         }),
       );
       floor.position.z = z0;
+      // Deliberately NOT in the terrain layer group: emitIFC writes a terrain
+      // element only when scene.terrain exists, so a tree node for this would
+      // offer a recolour the exported file could not carry — and preview and
+      // deliverable disagreeing is the one thing this codebase does not do.
       this.contentGroup.add(floor);
     }
 
@@ -984,10 +1349,12 @@ export class Viewer {
     const SURFACE_TIER: Record<string, number> = { parcel: 1, vegetation: 2, water: 3, hedge: 5 };
     for (const s of scene.surfaces) {
       const tier = SURFACE_TIER[s.layer ?? ''] ?? 1;
-      // Opacity comes from lib/scene/stack, the same number the IFC exports as
-      // transparency. A layer drawn below 1 must not write depth, or it hides
-      // what it is meant to be a tint over.
-      const alpha = layerOpacity(s.layer);
+      // Opacity comes from the layer, which starts at the lib/scene/stack
+      // default and is the same number the IFC exports as transparency. A layer
+      // drawn below 1 must not write depth, or it hides what it is meant to be
+      // a tint over. The paint pass at the end of this method sets all three
+      // again from the model, so this only has to be a sane starting point.
+      const alpha = layerAlpha(scene, s.layer ?? 'parcel');
       const mesh = new THREE.Mesh(
         facesetGeometry(s.verts, s.faces),
         new THREE.MeshLambertMaterial({
@@ -1002,7 +1369,12 @@ export class Viewer {
         }),
       );
       mesh.renderOrder = tier;
-      this.contentGroup.add(mesh);
+      // Tagged with the record, not just the role: a context surface keeps its
+      // own colour (Surface.color), which is what a layer recolour stamps and
+      // what the IFC already exports, so the repaint reads it back from here.
+      mesh.userData.layerRole = 'fill' satisfies LayerRole;
+      mesh.userData.surface = s;
+      this.layerGroup(s.layer ?? 'parcel').add(mesh);
     }
 
     // One group per tree, same as buildings — individually pickable, editable
@@ -1011,6 +1383,13 @@ export class Viewer {
     // at thousands of objects, and TREE_CAP is smaller still.
     for (const t of scene.trees) this.addTreeMesh(t);
 
+    // Now that every group is complete, paint them all from the model. The
+    // state a fresh build draws in and the state a later edit repaints to are
+    // then produced by the same code, rather than by two that have to agree —
+    // which is the drift a scene rebuilt after a layer edit would expose first.
+    for (const id of this.layerGroups.keys()) this.paintLayer(id);
+
+    this.layersChanged();
     this.frameCamera(site.radius, z0);
   }
 
@@ -1050,7 +1429,7 @@ export class Viewer {
     );
     this.applyXf(mesh, b);
     this.paintMesh(mesh, b);
-    this.contentGroup.add(mesh);
+    this.layerGroup('buildings').add(mesh);
     this.buildingMeshes.push(mesh);
     return mesh;
   }
@@ -1059,7 +1438,7 @@ export class Viewer {
     const mesh = this.meshFor(b);
     if (!mesh) return;
     this.buildingMeshes.splice(this.buildingMeshes.indexOf(mesh), 1);
-    this.contentGroup.remove(mesh);
+    mesh.removeFromParent();
     // disposeGroup traverses, so the outline child goes with it.
     Viewer.disposeGroup(mesh);
   }
@@ -1095,6 +1474,7 @@ export class Viewer {
     s.buildings.splice(Math.min(index, s.buildings.length), 0, b);
     const mesh = this.addBuildingMesh(b);
     this.cb.onCount(s.buildings.length);
+    this.layersChanged();
     // Show what just came back — a building reappearing off-screen with nothing
     // selected is an undo the user cannot see. Unless a footprint tool is armed,
     // where the gizmo would land on the ground the next corner is aimed at.
@@ -1109,6 +1489,7 @@ export class Viewer {
     if (this.selected?.kind === 'building' && this.selected.b === b) this.selectTarget(null);
     this.removeBuildingMesh(b);
     this.cb.onCount(s.buildings.length);
+    this.layersChanged();
   }
 
   // data -> mesh
@@ -1244,7 +1625,7 @@ export class Viewer {
     for (const child of group.children) child.userData.treeRoot = group;
     this.applyTreeXf(group, t);
     this.paintTreeMesh(group, t);
-    this.contentGroup.add(group);
+    this.layerGroup('trees').add(group);
     this.treeMeshes.push(group);
     return group;
   }
@@ -1253,7 +1634,7 @@ export class Viewer {
     const group = this.groupFor(t);
     if (!group) return;
     this.treeMeshes.splice(this.treeMeshes.indexOf(group), 1);
-    this.contentGroup.remove(group);
+    group.removeFromParent();
     Viewer.disposeGroup(group);
   }
 
@@ -1266,6 +1647,7 @@ export class Viewer {
     if (!s) return;
     s.trees.splice(Math.min(index, s.trees.length), 0, t);
     const group = this.addTreeMesh(t);
+    this.layersChanged();
     if (!this.drawTool) this.selectTarget({ kind: 'tree', obj: group, t });
   }
 
@@ -1276,6 +1658,7 @@ export class Viewer {
     if (i >= 0) s.trees.splice(i, 1);
     if (this.selected?.kind === 'tree' && this.selected.t === t) this.selectTarget(null);
     this.removeTreeMesh(t);
+    this.layersChanged();
   }
 
   // data -> mesh
@@ -1336,10 +1719,25 @@ export class Viewer {
     if (prev?.kind === 'origin' && t?.kind !== 'origin') setMarkerActive(this.originMarker, false);
 
     if (t) {
-      this.gizmo.attach(t.obj);
+      // Terrain has no offset to drag (see MOVABLE_LAYERS), and a layer with no
+      // geometry has nothing to drag it by — the tree filters those out, but an
+      // undo replaying an old command could still ask for one.
+      const draggable =
+        t.kind !== 'layer' || (MOVABLE_LAYERS.has(t.id) && t.obj.children.length > 0);
+      if (draggable) this.gizmo.attach(t.obj);
+      else this.gizmo.detach();
       if (t.kind === 'building') this.paintMesh(t.obj, t.b);
       else if (t.kind === 'tree') this.paintTreeMesh(t.obj, t.t);
-      else {
+      else if (t.kind === 'layer') {
+        // Same reasoning as the origin below — a layer translates and nothing
+        // else, so the other two modes are not the user's to pick here. Turning
+        // is a separate promise about the source data being mis-georeferenced,
+        // and scaling a draped ribbon would tear it off the terrain outright.
+        if (draggable && this.gizmo.getMode() !== 'translate') {
+          this.gizmo.setMode('translate');
+          this.cb.onMode('translate');
+        }
+      } else {
         setMarkerActive(this.originMarker, true);
         // A point has nothing to turn or stretch, so the mode is not the user's
         // to pick while it is selected — say so rather than leaving dead buttons.
@@ -1350,6 +1748,7 @@ export class Viewer {
       }
     } else this.gizmo.detach();
 
+    this.syncLayerBox();
     this.cb.onSelect(this.selectionOf(t));
     this.syncHistory();
   }
@@ -1365,6 +1764,17 @@ export class Viewer {
         h: 0,
         defaultColor: 0,
       };
+    if (t.kind === 'layer') {
+      const l = this.layerState(t.id);
+      return {
+        kind: 'layer',
+        id: layerSelId(t.id),
+        name: LAYER_LABEL[t.id],
+        xf: layerXf(t.id, l ?? { color: null, opacity: null, offset: [0, 0, 0] }),
+        h: 0,
+        defaultColor: defaultLayerColor(t.id),
+      };
+    }
     if (t.kind === 'tree')
       return {
         kind: 'tree',
@@ -1556,15 +1966,18 @@ export class Viewer {
   }
 
   /** False when the mode was refused, so the UI does not show one that is not
-   *  in effect — the origin is translate-only; see selectTarget. */
+   *  in effect — the origin and any layer are translate-only; see selectTarget. */
   setMode(mode: GizmoMode): boolean {
-    if (this.selected?.kind === 'origin') return false;
+    const k = this.selected?.kind;
+    if (k === 'origin' || k === 'layer') return false;
     this.gizmo.setMode(mode);
     return true;
   }
 
   select(id: string | null): void {
     if (id === null) return this.selectTarget(null);
+    const layer = layerIdOf(id);
+    if (layer) return this.selectLayer(layer);
     if (id === ORIGIN_ID)
       return this.selectTarget(
         this.originMarker.visible ? { kind: 'origin', obj: this.originMarker } : null,
@@ -1609,6 +2022,13 @@ export class Viewer {
      is that one gesture produces exactly one command.
      ------------------------------------------------------------------- */
 
+  /** See ViewerCallbacks.onLayers. Called from the handful of places that
+   *  change what the tree lists, rather than from onDirty, which also fires
+   *  through every frame of a drag. */
+  private layersChanged(): void {
+    this.cb.onLayers();
+  }
+
   private clearHistory(): void {
     this.edits.stack.length = 0;
     this.edits.index = -1;
@@ -1623,6 +2043,22 @@ export class Viewer {
   beginEdit(): void {
     const t = this.selected;
     if (this.pending || !t) return;
+    if (t.kind === 'layer') {
+      const l = this.layerState(t.id);
+      if (!l) return;
+      // The per-record colours are snapshotted here rather than at the moment a
+      // stamp writes them, because a colour drag arrives as a stream of live
+      // previews and only the first of them still sees the originals. One pass
+      // over the layer per gesture, not per keystroke — the guard above is what
+      // makes that true.
+      this.pending = {
+        kind: 'layer',
+        id: t.id,
+        before: cloneLayerXf(l),
+        styles: styledOf(this.scene!, t.id).map((rec) => ({ rec, before: readStyle(rec) })),
+      };
+      return;
+    }
     this.pending =
       t.kind === 'origin'
         ? { kind: 'origin', before: this.originOffset.toArray() as Vec3 }
@@ -1645,6 +2081,7 @@ export class Viewer {
     if (this.edits.stack.length > this.edits.limit) this.edits.stack.shift();
     this.edits.index = this.edits.stack.length - 1;
     this.syncHistory();
+    this.layersChanged();
     this.cb.onDirty();
     this.cb.onStatus('status.editCommitted', { label: cmd.label, name });
   }
@@ -1658,6 +2095,21 @@ export class Viewer {
       const after = this.originOffset.toArray() as Vec3;
       if (p.before.every((v, i) => v === after[i])) return;
       this.pushCmd({ label, kind: 'origin', before: p.before, after }, ORIGIN_NAME);
+      return;
+    }
+
+    if (p.kind === 'layer') {
+      const l = this.layerState(p.id);
+      if (!l) return;
+      const after = cloneLayerXf(l);
+      const styles = p.styles
+        .map((x) => ({ rec: x.rec, before: x.before, after: readStyle(x.rec) }))
+        .filter((x) => !sameStyle(x.before, x.after));
+      if (sameLayerXf(p.before, after) && !styles.length) return;
+      this.pushCmd(
+        { label, kind: 'layer', id: p.id, before: p.before, after, styles },
+        LAYER_LABEL[p.id],
+      );
       return;
     }
 
@@ -1743,13 +2195,32 @@ export class Viewer {
       if (present) this.insertTree(c.t, c.index);
       else this.detachTree(c.t);
       this.cb.onDirty();
+    } else if (c.kind === 'layer') {
+      this.applyLayerCmd(c, to);
     } else if (c.kind === 'tree') {
       this.applyXfCmdTree(c.t, c[to], to === 'after' ? c.afterH : c.beforeH);
     } else this.applyXfCmd(c.b, c[to], to === 'after' ? c.afterH : c.beforeH);
   }
 
+  private applyLayerCmd(c: Cmd & { kind: 'layer' }, to: 'before' | 'after'): void {
+    const s = this.scene;
+    if (!s) return;
+    s.layers[c.id] = cloneLayerXf(c[to]);
+    this.layerGroups.get(c.id)?.position.fromArray(s.layers[c.id].offset);
+    for (const st of c.styles) writeStyle(st.rec, st[to]);
+    // Show what just changed, the same courtesy the building and origin paths
+    // extend — a layer repainting off-screen with nothing selected is an undo
+    // the user cannot see.
+    if (this.selected?.kind !== 'layer' || this.selected.id !== c.id) this.selectLayer(c.id);
+    this.paintLayer(c.id);
+    this.syncLayerBox();
+    this.cb.onTransform(layerXf(c.id, s.layers[c.id]), 0);
+    this.cb.onDirty();
+  }
+
   private cmdName(c: Cmd): string {
     if (c.kind === 'origin') return ORIGIN_NAME;
+    if (c.kind === 'layer') return LAYER_LABEL[c.id];
     return c.kind === 'tree' || c.kind === 'treeLife' ? c.t.name : c.b.name;
   }
 
@@ -1757,6 +2228,10 @@ export class Viewer {
     if (this.edits.index < 0) return;
     const c = this.edits.stack[this.edits.index--];
     this.applyCmd(c, 'before');
+    // After the replay, not before it: the tree is derived from the scene, and
+    // re-deriving it from the state the undo is about to leave behind would
+    // hand the panel the very values it just took back.
+    this.layersChanged();
     this.syncHistory();
     this.cb.onStatus('status.undone', { label: c.label, name: this.cmdName(c) });
   }
@@ -1765,6 +2240,7 @@ export class Viewer {
     if (this.edits.index >= this.edits.stack.length - 1) return;
     const c = this.edits.stack[++this.edits.index];
     this.applyCmd(c, 'after');
+    this.layersChanged();
     this.syncHistory();
     this.cb.onStatus('status.redone', { label: c.label, name: this.cmdName(c) });
   }
@@ -1835,6 +2311,20 @@ export class Viewer {
       return;
     }
 
+    // A layer translates and nothing else, for the reasons in selectTarget.
+    if (t.kind === 'layer') {
+      const l = this.layerState(t.id);
+      if (key !== 'pos' || !l || !MOVABLE_LAYERS.has(t.id)) return;
+      this.beginEdit();
+      l.offset[i] = raw;
+      t.obj.position.fromArray(l.offset);
+      this.syncLayerBox();
+      this.cb.onTransform(layerXf(t.id, l), 0);
+      this.cb.onDirty();
+      if (commit) this.commitEdit('edit.move');
+      return;
+    }
+
     const e = this.editable();
     if (!e) return;
     this.beginEdit();
@@ -1852,7 +2342,42 @@ export class Viewer {
     if (commit) this.commitEdit(key === 'pos' ? 'edit.move' : key === 'rot' ? 'edit.rotate' : 'edit.scale');
   }
 
+  /**
+   * Restyle a layer, by writing the values through to every element in it.
+   *
+   * Stamping rather than shadowing: buildings, trees and context surfaces
+   * already have somewhere to keep what they can keep, and the IFC writer
+   * already reads it back out of exactly those fields, so a stamp is what makes
+   * the export need no per-layer fallback of its own. What a record cannot hold
+   * — a Surface's opacity, and both values on the merged layers — stays on
+   * LayerXf, which emitIFC reads instead.
+   *
+   * The patch is applied to LayerXf first and the record style is then derived
+   * from it wholesale, so a reset to null lands as "back to whatever the tier
+   * says" rather than as a null written into an Xf that has no room for one.
+   */
+  private stampLayer(
+    id: LayerId,
+    patch: Partial<Pick<LayerXf, 'color' | 'opacity'>>,
+    commit: boolean,
+    label: EditLabelKey,
+  ): void {
+    const s = this.scene;
+    const l = this.layerState(id);
+    if (!s || !l) return;
+    this.beginEdit();
+    Object.assign(l, patch);
+    const style: Style = { color: l.color, opacity: layerAlpha(s, id) };
+    for (const rec of styledOf(s, id)) writeStyle(rec, style);
+    this.paintLayer(id);
+    this.cb.onTransform(layerXf(id, l), 0);
+    this.cb.onDirty();
+    if (commit) this.commitEdit(label);
+  }
+
   setColor(hex: number, commit: boolean): void {
+    const t = this.selected;
+    if (t?.kind === 'layer') return this.stampLayer(t.id, { color: hex }, commit, 'edit.colour');
     const e = this.editable();
     if (!e) return;
     this.beginEdit();
@@ -1864,6 +2389,9 @@ export class Viewer {
   }
 
   resetColor(): void {
+    const t = this.selected;
+    if (t?.kind === 'layer')
+      return this.stampLayer(t.id, { color: null }, true, 'edit.colourReset');
     const e = this.editable();
     if (!e) return;
     this.beginEdit();
@@ -1877,8 +2405,17 @@ export class Viewer {
   /** `a` is opacity, 0..1. Same live/commit split as the colour swatch: the
    *  slider previews continuously and the undo boundary is the drag ending. */
   setOpacity(a: number, commit: boolean): void {
+    if (!Number.isFinite(a)) return;
+    const t = this.selected;
+    if (t?.kind === 'layer')
+      return this.stampLayer(
+        t.id,
+        { opacity: Math.min(1, Math.max(0, a)) },
+        commit,
+        'edit.opacity',
+      );
     const e = this.editable();
-    if (!e || !Number.isFinite(a)) return;
+    if (!e) return;
     this.beginEdit();
     e.xf.opacity = Math.min(1, Math.max(0, a));
     e.paint();
@@ -2111,6 +2648,8 @@ export class Viewer {
     this.gizmo.dispose();
     this.controls.dispose();
     Viewer.disposeGroup(this.contentGroup);
+    this.layerBox.geometry.dispose();
+    (this.layerBox.material as THREE.Material).dispose();
     // The markers sit on the scene rather than under contentGroup, for the same
     // reason the gizmo does — which means nothing else will free them.
     Viewer.disposeGroup(this.originMarker);

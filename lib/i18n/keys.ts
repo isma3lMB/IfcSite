@@ -14,6 +14,7 @@ export type StatusKey =
   | 'status.queryingTrees'
   | 'status.fetchingIgnBuildings'
   | 'status.fetchingIgnRoads'
+  | 'status.fetchingIgnRailways'
   | 'status.fetchingIgnLayer'
   | 'status.samplingAlti'
   | 'status.samplingAltiChunk'
@@ -56,12 +57,20 @@ export type ErrorCode =
   | 'err.noSite';
 
 /**
- * Context layer names. These appear both in progress lines ("Fetching IGN
- * vegetation…") and in the "no X returned" tail of the build summary, so they
- * have to be a key rather than the English label the original hung off
- * IGN_LAYERS[*].label.
+ * Layer names. These appear in progress lines ("Fetching IGN vegetation…"), in
+ * the "no X returned" tail of the build summary, and as the model tree's own
+ * row labels, so they have to be a key rather than the English label the
+ * original hung off IGN_LAYERS[*].label.
+ *
+ * Lowercase noun phrases, because two of those three uses are mid-sentence. The
+ * tree capitalises its own first letter in CSS rather than holding a second set
+ * of title-case strings that would have to be kept in step.
  */
 export type LayerKey =
+  | 'layer.terrain'
+  | 'layer.buildings'
+  | 'layer.roads'
+  | 'layer.railways'
   | 'layer.vegetation'
   | 'layer.hedges'
   | 'layer.water'

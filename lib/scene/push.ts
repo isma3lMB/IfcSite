@@ -285,11 +285,17 @@ export function pushRoadway(
  * up the skirt's vertical and floor edges; `skirtInto`'s return index is what
  * splits the one faceset back into those two.
  */
-export function finishRoads(
+/** Shared by finishRoads and finishRailways below — both are a centreline
+ *  ribbon conformed to the terrain and skirted into a solid, differing only
+ *  in which LAYER_DZ/skirtDepth rung and which scene arrays they land in. */
+function finishRibbons(
   scene: SceneData,
   ribbons: SplitPolygon[],
   toGeo: ToGeo,
   sampleZ: SampleZ,
+  layer: 'road' | 'railway',
+  top: Vec3[][],
+  walls: Vec3[][],
 ): void {
   if (!ribbons.length) return;
   for (const { outer, holes } of unionPolygons(ribbons)) {
@@ -298,13 +304,31 @@ export function finishRoads(
       scene.terrain,
       toGeo,
       sampleZ,
-      LAYER_DZ.road,
+      LAYER_DZ[layer],
       holes,
     );
     if (!faces.length) continue;
-    const skirt = skirtInto(verts, faces, skirtDepth('road'));
+    const skirt = skirtInto(verts, faces, skirtDepth(layer));
     const tri = (t: number[]): Vec3[] => [verts[t[0]], verts[t[1]], verts[t[2]]];
-    for (let i = 0; i < skirt; i++) scene.roads.push(tri(faces[i]));
-    for (let i = skirt; i < faces.length; i++) scene.roadWalls.push(tri(faces[i]));
+    for (let i = 0; i < skirt; i++) top.push(tri(faces[i]));
+    for (let i = skirt; i < faces.length; i++) walls.push(tri(faces[i]));
   }
+}
+
+export function finishRoads(
+  scene: SceneData,
+  ribbons: SplitPolygon[],
+  toGeo: ToGeo,
+  sampleZ: SampleZ,
+): void {
+  finishRibbons(scene, ribbons, toGeo, sampleZ, 'road', scene.roads, scene.roadWalls);
+}
+
+export function finishRailways(
+  scene: SceneData,
+  ribbons: SplitPolygon[],
+  toGeo: ToGeo,
+  sampleZ: SampleZ,
+): void {
+  finishRibbons(scene, ribbons, toGeo, sampleZ, 'railway', scene.railways, scene.railwayWalls);
 }

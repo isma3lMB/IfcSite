@@ -169,6 +169,17 @@ export const IconOrigin = () => (
   </Svg>
 );
 
+/* Stacked plates rather than the usual indented-list tree: the panel's subject
+   is the layers of the model, and a list glyph would read as an outline of the
+   document. The filled top plate is the one you are looking at. */
+export const IconLayers = () => (
+  <Svg>
+    <path d="M8 1.8 14.4 5 8 8.2 1.6 5Z" fill="currentColor" stroke="none" />
+    <path d="M1.6 8.3 8 11.5l6.4-3.2" />
+    <path d="M1.6 11.5 8 14.7l6.4-3.2" />
+  </Svg>
+);
+
 /* The surveyor's north arrow: apex, two base corners, and a notch back up to the
    centre. The notch is what makes it read as a needle pointing somewhere rather
    than as a plain triangle — and it survives being turned to any angle, which is

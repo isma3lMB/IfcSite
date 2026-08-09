@@ -177,10 +177,26 @@ export function ControlsPanel(p: ControlsPanelProps) {
 
         <label className="check">
           <Checkbox
+            checked={p.form.buildings}
+            onCheckedChange={(v) => p.onChange({ buildings: v === true })}
+          />
+          {t('ctl.buildings')}
+        </label>
+
+        <label className="check">
+          <Checkbox
             checked={p.form.roads}
             onCheckedChange={(v) => p.onChange({ roads: v === true })}
           />
           {t('ctl.roads')}
+        </label>
+
+        <label className="check">
+          <Checkbox
+            checked={p.form.railways}
+            onCheckedChange={(v) => p.onChange({ railways: v === true })}
+          />
+          {t('ctl.railways')}
         </label>
 
         <label className="check">

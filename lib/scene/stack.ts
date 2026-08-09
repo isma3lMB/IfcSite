@@ -1,3 +1,5 @@
+import type { SurfaceLayer } from '@/lib/types';
+
 /**
  * Drape clearance above the terrain, in metres, for the four FLAT layers.
  * Everything here rides on the same sampled ground, so these numbers are the
@@ -50,6 +52,9 @@ export const LAYER_DZ = {
   vegetation: 0.1,
   water: 0.2,
   road: 0.3,
+  // A rail bed sits a little proud of the road surface it may cross, so it
+  // takes the next rung up — same containment logic, one step higher.
+  railway: 0.32,
   tree: -0.05,
   hedge: -0.05,
 } as const;
@@ -85,6 +90,12 @@ export const LAYER_BITE = {
   vegetation: 0.05,
   water: 0.05,
   road: 0.05,
+  // Deeper than road's by a millimetre-scale margin on purpose: a level
+  // crossing overlaps the two in plan, and an equal bite would put both slabs'
+  // bottom caps on the same plane — the coplanar pair containment cannot
+  // arbitrate. One rung deeper puts the road solid strictly inside the rail
+  // one, which is what the ladder above is for.
+  railway: 0.06,
 } as const;
 
 /** The layers built as solids rather than as a flat skin. */
@@ -129,3 +140,24 @@ export const TREE_CANOPY_COLOR = 0x51a634;
  *  screen. Shared anyway — one value that is slightly differently lit beats two
  *  values that can drift apart. */
 export const ROAD_COLOR = 0xb0b0b0;
+
+/** Railways, for the same reason as roads — a ballast brown-grey, distinct
+ *  enough from ROAD_COLOR to read as a different feature at a glance. */
+export const RAILWAY_COLOR = 0x6b5b4a;
+
+/**
+ * The four context-surface tiers, keyed by Surface['layer'].
+ *
+ * These sat on IGN_LAYERS[*].color until the model tree needed to name a
+ * layer's default colour without pulling the whole WFS client in behind it.
+ * They belong beside the opacities and the stacking order anyway: which tier a
+ * surface is decides its z, its draw order, its opacity and its hue, and those
+ * four numbers only stay in step while they are read from one place. lib/sources/ign
+ * still owns which WFS type feeds each tier — only the palette moved.
+ */
+export const SURFACE_COLOR: Record<SurfaceLayer, number> = {
+  vegetation: 0xc0d4b6,
+  hedge: 0x93c07e,
+  water: 0xa3c1d2,
+  parcel: 0x6b6252,
+};

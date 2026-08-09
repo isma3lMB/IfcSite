@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ColourField } from '@/components/colour-field';
 import { Slider } from '@/components/ui/slider';
 import { useT } from '@/lib/i18n/context';
+import type { StringKey } from '@/lib/i18n/context';
 import { rnd } from '@/lib/scene/xf';
 import type { Vec3 } from '@/lib/types';
 import type { Selection } from '@/lib/viewer/Viewer';
@@ -68,46 +70,6 @@ function AxisInput({
 }
 
 /**
- * The colour swatch.
- *
- * React maps onChange on an <input type="color"> to the DOM `input` event, which
- * fires continuously while the picker is open. The undo boundary is the native
- * `change` event, which React does not surface — so it is bound directly, the
- * way the original's onchange handler was. Committing on blur instead would
- * miss a picker dismissed without moving focus.
- */
-function ColourField({
-  value,
-  onColor,
-}: {
-  value: number;
-  onColor: (hex: number, commit: boolean) => void;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  const latest = useRef(onColor);
-  latest.current = onColor;
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const commit = () => latest.current(parseInt(el.value.slice(1), 16), true);
-    el.addEventListener('change', commit);
-    return () => el.removeEventListener('change', commit);
-  }, []);
-
-  return (
-    <input
-      id="edColor"
-      ref={ref}
-      type="color"
-      className="colorInput"
-      value={'#' + value.toString(16).padStart(6, '0')}
-      onChange={(e) => onColor(parseInt(e.target.value.slice(1), 16), false)}
-    />
-  );
-}
-
-/**
  * The opacity slider.
  *
  * Same split as the colour swatch, and for the same reason: `onValueChange`
@@ -152,6 +114,9 @@ function OpacityField({
 export type ElementEditorProps = {
   visible: boolean;
   selection: Selection | null;
+  /** False for terrain, which is not a movable layer — the position row is
+   *  dropped rather than shown dead. Meaningless unless the selection is one. */
+  layerMovable: boolean;
   uniform: boolean;
   onUniform: (v: boolean) => void;
   onAxis: (key: AxisKey, i: number, v: number, commit: boolean) => void;
@@ -194,6 +159,12 @@ export function ElementEditor(p: ElementEditorProps) {
   // The origin is a bare point: no ring to recolour, nothing to turn or stretch.
   // It reuses the position row and drops the rest rather than greying it out.
   const isOrigin = sel.kind === 'origin';
+  // A layer is the same idea one level up: a colour that stamps every element in
+  // it and, for the linear and surface layers, an offset. Rotation, scale,
+  // opacity, height and delete are all element-level and are dropped, not
+  // disabled — see selectTarget in lib/viewer/Viewer for why the gizmo refuses
+  // the other two modes as well.
+  const isLayer = sel.kind === 'layer';
 
   /* `write` rather than p.onAxis directly, so the project-coordinate row can
      reuse AxisInput's draft/commit behaviour without pretending to be an xf. */
@@ -227,9 +198,11 @@ export function ElementEditor(p: ElementEditorProps) {
     <div className="floating editPanel">
       <div className="editHead">
         <div>
-          <div className="eyebrow">{t('ed.selected')}</div>
-          <div className="editName" title={sel.id}>
-            {isOrigin ? t('ed.originName') : sel.name}
+          <div className="eyebrow">{isLayer ? t('ed.layer') : t('ed.selected')}</div>
+          {/* The origin and every layer report a dictionary key rather than a
+              name of their own — the viewer has no language. See ORIGIN_NAME. */}
+          <div className={`editName${isOrigin || isLayer ? ' capFirst' : ''}`} title={sel.id}>
+            {isOrigin || isLayer ? t(sel.name as StringKey) : sel.name}
           </div>
         </div>
         {/* The one deselect affordance. There were three — this, a preset in
@@ -297,13 +270,54 @@ export function ElementEditor(p: ElementEditorProps) {
         </div>
       )}
 
-      {!isOrigin && (
+      {isLayer && (
         <div>
           <div className="field">
             <label className="eyebrow block mb-1.5" htmlFor="edColor">
               {t('ed.colour')}
             </label>
-            <ColourField value={colour} onColor={p.onColor} />
+            <ColourField id="edColor" value={colour} onColor={p.onColor} />
+
+            {/* Beneath the swatch, the same pairing the element branch makes:
+                colour and how solid it draws are one decision, and both are
+                carried into the exported file — see ed.layerStyleHint. */}
+            <div className="mt-3">
+              <OpacityField value={opacity} onOpacity={p.onOpacity} />
+            </div>
+
+            <div className="presets">
+              <button type="button" onClick={p.onColorReset}>
+                {t('ed.defaultColour')}
+              </button>
+              <button type="button" onClick={() => p.onOpacity(1, true)}>
+                {t('ed.solid')}
+              </button>
+            </div>
+
+            <p className="editHint">{t('ed.layerStyleHint')}</p>
+          </div>
+
+          {p.layerMovable && (
+            <div className="field editSection">
+              <span className="eyebrow block mb-1.5">{t('ed.layerPosition')}</span>
+              {xfRow(
+                'pos',
+                xf.pos.map((v) => rnd(v, 2)),
+                0.5,
+              )}
+              <p className="editHint">{t('ed.layerMoveHint')}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isOrigin && !isLayer && (
+        <div>
+          <div className="field">
+            <label className="eyebrow block mb-1.5" htmlFor="edColor">
+              {t('ed.colour')}
+            </label>
+            <ColourField id="edColor" value={colour} onColor={p.onColor} />
 
             <div className="mt-3">
               <OpacityField value={opacity} onOpacity={p.onOpacity} />

@@ -106,7 +106,64 @@ export type Surface = {
   /** Which LAYER_DZ tier this came from — `type` alone can't tell vegetation
    *  and hedges apart, and the viewer needs to know to give each its own
    *  render-order/polygon-offset so the stacking order always holds on screen. */
-  layer?: 'vegetation' | 'water' | 'parcel' | 'hedge';
+  layer?: SurfaceLayer;
+};
+
+/** The context-surface tiers. A subset of LayerId, and the discriminator the
+ *  viewer's render order and lib/scene/stack's opacity table are keyed on. */
+export type SurfaceLayer = 'vegetation' | 'water' | 'parcel' | 'hedge';
+
+/**
+ * The top-level nodes of the model tree, in the order the tree lists them.
+ *
+ * Nine categories, and the taxonomy is already implicit everywhere else — it is
+ * the BuildOptions toggles, the SceneData arrays and the LAYER_DZ rungs saying
+ * the same thing three times. Naming it once here is what lets the viewer, the
+ * IFC emitter and the panel agree on what a layer is.
+ */
+export const LAYER_IDS = [
+  'terrain',
+  'buildings',
+  'roads',
+  'railways',
+  'trees',
+  'vegetation',
+  'hedge',
+  'water',
+  'parcel',
+] as const;
+
+export type LayerId = (typeof LAYER_IDS)[number];
+
+/**
+ * Per-layer edits that have nowhere else to live.
+ *
+ * `color` is only ever read for the layers with no per-record colour store —
+ * terrain, roads and railways. Buildings, trees and context surfaces carry
+ * their own, so a layer recolour is stamped into the records themselves and
+ * this stays null for them; see tintedOf in lib/scene/layers.
+ */
+export type LayerXf = {
+  /** null = the palette default. See defaultLayerColor in lib/scene/layers. */
+  color: number | null;
+  /**
+   * How solid the layer draws, 0..1; null = the stack's own default for it (see
+   * layerOpacity in lib/scene/stack — parcels are a faint cadastral tint,
+   * everything else is a real surface and draws solid).
+   *
+   * Unlike colour this is the authority for the context surfaces too, not just
+   * for the merged layers: a Surface has never carried an opacity of its own,
+   * and the viewer and the writer both read the tier's value. Buildings and
+   * trees do have one on their Xf, so a layer edit is stamped into theirs the
+   * same way a colour is.
+   */
+  opacity: number | null;
+  /**
+   * Layer translation, local site metres. Applied as a group transform in the
+   * viewer and as the IfcLocalPlacement of the merged element in the export, so
+   * both read the same number rather than re-deriving one.
+   */
+  offset: Vec3;
 };
 
 export type Tree = {
@@ -144,6 +201,10 @@ export type SceneData = {
    *  EdgesGeometry pass over just the top) doesn't pick up the skirt's own
    *  vertical/bottom edges. See lib/scene/push's finishRoads. */
   roadWalls: RoadFace[];
+  /** Railway track ribbons — same top/skirt split as roads/roadWalls, built
+   *  by the same finishRoads-style helper in lib/scene/push. */
+  railways: RoadFace[];
+  railwayWalls: RoadFace[];
   terrain: Grid | null;
   terrainSource?: string;
   vectorSource?: string;
@@ -161,16 +222,35 @@ export type SceneData = {
   datumZ: number | null;
   surfaces: Surface[];
   trees: Tree[];
+  /**
+   * Layer-level colour and offset, one entry per LayerId.
+   *
+   * It rides on the scene rather than on the viewer because the emitter and the
+   * viewer hold this same object (see IfcSite), so a layer edit reaches the
+   * download through the onDirty the viewer already fires — the same route a
+   * gizmo drag on a building takes. A rebuild produces a fresh scene, which is
+   * what resets the layers with it.
+   */
+  layers: Record<LayerId, LayerXf>;
 };
+
+/** Every layer at its palette default, unmoved. */
+export const newLayerState = (): Record<LayerId, LayerXf> =>
+  Object.fromEntries(
+    LAYER_IDS.map((id) => [id, { color: null, opacity: null, offset: [0, 0, 0] }]),
+  ) as Record<LayerId, LayerXf>;
 
 export const emptyScene = (): SceneData => ({
   buildings: [],
   roads: [],
   roadWalls: [],
+  railways: [],
+  railwayWalls: [],
   terrain: null,
   datumZ: null,
   surfaces: [],
   trees: [],
+  layers: newLayerState(),
 });
 
 /** Everything the IFC writer needs that is not geometry. */
@@ -226,7 +306,9 @@ export type BuildOptions = {
   epsg: string;
   defaultHeight: number;
   provider: Provider;
+  buildings: boolean;
   roads: boolean;
+  railways: boolean;
   terrain: boolean;
   terrainAccuracy: TerrainAccuracy;
   trees: boolean;

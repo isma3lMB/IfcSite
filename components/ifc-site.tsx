@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BrandChip } from '@/components/brand-chip';
 import { ConfirmCard } from '@/components/confirm-card';
 import { ControlsPanel } from '@/components/controls-panel';
 import { type AxisKey, ElementEditor } from '@/components/element-editor';
 import { InfoOverlay } from '@/components/info-overlay';
+import { ModelTree } from '@/components/model-tree';
 import { SearchFlyout } from '@/components/search-flyout';
 import { Stage } from '@/components/stage';
 import { StatusBar } from '@/components/status-bar';
@@ -15,10 +16,27 @@ import { UtilChip } from '@/components/util-chip';
 import { IfcEmitter } from '@/lib/build/emitter';
 import { runBuild } from '@/lib/build/run';
 import { useT } from '@/lib/i18n/context';
+import { MOVABLE_LAYERS } from '@/lib/scene/layers';
 import type { Place } from '@/lib/sources/nominatim';
-import type { BuildOptions, GizmoMode, IfcStats, SiteMeta, SiteRect, Vec3, ViewTab } from '@/lib/types';
+import type {
+  BuildOptions,
+  GizmoMode,
+  IfcStats,
+  LayerId,
+  SiteMeta,
+  SiteRect,
+  Vec3,
+  ViewTab,
+} from '@/lib/types';
 import { MapController } from '@/lib/viewer/MapController';
-import { type DrawTool, type Selection, Viewer } from '@/lib/viewer/Viewer';
+import {
+  type DrawTool,
+  type LayerNode,
+  type Selection,
+  Viewer,
+  layerIdOf,
+  layerSelId,
+} from '@/lib/viewer/Viewer';
 
 /**
  * The projected easting/northing the exported file calls (0,0,0). That is the
@@ -34,7 +52,9 @@ const DEFAULT_FORM: BuildOptions = {
   epsg: '2154',
   defaultHeight: 9,
   provider: 'ign',
+  buildings: true,
   roads: true,
+  railways: false,
   terrain: false,
   terrainAccuracy: 'standard',
   trees: false,
@@ -80,6 +100,9 @@ export function IfcSite() {
   const searchOpenRef = useRef(true);
   const searchBtnRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  /** And once more for the model tree, the third of the rail's flyouts. */
+  const treeOpenRef = useRef(false);
+  const treeBtnRef = useRef<HTMLButtonElement>(null);
 
   /* ---- React state --------------------------------------------------- */
   const [form, setForm] = useState<BuildOptions>(DEFAULT_FORM);
@@ -104,6 +127,11 @@ export function IfcSite() {
       place is the natural first move. See the effect below that collapses it
       the moment `rect` is set. */
   const [searchOpen, setSearchOpenState] = useState(true);
+  /** The model tree, and the layers it lists. The nodes are derived in the
+      viewer and pulled from it whenever the counts change — see the effect
+      below — rather than pushed through a callback of their own. */
+  const [treeOpen, setTreeOpenState] = useState(false);
+  const [layerNodes, setLayerNodes] = useState<LayerNode[]>([]);
   /** Matches the viewer's own default; the marker is opt-in. */
   const [showOrigin, setShowOrigin] = useState(false);
   /** Also the viewer's default. Held here rather than reported back, like the
@@ -153,6 +181,7 @@ export function IfcSite() {
       },
       onMode: setGizmoMode,
       onCount: setBuildings,
+      onLayers: refreshLayers,
       onDraw: (tool, points) => {
         drawToolRef.current = tool;
         drawPointsRef.current = points;
@@ -297,6 +326,7 @@ export function IfcSite() {
         if (infoOpenRef.current) closeInfo();
         else if (optionsOpenRef.current) closeOptions();
         else if (searchOpenRef.current) closeSearch();
+        else if (treeOpenRef.current) closeTree();
         else if (mapRef.current?.isDrawing) mapRef.current.cancelDraw();
         else if (drawToolRef.current) {
           if (drawPointsRef.current > 0) viewerRef.current?.cancelDraw();
@@ -314,12 +344,38 @@ export function IfcSite() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // The viewer can refuse — the origin marker only translates — and the buttons
-  // must not claim a mode the gizmo is not actually in.
+  // The viewer can refuse — the origin marker and every layer only translate —
+  // and the buttons must not claim a mode the gizmo is not actually in.
   const applyMode = useCallback((m: GizmoMode) => {
     if (viewerRef.current?.setMode(m) === false) return;
     setGizmoMode(m);
   }, []);
+
+  /* Re-read the tree from the viewer, on the viewer's own onLayers signal.
+     Derived rather than pushed: React holds no scene, and a node list rebuilt
+     from the scene it describes cannot disagree with it. */
+  const refreshLayers = useCallback(() => {
+    setLayerNodes(viewerRef.current?.layerTree() ?? []);
+  }, []);
+
+  const onSelectLayer = useCallback((id: LayerId) => viewerRef.current?.selectLayer(id), []);
+
+  /* The swatch on a tree row edits the selection, so it selects first — which
+     also puts the layer in the inspector beside it, where its offset is typed.
+     Re-selecting on every live preview would be wasted work and a re-render
+     apiece, hence the guard. */
+  const onLayerColor = useCallback(
+    (id: LayerId, hex: number, commit: boolean) => {
+      const v = viewerRef.current;
+      if (!v) return;
+      if (selection?.id !== layerSelId(id)) v.selectLayer(id);
+      v.setColor(hex, commit);
+    },
+    [selection],
+  );
+
+  /** The layer in the inspector, or null when it holds an element. */
+  const selectedLayer = selection?.kind === 'layer' ? layerIdOf(selection.id) : null;
 
   const onShowOrigin = useCallback((v: boolean) => {
     setShowOrigin(v);
@@ -382,40 +438,59 @@ export function IfcSite() {
   const closeInfo = useCallback(() => setInfo(false), [setInfo]);
   const toggleInfo = useCallback(() => setInfo(!infoOpenRef.current), [setInfo]);
 
-  /* Same pairing again for the flyout. Escape and the panel's ✕ both land on
-     closeOptions, so focus comes back to the gear either way — an icon-only
-     button is hard enough to find again without losing the caret too. Opening
-     Options also closes Search: the two flyouts share the same strip of
-     screen off the rail, so only one may be out at a time. */
-  const setOptions = useCallback((v: boolean) => {
-    optionsOpenRef.current = v;
-    setOptionsOpen(v);
-    if (v && searchOpenRef.current) {
-      searchOpenRef.current = false;
-      setSearchOpenState(false);
-    }
-  }, []);
-  const closeOptions = useCallback(() => {
-    setOptions(false);
-    gearRef.current?.focus();
-  }, [setOptions]);
-  const toggleOptions = useCallback(() => setOptions(!optionsOpenRef.current), [setOptions]);
+  /* The rail's flyouts, as one table.
+     
+     All three hang off the same strip of screen beside the rail, so at most one
+     may be out — and each carries the setInfo ref/state pairing, because the
+     mount-only key handler reads the ref while the render reads the state.
+     Written out by hand that was two panels closing each other; at three it is
+     six assignments and the one that gets forgotten is always the bug, so the
+     opening is expressed once here instead. */
+  const flyouts = useMemo(
+    () => ({
+      options: { open: optionsOpenRef, set: setOptionsOpen, btn: gearRef },
+      search: { open: searchOpenRef, set: setSearchOpenState, btn: searchBtnRef },
+      tree: { open: treeOpenRef, set: setTreeOpenState, btn: treeBtnRef },
+    }),
+    [],
+  );
+  type FlyoutName = keyof typeof flyouts;
 
-  /* Search's own pairing, mirroring Options above — including closing
-     Options when Search opens. */
-  const setSearch = useCallback((v: boolean) => {
-    searchOpenRef.current = v;
-    setSearchOpenState(v);
-    if (v && optionsOpenRef.current) {
-      optionsOpenRef.current = false;
-      setOptionsOpen(false);
-    }
-  }, []);
-  const closeSearch = useCallback(() => {
-    setSearch(false);
-    searchBtnRef.current?.focus();
-  }, [setSearch]);
-  const toggleSearch = useCallback(() => setSearch(!searchOpenRef.current), [setSearch]);
+  const setFlyout = useCallback(
+    (name: FlyoutName, v: boolean) => {
+      for (const [key, f] of Object.entries(flyouts) as [FlyoutName, (typeof flyouts)[FlyoutName]][]) {
+        // Opening one closes the others; closing one leaves them alone.
+        const on = key === name ? v : v ? false : f.open.current;
+        if (f.open.current === on) continue;
+        f.open.current = on;
+        f.set(on);
+      }
+    },
+    [flyouts],
+  );
+
+  /* Escape and a panel's ✕ both land on closeFlyout, so focus comes back to the
+     button that opened it either way — an icon-only button is hard enough to
+     find again without losing the caret too. */
+  const closeFlyout = useCallback(
+    (name: FlyoutName) => {
+      setFlyout(name, false);
+      flyouts[name].btn.current?.focus();
+    },
+    [flyouts, setFlyout],
+  );
+  const toggleFlyout = useCallback(
+    (name: FlyoutName) => setFlyout(name, !flyouts[name].open.current),
+    [flyouts, setFlyout],
+  );
+
+  const setSearch = useCallback((v: boolean) => setFlyout('search', v), [setFlyout]);
+  const closeOptions = useCallback(() => closeFlyout('options'), [closeFlyout]);
+  const closeSearch = useCallback(() => closeFlyout('search'), [closeFlyout]);
+  const closeTree = useCallback(() => closeFlyout('tree'), [closeFlyout]);
+  const toggleOptions = useCallback(() => toggleFlyout('options'), [toggleFlyout]);
+  const toggleSearch = useCallback(() => toggleFlyout('search'), [toggleFlyout]);
+  const toggleTree = useCallback(() => toggleFlyout('tree'), [toggleFlyout]);
 
   /* The one auto-behaviour here: Search starts open because there is nothing
      to search *for* until a site rectangle exists, and it collapses to an
@@ -598,6 +673,9 @@ export function IfcSite() {
             searchOpen={searchOpen}
             searchBtnRef={searchBtnRef}
             onToggleSearch={toggleSearch}
+            treeOpen={treeOpen}
+            treeBtnRef={treeBtnRef}
+            onToggleTree={toggleTree}
             onDraw={onDraw}
             onPan={onPan}
             onZoom={onZoom}
@@ -624,11 +702,23 @@ export function IfcSite() {
               onClose={closeSearch}
             />
           )}
+
+          {treeOpen && view === '3d' && (
+            <ModelTree
+              nodes={layerNodes}
+              selectedId={selection?.id ?? null}
+              onSelectLayer={onSelectLayer}
+              onSelectItem={(id) => viewerRef.current?.select(id)}
+              onLayerColor={onLayerColor}
+              onClose={closeTree}
+            />
+          )}
         </div>
 
         <ElementEditor
           visible={view === '3d' && hasScene}
           selection={selection}
+          layerMovable={selectedLayer !== null && MOVABLE_LAYERS.has(selectedLayer)}
           uniform={uniform}
           onUniform={setUniform}
           onAxis={onAxis}

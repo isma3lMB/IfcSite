@@ -4,6 +4,7 @@ import { Fragment, type ReactNode, type RefObject } from 'react';
 import {
   IconBox,
   IconDrawSite,
+  IconLayers,
   IconMove,
   IconOptions,
   IconPan,
@@ -37,6 +38,9 @@ export type ToolRailProps = {
   searchOpen: boolean;
   searchBtnRef: RefObject<HTMLButtonElement | null>;
   onToggleSearch: () => void;
+  treeOpen: boolean;
+  treeBtnRef: RefObject<HTMLButtonElement | null>;
+  onToggleTree: () => void;
   onDraw: () => void;
   onPan: () => void;
   onZoom: () => void;
@@ -69,10 +73,10 @@ type RailBtn = {
 export function ToolRail(p: ToolRailProps) {
   const { t } = useT();
   const is3d = p.view === '3d' && p.hasScene;
-  // The gizmo refuses every mode but translate while the origin is selected.
-  // Disabling the three buttons states that; letting them look live and do
-  // nothing would not.
-  const originSelected = p.selection?.kind === 'origin';
+  // The gizmo refuses every mode but translate while the origin, or a layer, is
+  // selected. Disabling the three buttons states that; letting them look live
+  // and do nothing would not.
+  const translateOnly = p.selection?.kind === 'origin' || p.selection?.kind === 'layer';
 
   const groups: RailBtn[][] = is3d
     ? [
@@ -112,7 +116,7 @@ export function ToolRail(p: ToolRailProps) {
             icon: <IconMove />,
             tip: t('ed.move'),
             on: p.gizmoMode === 'translate',
-            disabled: originSelected,
+            disabled: translateOnly,
             onClick: () => p.onMode('translate'),
           },
           {
@@ -120,7 +124,7 @@ export function ToolRail(p: ToolRailProps) {
             icon: <IconRotate />,
             tip: t('ed.rotate'),
             on: p.gizmoMode === 'rotate',
-            disabled: originSelected,
+            disabled: translateOnly,
             onClick: () => p.onMode('rotate'),
           },
           {
@@ -128,7 +132,7 @@ export function ToolRail(p: ToolRailProps) {
             icon: <IconScale />,
             tip: t('ed.scale'),
             on: p.gizmoMode === 'scale',
-            disabled: originSelected,
+            disabled: translateOnly,
             onClick: () => p.onMode('scale'),
           },
         ],
@@ -200,6 +204,23 @@ export function ToolRail(p: ToolRailProps) {
       </button>
       
       
+      {/* Beside the search for the same reason, and only in 3D: there is no
+          model to walk until there is a scene. */}
+      {is3d && (
+        <button
+          ref={p.treeBtnRef}
+          type="button"
+          className={`railBtn${p.treeOpen ? ' on' : ''}`}
+          data-tip={t('rail.model')}
+          aria-label={t('rail.model')}
+          aria-expanded={p.treeOpen}
+          aria-controls="treeFlyout"
+          onClick={p.onToggleTree}
+        >
+          <IconLayers />
+        </button>
+      )}
+
       {/* Pinned above the first separator rather than at the foot of the rail:
           the body below changes with the view, and a bottom-anchored gear would
           move under the cursor on every switch. */}

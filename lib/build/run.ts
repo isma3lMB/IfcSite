@@ -15,7 +15,7 @@ import {
 } from '@/lib/sources/ign';
 import { TREE_CAP, osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
 import { terrariumGrid } from '@/lib/sources/terrain';
-import { BUILDING_CAP, finishRoads } from '@/lib/scene/push';
+import { BUILDING_CAP, finishRailways, finishRoads } from '@/lib/scene/push';
 import { emptyScene } from '@/lib/types';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
@@ -158,6 +158,7 @@ export async function runBuild(
   let tagged = 0;
   let capped = false;
   let roadRibbons: SplitPolygon[] = [];
+  let railwayRibbons: SplitPolygon[] = [];
 
   try {
     if (ign) {
@@ -168,18 +169,32 @@ export async function runBuild(
         toGeo,
         sampleZ,
         fallbackH,
+        opts.buildings,
         opts.roads,
+        opts.railways,
         onStatus,
       );
       tagged = r.tagged;
       capped = r.over;
       roadRibbons = r.roadRibbons;
+      railwayRibbons = r.railwayRibbons;
     } else {
       onStatus('status.queryingOverpass');
-      const data = await overpass(site, opts.roads);
-      const r = parseOSM(scene, data, site, toLocal, sampleZ, fallbackH, opts.roads);
+      const data = await overpass(site, opts.buildings, opts.roads, opts.railways);
+      const r = parseOSM(
+        scene,
+        data,
+        site,
+        toLocal,
+        sampleZ,
+        fallbackH,
+        opts.buildings,
+        opts.roads,
+        opts.railways,
+      );
       tagged = r.tagged;
       roadRibbons = r.roadRibbons;
+      railwayRibbons = r.railwayRibbons;
       capped = scene.buildings.length >= BUILDING_CAP;
     }
   } catch (e) {
@@ -202,6 +217,7 @@ export async function runBuild(
   // Merges every road's own ribbon where they cross, then conforms the result
   // to the terrain and hangs a skirt under it.
   finishRoads(scene, roadRibbons, toGeo, sampleZ);
+  finishRailways(scene, railwayRibbons, toGeo, sampleZ);
 
   if (opts.trees) {
     onStatus('status.queryingTrees');
@@ -212,7 +228,7 @@ export async function runBuild(
     }
   }
 
-  if (!scene.buildings.length) {
+  if (opts.buildings && !scene.buildings.length) {
     // A bounding box cannot tell France from its neighbours, so an empty IGN
     // result is just as likely to mean "off coverage" as "nothing built here".
     return {

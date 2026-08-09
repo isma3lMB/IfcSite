@@ -1,5 +1,5 @@
 import { ContextModel } from '@/lib/ifc/writer';
-import { ROAD_COLOR, TERRAIN_COLOR, layerOpacity } from '@/lib/scene/stack';
+import { layerAlpha, layerColor } from '@/lib/scene/layers';
 import type { IfcStats, SceneData, SiteMeta, Vec3 } from '@/lib/types';
 
 /**
@@ -16,14 +16,18 @@ export function emitIFC(
   if (scene.terrain) {
     // Styled rather than left bare: an element with no IfcStyledItem is one
     // every viewer is free to colour its own way, and the ground was the only
-    // one in the file without one. TERRAIN_COLOR is what the preview draws, so
-    // the export cannot disagree with it.
+    // one in the file without one. layerColor is what the preview draws — the
+    // model tree's override if there is one, the palette default otherwise — so
+    // the export cannot disagree with it. Terrain takes no offset: it is not a
+    // movable layer (see MOVABLE_LAYERS in lib/scene/layers).
     model.addSurface(
       scene.terrain.verts,
       scene.terrain.faces,
       `Terrain (${scene.terrainSource || 'Terrarium DEM'})`,
       'TERRAIN',
-      TERRAIN_COLOR,
+      layerColor(scene, 'terrain'),
+      undefined,
+      1 - layerAlpha(scene, 'terrain'),
     );
   }
 
@@ -55,22 +59,62 @@ export function emitIFC(
       faces,
       `Roads (${scene.vectorSource || 'OSM'})`,
       'USERDEFINED',
-      ROAD_COLOR,
+      layerColor(scene, 'roads'),
+      undefined,
+      1 - layerAlpha(scene, 'roads'),
+      scene.layers.roads.offset,
+    );
+  }
+
+  // Same shape as the roads block above — railways get their own merged
+  // element rather than being folded into roads, so the two read separately
+  // on screen and in the file.
+  if (scene.railways.length || scene.railwayWalls.length) {
+    const verts: Vec3[] = [];
+    const faces: number[][] = [];
+    for (const q of [...scene.railways, ...scene.railwayWalls]) {
+      const b = verts.length;
+      for (const p of q) verts.push(p);
+      for (let k = 2; k < q.length; k++) faces.push([b, b + k - 1, b + k]);
+    }
+    model.addSurface(
+      verts,
+      faces,
+      `Railways (${scene.vectorSource || 'OSM'})`,
+      'USERDEFINED',
+      layerColor(scene, 'railways'),
+      undefined,
+      1 - layerAlpha(scene, 'railways'),
+      scene.layers.railways.offset,
     );
   }
 
   // The same opacity the preview draws, inverted into IFC's transparency, so a
   // layer that reads as a faint overlay on screen reads as one in the file too.
-  for (const s of scene.surfaces)
+  //
+  // s.color needs no layer fallback in the ordinary case: a tree recolour is
+  // stamped straight into the record (see stampLayer in lib/viewer/Viewer),
+  // which is the whole reason it stamps rather than shadows. Opacity and the
+  // offset do have to be looked up — a Surface has never carried an opacity of
+  // its own, and the offset belongs to the layer so all of its polygons move
+  // together rather than each on its own.
+  for (const s of scene.surfaces) {
+    const layer = s.layer ?? 'parcel';
     model.addSurface(
       s.verts,
       s.faces,
       s.name,
       s.type,
-      s.color,
+      // `?? layerColor` rather than bare s.color: resetting a layer's colour
+      // clears the record, and addSurface skips the style entirely for an
+      // absent one — which would leave the element unstyled, and an unstyled
+      // element is one the viewer colours itself. It always picks grey.
+      s.color ?? layerColor(scene, layer),
       s.props,
-      1 - layerOpacity(s.layer),
+      1 - layerAlpha(scene, layer),
+      scene.layers[layer].offset,
     );
+  }
 
   // One element per tree, same as buildings — see addTree in lib/ifc/writer
   // for why this stopped being a single merged faceset.
