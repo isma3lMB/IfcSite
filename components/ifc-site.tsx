@@ -306,9 +306,9 @@ export function IfcSite() {
         viewerRef.current?.finishDraw();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         viewerRef.current?.deleteSelected();
-      } else if (e.key === 'w' || e.key === 'W') applyMode('translate');
-      else if (e.key === 'e' || e.key === 'E') applyMode('rotate');
-      else if (e.key === 'r' || e.key === 'R') applyMode('scale');
+      } else if (e.key === 'g' || e.key === 'G') applyMode('translate');
+      else if (e.key === 'r' || e.key === 'R') applyMode('rotate');
+      else if (e.key === 's' || e.key === 'S') applyMode('scale');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

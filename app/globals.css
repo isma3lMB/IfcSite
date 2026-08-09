@@ -485,7 +485,7 @@
     padding: 24px;
   }
   .confirmCard {
-    width: min(440px, 100%);
+    width: min(560px, 100%);
     padding: 24px;
   }
   .confirmTitle {
@@ -506,7 +506,9 @@
     gap: 8px;
     margin-top: 20px;
   }
-  /* Same reason as .flowActions: these two are full-width by default. */
+  /* Same reason as .flowActions: these two are full-width by default. The
+     card is sized wide enough (.confirmCard) that even the longer French
+     labels fit on one line here. */
   .confirmActions .btn-primary,
   .confirmActions .btn-ghost {
     width: auto;

@@ -1,4 +1,5 @@
 import { AppError } from '@/lib/errors';
+import type { SplitPolygon } from '@/lib/geo/boolean';
 import { conformToTerrain } from '@/lib/geo/conform';
 import { MAX_GRID_N, gridSampler, gridSize } from '@/lib/geo/grid';
 import { prismInto, skirtInto } from '@/lib/geo/mesh';
@@ -336,12 +337,12 @@ export async function parseIGN(
   fallbackH: number,
   wantRoads: boolean,
   onStatus: StatusFn,
-): Promise<{ tagged: number; over: boolean; roadRings: Vec2[][] }> {
+): Promise<{ tagged: number; over: boolean; roadRibbons: SplitPolygon[] }> {
   const box = site;
   const inSite = (x: number, y: number) => Math.abs(x) <= site.halfX && Math.abs(y) <= site.halfY;
   let tagged = 0;
   let over = false;
-  const roadRings: Vec2[][] = [];
+  const roadRibbons: SplitPolygon[] = [];
 
   onStatus('status.fetchingIgnBuildings');
   const bat = await wfs(
@@ -441,11 +442,11 @@ export async function parseIGN(
         // That test kept a whole 5 km troncon for one vertex inside, and dropped
         // a road crossing the site cleanly with every vertex outside it — routine
         // on a small site, where a straight run spans the box in one segment.
-        pushRoadway(roadRings, r.map((c): Vec2 => toLocal(c[0], c[1])), w, site);
+        pushRoadway(roadRibbons, r.map((c): Vec2 => toLocal(c[0], c[1])), w, site);
       }
     }
   }
-  return { tagged, over, roadRings };
+  return { tagged, over, roadRibbons };
 }
 
 /**

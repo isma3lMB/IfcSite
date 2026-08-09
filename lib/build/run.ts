@@ -1,5 +1,6 @@
 import proj4 from 'proj4';
 import { AppError } from '@/lib/errors';
+import type { SplitPolygon } from '@/lib/geo/boolean';
 import { resolveCRS } from '@/lib/geo/crs';
 import { ACCURACY_CELL } from '@/lib/geo/grid';
 import {
@@ -156,7 +157,7 @@ export async function runBuild(
 
   let tagged = 0;
   let capped = false;
-  let roadRings: Vec2[][] = [];
+  let roadRibbons: SplitPolygon[] = [];
 
   try {
     if (ign) {
@@ -172,13 +173,13 @@ export async function runBuild(
       );
       tagged = r.tagged;
       capped = r.over;
-      roadRings = r.roadRings;
+      roadRibbons = r.roadRibbons;
     } else {
       onStatus('status.queryingOverpass');
       const data = await overpass(site, opts.roads);
       const r = parseOSM(scene, data, site, toLocal, sampleZ, fallbackH, opts.roads);
       tagged = r.tagged;
-      roadRings = r.roadRings;
+      roadRibbons = r.roadRibbons;
       capped = scene.buildings.length >= BUILDING_CAP;
     }
   } catch (e) {
@@ -198,9 +199,9 @@ export async function runBuild(
     }
   }
 
-  // Unions every road-segment quad collected above into clean ribbons and
-  // drapes them onto the terrain.
-  finishRoads(scene, roadRings, toGeo, sampleZ);
+  // Merges every road's own ribbon where they cross, then conforms the result
+  // to the terrain and hangs a skirt under it.
+  finishRoads(scene, roadRibbons, toGeo, sampleZ);
 
   if (opts.trees) {
     onStatus('status.queryingTrees');

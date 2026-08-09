@@ -101,9 +101,9 @@ export const en = {
   'ed.selected': 'Selected element',
   /* The gizmo modes are rail tooltips now, and a tooltip is where a keyboard
      shortcut belongs — it is the only surface that has room for it. */
-  'ed.move': 'Move (W)',
-  'ed.rotate': 'Rotate (E)',
-  'ed.scale': 'Scale (R)',
+  'ed.move': 'Move (G)',
+  'ed.rotate': 'Rotate (R)',
+  'ed.scale': 'Scale (S)',
   'ed.colour': 'Colour',
   'ed.defaultColour': 'Default colour',
   'ed.opacity': 'Opacity',

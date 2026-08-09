@@ -375,23 +375,39 @@ straight off `HeightSource`. Subtle on purpose: the massing should read as one m
 at site zoom and only give the split up close, with the build summary's tagged/estimated
 counts as the number to trust.
 
-Roads are stored as raw corner faces (`pushRoadway`), one buffered quad per centreline
-segment, **cut to the site box** — three to five corners once the clip has been through it,
-always convex, so both the viewer and the IFC writer fan it into triangles without a
-triangulator. The clip is what keeps the layer honest: Overpass `out geom` and the IGN WFS
-`BBOX` are *intersects* filters, so a motorway catching one corner of the site arrives whole,
-tens of kilometres of it. The centreline is filtered against the box first (grown by half a
-carriageway, so a road running just outside still contributes the half of its surface that is
-inside), and only what survives is densified and draped — the other way round pays thousands
-of projection inversions per way to produce a handful of quads.
+Roads are buffered from their centrelines (`pushRoadway`): one quad per segment plus a
+rounded wedge at every bend, **cut to the site box**, then unioned into one ribbon per road.
+The wedges are not decoration. Offsetting each segment along its own normal leaves
+consecutive quads touching at a single centreline vertex, so on the outside of a bend there
+is nothing for the union to merge and the ribbon comes back with a sector of radius
+half-a-carriageway missing — a one-degree bend on a 13 m dual carriageway opens a six-metre
+slit. Filling it with an arc rather than a miter keeps every emitted point within half a
+carriageway of a centreline vertex, so the ribbon is a subset of the centreline's true buffer:
+it can fall short by the arc sagitta and can never bulge past the kerb.
 
-Crude at junctions, but it needs no buffer/union library. Elevation is sampled at every
-**corner**, not at the centreline: a carriageway runs to 13 m wide, so a quad held flat across
-its width cuts into the hillside on any cross-slope and the road disappears behind the ground.
-Draping every corner banks the ribbon with the terrain — not how a road is built, but at this
-level of detail a ribbon that never buries and never floats beats a geometrically honest one
-that does both. Draping happens *after* the clip, so the vertices it introduces on the
-boundary get their own sample and the cut edge sits flush.
+`finishRoads` then unions every road's ribbon together, which is what merges crossings, and
+**holes survive** — a roundabout buffered by half a carriageway is a donut, and the island in
+the middle is not road.
+
+The clip keeps the layer honest: Overpass `out geom` and the IGN WFS `BBOX` are *intersects*
+filters, so a motorway catching one corner of the site arrives whole, tens of kilometres of
+it. The centreline is filtered against the box first (grown by half a carriageway, so a road
+running just outside still contributes the half of its surface that is inside), and only what
+survives is buffered — the other way round pays thousands of projection inversions per way to
+produce a handful of quads.
+
+The ribbon is then cut on the terrain's own triangles by `conformToTerrain` and closed into a
+solid by `skirtInto`, exactly like water or vegetation, so elevation is sampled across the
+surface rather than only at its boundary. A carriageway runs to 13 m wide, and a face held
+flat across that width cuts into the hillside on any cross-slope.
+
+Two notes on the boolean layer, both learned the hard way. `polygon-clipping`'s sweep line
+throws on coordinates that are the same point reached by different arithmetic, so
+[boolean.ts](lib/geo/boolean.ts) snaps its input to a grid and escalates from 10 µm to 1 cm
+until one survives; measured over 591 randomised networks the un-snapped rate was 21.7% and
+the ladder's is zero. And the conform cuts by halving its index window rather than clipping
+the whole ring against each cell in turn — once roads actually merge, one region covers the
+site, and the flat loop's `O(cells × vertices)` turned a 180 ms build into 45 s.
 
 ---
 

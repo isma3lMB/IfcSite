@@ -369,7 +369,7 @@ export function ElementEditor(p: ElementEditorProps) {
             </label>
           </div>
 
-          {/* No shortcut list under this: W/E/R are on the rail's gizmo
+          {/* No shortcut list under this: G/R/S are on the rail's gizmo
               tooltips, Esc on the ✕ above, Ctrl+Z on the rail's undo, and Del
               is on the button beside this comment. */}
           <div className="presets">

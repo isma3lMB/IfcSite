@@ -22,6 +22,53 @@ export function dedupe(r: Vec2[]): Vec2[] {
   return o;
 }
 
+/**
+ * Drop vertices closer to their kept predecessor than `tol`, for an OPEN
+ * polyline. dedupe above cannot do this job twice over: its tolerance is
+ * 1e-9, which is a float-equality test rather than a geometric one, and it
+ * strips the closing repeat of a ring — on a centreline that repeat is the
+ * segment that closes a roundabout, and losing it opens the loop.
+ *
+ * The reason to collapse at all is that a sub-tolerance segment's direction is
+ * dominated by coordinate noise, and every consumer downstream reads that
+ * direction: the offset normal that buffers it, and the turn angle at both of
+ * its ends. A 2 cm segment wedged between two 40 m ones therefore manufactures
+ * a spurious bend out of nothing. OSM junction nodes sit that close routinely,
+ * and clipPolyline manufactures its own — a segment entering the box at a tiny
+ * t0 emits two points millimetres apart.
+ *
+ * Both endpoints survive exactly, because a run's ends are where it meets the
+ * site boundary or another run. When the last point would have been dropped it
+ * replaces its predecessor rather than being discarded, which can leave the
+ * final pair closer together than tol — deliberate: the endpoint's position
+ * matters more than the spacing, and callers guard degenerate lengths anyway.
+ *
+ * Collinear vertices are kept. Removing those is simplification, a different
+ * operation, and they are drape stations: dropping them lets the surface cut
+ * straight through a hill between the two that are left.
+ */
+export function collapseNear(pts: Vec2[], tol: number): Vec2[] {
+  const n = pts.length;
+  if (n < 2 || tol <= 0) return pts;
+  const out: Vec2[] = [pts[0]];
+  for (let i = 1; i < n; i++) {
+    const l = out[out.length - 1];
+    if (Math.hypot(pts[i][0] - l[0], pts[i][1] - l[1]) > tol) out.push(pts[i]);
+  }
+  // Reference identity, not coordinates: every kept point is the very array the
+  // caller passed in, so this asks "was the last one kept?" and nothing else.
+  if (out[out.length - 1] === pts[n - 1]) return out;
+  if (out.length > 1) {
+    out[out.length - 1] = pts[n - 1];
+    return out;
+  }
+  // The whole run fits inside tol. It is still a run if its two ends differ at
+  // all; if they don't it is a single point, and the caller drops it.
+  const [ax, ay] = pts[0];
+  const [bx, by] = pts[n - 1];
+  return ax === bx && ay === by ? [pts[0]] : [pts[0], pts[n - 1]];
+}
+
 export const signedArea = (r: Vec2[]): number => {
   let s = 0;
   for (let i = 0; i < r.length; i++) {
@@ -77,8 +124,9 @@ function clipHalfPlane(ring: Vec2[], nx: number, ny: number, c: number): Vec2[] 
  * forests and river systems: one BD TOPO vegetation polygon near Fontainebleau
  * is 3539 vertices spanning 4 km, against a site box of one or two. Without
  * this the triangulator chokes and the IFC carries kilometres of irrelevant
- * geometry. Concave input can leave zero-width seams along the box edge, which
- * is harmless for a draped context surface.
+ * geometry. Concave input the box severs comes back as one self-overlapping
+ * ring with its component count unrecoverable — see clipToConvex below, which
+ * spells that caveat out in full.
  *
  * The four half-planes below are the algebraic equal of the hand-rolled
  * arithmetic this used to carry, but not its bit-for-bit equal: the shared pass
@@ -192,9 +240,23 @@ export function clipPolyline(
  * of four axis-aligned ones. Convexity is the whole requirement, and a terrain
  * triangle is convex, which is all lib/geo/conform needs.
  *
- * Concave subjects leave zero-width seams along the window boundary exactly as
- * clipToBox does: every pass reconnects along its own clip line, so the seams
- * carry no area and a draped surface is unaffected.
+ * ONE ring out, whatever the subject. A window that severs a concave subject
+ * into disjoint pieces cannot report that: the pieces come back strung together
+ * by connector edges along the clip line, each walked twice in opposite
+ * directions, so the ring is correct in area — the connectors enclose nothing —
+ * but it overlaps itself and its component count is unrecoverable.
+ *
+ * Ear clipping does cope with that in practice: combs severed into 3, 10, 30
+ * and 60 disjoint teeth all triangulate to exactly their true area, hashed
+ * z-order path included. So this is not a known-bad path, it is an unstated
+ * precondition — a caller that needs the components, or that hands the ring to
+ * anything assuming simplicity, is relying on something this function does not
+ * promise.
+ *
+ * A convex subject cannot be severed, so a convex subject in a convex window is
+ * one convex piece and exact by construction. lib/geo/conform stays inside that
+ * guarantee deliberately: it triangulates a region once and cuts the triangles,
+ * rather than cutting the region and triangulating whatever comes back.
  */
 export function clipToConvex(ring: Vec2[], win: Vec2[]): Vec2[] {
   let out = ring;

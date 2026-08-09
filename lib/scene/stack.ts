@@ -48,8 +48,8 @@
 export const LAYER_DZ = {
   parcel: 0.05,
   vegetation: 0.1,
-  water: 0.15,
-  road: 0.2,
+  water: 0.2,
+  road: 0.3,
   tree: -0.05,
   hedge: -0.05,
 } as const;
@@ -84,7 +84,7 @@ export const LAYER_DZ = {
 export const LAYER_BITE = {
   vegetation: 0.05,
   water: 0.05,
-  road: 0.1,
+  road: 0.05,
 } as const;
 
 /** The layers built as solids rather than as a flat skin. */

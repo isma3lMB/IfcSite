@@ -1,4 +1,5 @@
 import { AppError } from '@/lib/errors';
+import type { SplitPolygon } from '@/lib/geo/boolean';
 import { BUILDING_CAP, pushBuilding, pushRoadway } from '@/lib/scene/push';
 import { LAYER_DZ } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
@@ -147,7 +148,7 @@ export function parseOSM(
   sampleZ: SampleZ,
   fallbackH: number,
   wantRoads: boolean,
-): { tagged: number; roadRings: Vec2[][] } {
+): { tagged: number; roadRibbons: SplitPolygon[] } {
   let tagged = 0;
   const rings: [OverpassGeom[], Record<string, string>, number][] = [];
   for (const el of data.elements) {
@@ -178,15 +179,15 @@ export function parseOSM(
     if (ok && src !== 'fallback') tagged++;
   }
 
-  const roadRings: Vec2[][] = [];
+  const roadRibbons: SplitPolygon[] = [];
   if (wantRoads) {
     for (const el of data.elements) {
       if (el.type !== 'way' || !el.tags || !el.tags.highway || !el.geometry) continue;
       const lanes =
         parseFloat(el.tags.lanes) || (/motorway|trunk|primary/.test(el.tags.highway) ? 4 : 2);
       const w = Math.max(parseFloat(el.tags.width) || lanes * 3.25, 3);
-      pushRoadway(roadRings, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
+      pushRoadway(roadRibbons, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
     }
   }
-  return { tagged, roadRings };
+  return { tagged, roadRibbons };
 }

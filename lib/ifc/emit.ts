@@ -29,10 +29,11 @@ export function emitIFC(
 
   for (const b of scene.buildings) model.addBuilding(b);
 
-  // scene.roads keeps each segment's corners, so the surface mesh the IFC needs
-  // is reconstructible without storing it twice. A face is a buffered quad after
-  // the site clip has cut it, so three to five corners — but always convex, and
-  // a fan off the first vertex triangulates a convex polygon exactly.
+  // scene.roads keeps the road surface's own corners, so the mesh the IFC needs
+  // is reconstructible without storing it twice. Since finishRoads started
+  // routing roads through conformToTerrain every face has been a triangle, so
+  // the fan below is a no-op that runs once — kept because it costs nothing and
+  // is correct for any convex face, which is all this has ever been handed.
   // scene.roadWalls is the skirt that closes the ribbon into a solid (see
   // skirtDepth in lib/scene/stack) — folded into the same element rather than
   // exported as its own, since on screen and in the file it reads as one road.

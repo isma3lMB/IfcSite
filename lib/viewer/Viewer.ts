@@ -405,7 +405,10 @@ export class Viewer {
       }
       this.cb.onDirty();
     });
+
+    this.gizmo.setSize(0.5);
     this.sceneGL.add(this.gizmo);
+
 
     // Both markers sit on the scene for the same reason the gizmo does.
     this.originMarker = createOriginMarker(false);
@@ -854,8 +857,9 @@ export class Viewer {
 
     if (scene.roads.length) {
       const pos: number[] = [];
-      // Three to five corners once the site clip has cut the buffered quad, but
-      // always convex, so a fan off the first corner is an exact triangulation.
+      // Triangles, since finishRoads conforms the ribbon to the terrain — the
+      // fan is a no-op on them, and stays only because it is exact for any
+      // convex face if that ever changes back.
       for (const f of scene.roads)
         for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
       const geo = new THREE.BufferGeometry();

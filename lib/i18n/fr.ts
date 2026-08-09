@@ -100,9 +100,9 @@ export const fr: Dict = {
   'ed.selected': 'Élément sélectionné',
   /* Les modes du manipulateur sont désormais des infobulles de la barre
      d’outils, et c’est là que le raccourci a sa place. */
-  'ed.move': 'Déplacer (W)',
-  'ed.rotate': 'Pivoter (E)',
-  'ed.scale': 'Redimensionner (R)',
+  'ed.move': 'Déplacer (G)',
+  'ed.rotate': 'Pivoter (R)',
+  'ed.scale': 'Redimensionner (S)',
   'ed.colour': 'Couleur',
   'ed.defaultColour': 'Couleur par défaut',
   'ed.opacity': 'Opacité',
@@ -116,7 +116,7 @@ export const fr: Dict = {
   'ed.rotation': 'Rotation (°)',
   'ed.scaleLabel': 'Échelle',
   'ed.lockProportions': 'Conserver les proportions',
-  'ed.resetElement': 'Réinitialiser l’élément',
+  'ed.resetElement': 'Réinitialiser',
   'ed.undo': 'Annuler (Ctrl+Z)',
   'ed.redo': 'Rétablir (Ctrl+Maj+Z)',
   'ed.close': 'Désélectionner (Échap)',
