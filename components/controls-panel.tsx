@@ -1,28 +1,24 @@
 'use client';
 
+import { useState } from 'react';
+import { CrsField } from '@/components/crs-field';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ACCURACY_CELL, MAX_GRID_N, gridSize } from '@/lib/geo/grid';
+import {
+  DEFAULT_TUNABLES,
+  TUNE_RANGE,
+  type Tunables,
+  isDefaultTunables,
+} from '@/lib/build/tunables';
+import { ACCURACY_CELL, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
 import { useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
-import type { BuildOptions, Provider, SiteRect, TerrainAccuracy } from '@/lib/types';
-
-/**
- * CRS option labels are proper names (EPSG codes, datum names) and stay in
- * their published form; only the automatic-zone entry is translated.
- */
-const CRS_OPTIONS: { value: string; label?: string; i18n?: boolean }[] = [
-  { value: '2154', label: 'EPSG:2154 — RGF93 / Lambert-93 (FR)' },
-  { value: 'auto', i18n: true },
-  { value: '27700', label: 'EPSG:27700 — OSGB36 / British National Grid' },
-  { value: '25832', label: 'EPSG:25832 — ETRS89 / UTM 32N (DE)' },
-  { value: '28992', label: 'EPSG:28992 — Amersfoort / RD New (NL)' },
-];
+import type { BuildOptions, FormPatch, Provider, SiteRect, TerrainAccuracy } from '@/lib/types';
 
 /*
- * EPSG lines and provider labels are longer than the 330px dock, so the closed
+ * Provider labels are longer than the 330px dock, so the closed
  * trigger ellipsises on one line and the open list — free to grow past the dock
  * — carries the full text. The shadcn defaults leave the selected label as a
  * flex box, where the clamp is inert and the text is cut with no ellipsis at
@@ -37,10 +33,54 @@ const SELECT_ITEM = 'font-mono text-[13px] **:whitespace-normal';
 
 export type ControlsPanelProps = {
   form: BuildOptions;
-  onChange: (patch: Partial<BuildOptions>) => void;
+  onChange: (patch: FormPatch) => void;
   rect: SiteRect | null;
   onClose: () => void;
 };
+
+/**
+ * One row of the Advanced group: eyebrow, live value, slider, optional hint.
+ *
+ * Every advanced control is one of these, and that is the whole design. These
+ * numbers feed fetch deadlines and geometry loops, where a bad one is a wedged
+ * tab rather than a wrong pixel — and a slider cannot emit a value outside its
+ * range, a NaN, or an empty string. There is no draft state to commit, no clamp
+ * policy to get wrong, and nothing to test. The exact figure stays legible in
+ * `.rangeval` beside the label, the same way the height slider above shows its
+ * metres, so not being able to type one costs nothing.
+ */
+function TuneRow(q: {
+  id: string;
+  label: string;
+  hint?: string;
+  value: number;
+  range: [number, number];
+  step: number;
+  disabled?: boolean;
+  /** How the live value reads. Defaults to the bare number. */
+  format: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="field dimmed" aria-disabled={q.disabled || undefined}>
+      <label className="eyebrow block mb-1.5" htmlFor={q.id}>
+        {q.label}
+        <span className="rangeval">{q.format(q.value)}</span>
+      </label>
+      <Slider
+        id={q.id}
+        min={q.range[0]}
+        max={q.range[1]}
+        step={q.step}
+        disabled={q.disabled}
+        value={[q.value]}
+        onValueChange={(v) => q.onChange(Array.isArray(v) ? v[0] : (v as number))}
+        className="mt-1.5"
+      />
+      {q.hint && <div className="fieldHint">{q.hint}</div>}
+    </div>
+  );
+}
 
 /**
  * Everything that describes *how* to build, as a flyout off the rail's first
@@ -54,12 +94,18 @@ export type ControlsPanelProps = {
 export function ControlsPanel(p: ControlsPanelProps) {
   const { t, n } = useT();
   const ign = p.form.provider === 'ign';
+  /* The panel unmounts with the flyout, so this is born false every time it is
+     opened — which is exactly the "collapsed by default" we want, without
+     anything having to reset it. Deliberately not persisted for the same
+     reason: a group that remembered being open would stop being advanced. */
+  const [advOpen, setAdvOpen] = useState(false);
+
+  const tune = p.form.tune;
+  const setTune = (patch: Partial<Tunables>) => p.onChange({ tune: patch });
 
   /* The trigger shows the label of the selected option rather than the bare
-     value ("2154", "osm") only if the root is handed the whole map, so the list
-     and the trigger both read their text from these. */
-  const crsLabel = (o: (typeof CRS_OPTIONS)[number]) => (o.i18n ? t('ctl.crsAuto') : o.label!);
-  const crsItems = Object.fromEntries(CRS_OPTIONS.map((o) => [o.value, crsLabel(o)]));
+     value ("osm") only if the root is handed the whole map, so the list and the
+     trigger both read their text from these. */
   const providerItems: Record<Provider, string> = {
     ign: t('ctl.sourceIgn'),
     osm: t('ctl.sourceOsm'),
@@ -85,8 +131,8 @@ export function ControlsPanel(p: ControlsPanelProps) {
     const { w, h } = rectSize(p.rect);
     const span = Math.max(w, h);
     const N = ign
-      ? gridSize(span, cell, MAX_GRID_N)
-      : terrariumN(p.rect, rectCentre(p.rect).lat, span, cell);
+      ? gridSize(span, cell, tune.maxGridN)
+      : terrariumN(p.rect, rectCentre(p.rect).lat, span, cell, tune.maxGridN);
     return { n: N, m: span / N };
   })();
 
@@ -109,28 +155,11 @@ export function ControlsPanel(p: ControlsPanelProps) {
           bar the moment there is one, and stating it twice is what made the
           old flow bar suppress its own copy by hand. */}
 
-      <div className="field">
-        <label className="eyebrow block mb-1.5" htmlFor="epsg">
-          {t('ctl.crs')}
-        </label>
-        <Select
-          items={crsItems}
-          
-          value={p.form.epsg}
-          onValueChange={(v) => typeof v === 'string' && p.onChange({ epsg: v })}
-        >
-          <SelectTrigger id="epsg" className={SELECT_TRIGGER}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className={SELECT_CONTENT}>
-            {CRS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value} className={SELECT_ITEM}>
-                {crsLabel(o)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <CrsField
+        rect={p.rect}
+        value={p.form.epsg}
+        onChange={(epsg) => p.onChange({ epsg })}
+      />
 
       <div className="field">
         <label className="eyebrow block mb-1.5" htmlFor="defh">
@@ -279,6 +308,162 @@ export function ControlsPanel(p: ControlsPanelProps) {
           </SelectContent>
         </Select>
         <div className="fieldHint">{t('ctl.accuracyHint')}</div>
+      </div>
+
+      {/* Everything above says what to build; this says what the builder is
+          allowed to spend doing it. Ruled off with .editSection for the same
+          reason the element editor's placement block is — it is a second
+          subject, not more fields belonging to the accuracy control above.
+
+          The body is always rendered and `hidden` rather than mounted on
+          demand, so aria-controls always resolves to something; `hidden` keeps
+          the nine sliders out of the tab order and out of layout either way. */}
+      <div className="field editSection">
+        <button
+          type="button"
+          className="advHead"
+          aria-expanded={advOpen}
+          aria-controls="advBody"
+          aria-label={advOpen ? t('ctl.advHide') : t('ctl.advShow')}
+          onClick={() => setAdvOpen((v) => !v)}
+        >
+          <span className="treeTwisty" aria-hidden="true">
+            {advOpen ? '▾' : '▸'}
+          </span>
+          <span className="eyebrow">{t('ctl.advanced')}</span>
+        </button>
+
+        <div id="advBody" hidden={!advOpen}>
+          <div className="fieldHint">{t('ctl.advancedHint')}</div>
+
+          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advFetch')}</span>
+
+          <TuneRow
+            id="advBuildingCap"
+            label={t('ctl.advBuildingCap')}
+            hint={t('ctl.advBuildingCapHint')}
+            value={tune.buildingCap}
+            range={TUNE_RANGE.buildingCap}
+            step={100}
+            disabled={!p.form.buildings}
+            format={(v) => n(v)}
+            onChange={(buildingCap) => setTune({ buildingCap })}
+          />
+
+          <TuneRow
+            id="advTreeCap"
+            label={t('ctl.advTreeCap')}
+            value={tune.treeCap}
+            range={TUNE_RANGE.treeCap}
+            step={100}
+            disabled={!p.form.trees}
+            format={(v) => n(v)}
+            onChange={(treeCap) => setTune({ treeCap })}
+          />
+
+          <TuneRow
+            id="advSiteMax"
+            label={t('ctl.advSiteMax')}
+            hint={t('ctl.advSiteMaxHint')}
+            value={tune.siteMax}
+            range={TUNE_RANGE.siteMax}
+            step={100}
+            format={(v) => `${n(v)} m`}
+            onChange={(siteMax) => setTune({ siteMax })}
+          />
+
+          {/* Held in ms because that is what AbortSignal.timeout takes, but
+              nobody thinks in milliseconds — so the slider steps in whole
+              seconds and converts at the boundary. */}
+          <TuneRow
+            id="advTimeout"
+            label={t('ctl.advTimeout')}
+            hint={t('ctl.advTimeoutHint')}
+            value={tune.overpassTimeoutMs / 1000}
+            range={[TUNE_RANGE.overpassTimeoutMs[0] / 1000, TUNE_RANGE.overpassTimeoutMs[1] / 1000]}
+            step={5}
+            format={(v) => `${n(v)} s`}
+            onChange={(s) => setTune({ overpassTimeoutMs: s * 1000 })}
+          />
+
+          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advTerrainSec')}</span>
+
+          <TuneRow
+            id="advGridMax"
+            label={t('ctl.advGridMax')}
+            hint={t('ctl.advGridMaxHint')}
+            value={tune.maxGridN}
+            range={TUNE_RANGE.maxGridN}
+            step={1}
+            disabled={!p.form.terrain}
+            format={(v) => t('ctl.advGridCells', { n: v })}
+            onChange={(maxGridN) => setTune({ maxGridN })}
+          />
+
+          <TuneRow
+            id="advConformStep"
+            label={t('ctl.advConformStep')}
+            hint={t('ctl.advConformStepHint')}
+            value={tune.conformStep}
+            range={TUNE_RANGE.conformStep}
+            step={1}
+            disabled={!p.form.terrain}
+            format={(v) => `${n(v)} m`}
+            onChange={(conformStep) => setTune({ conformStep })}
+          />
+
+          {/* None of these three is provider-gated: each was written down twice,
+              once for OSM and once for BD TOPO, and now is not. */}
+          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advGeometry')}</span>
+
+          <TuneRow
+            id="advStoreyHeight"
+            label={t('ctl.advStoreyHeight')}
+            hint={t('ctl.advStoreyHeightHint')}
+            value={tune.storeyHeight}
+            range={TUNE_RANGE.storeyHeight}
+            step={0.1}
+            disabled={!p.form.buildings}
+            format={(v) => `${n(v)} m`}
+            onChange={(storeyHeight) => setTune({ storeyHeight })}
+          />
+
+          <TuneRow
+            id="advLaneWidth"
+            label={t('ctl.advLaneWidth')}
+            value={tune.laneWidth}
+            range={TUNE_RANGE.laneWidth}
+            step={0.25}
+            disabled={!p.form.roads}
+            format={(v) => `${n(v)} m`}
+            onChange={(laneWidth) => setTune({ laneWidth })}
+          />
+
+          <TuneRow
+            id="advTrackWidth"
+            label={t('ctl.advTrackWidth')}
+            value={tune.railTrackWidth}
+            range={TUNE_RANGE.railTrackWidth}
+            step={0.25}
+            disabled={!p.form.railways}
+            format={(v) => `${n(v)} m`}
+            onChange={(railTrackWidth) => setTune({ railTrackWidth })}
+          />
+
+          {/* Always present, disabled at defaults, rather than appearing when
+              something is customised — a control that comes and goes moves
+              every slider above it. DEFAULT_TUNABLES is complete, so this one
+              patch resets all nine. */}
+          <div className="presets">
+            <button
+              type="button"
+              disabled={isDefaultTunables(tune)}
+              onClick={() => p.onChange({ tune: { ...DEFAULT_TUNABLES } })}
+            >
+              {t('ctl.advReset')}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

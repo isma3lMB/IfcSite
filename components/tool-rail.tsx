@@ -189,21 +189,24 @@ export function ToolRail(p: ToolRailProps) {
       {/* Pinned beside the gear rather than folded into Options: finding a
           place is the first thing you do, before there is anything to
           configure. It starts expanded — see the flyout it opens — and
-          collapses to this icon once a site rectangle exists. */}
-      <button
-        ref={p.searchBtnRef}
-        type="button"
-        className={`railBtn${p.searchOpen ? ' on' : ''}`}
-        data-tip={t('ctl.findPlace')}
-        aria-label={t('ctl.findPlace')}
-        aria-expanded={p.searchOpen}
-        aria-controls="searchFlyout"
-        onClick={p.onToggleSearch}
-      >
-        <IconSearch />
-      </button>
-      
-      
+          collapses to this icon once a site rectangle exists. Hidden in 3D:
+          there is no map left to search once the scene takes over. */}
+      {p.view !== '3d' && (
+        <button
+          ref={p.searchBtnRef}
+          type="button"
+          className={`railBtn${p.searchOpen ? ' on' : ''}`}
+          data-tip={t('ctl.findPlace')}
+          aria-label={t('ctl.findPlace')}
+          aria-expanded={p.searchOpen}
+          aria-controls="searchFlyout"
+          onClick={p.onToggleSearch}
+        >
+          <IconSearch />
+        </button>
+      )}
+
+
       {/* Beside the search for the same reason, and only in 3D: there is no
           model to walk until there is a scene. */}
       {is3d && (

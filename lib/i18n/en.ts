@@ -25,6 +25,12 @@ export const en = {
   'ui.options': 'Options',
   'ui.originMarker': 'Show the model origin',
   'ui.projection': 'Orthographic view',
+  /* The button is labelled with what pressing it does, not with the state it is
+     in — an icon button has no room to say both, and the action is the useful
+     half. */
+  'ui.themeDark': 'Switch to the dark theme',
+  'ui.themeLight': 'Switch to the light theme',
+  'ui.dismiss': 'Dismiss',
 
   /* ---- tool rail. Icon-only, so every one of these is the whole label: it is
      the tooltip, the aria-label, and the only prose the tool ever gets. ---- */
@@ -57,6 +63,12 @@ export const en = {
   'ctl.zoomSite': 'Zoom to site',
   'ctl.crs': 'Projected CRS',
   'ctl.crsAuto': 'Auto UTM / WGS84',
+  'ctl.crsNeedsSite': 'Draw a site first — the list depends on where it is.',
+  'ctl.crsSearch': 'EPSG code or name…',
+  'ctl.crsLoading': 'Loading the CRS index…',
+  'ctl.crsError': 'CRS index unavailable — automatic UTM still works.',
+  'ctl.crsNone': 'No match.',
+  'ctl.crsValidHere': '{n} valid at this site',
   'ctl.defaultHeight': 'Height when untagged',
   'ctl.dataSource': 'Data source',
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — worldwide',
@@ -81,6 +93,42 @@ export const en = {
   'ctl.veg': 'Vegetation and hedges',
   'ctl.water': 'Water surfaces',
   'ctl.parcels': 'Cadastral parcels',
+
+  /* ---- advanced: the collapsed group at the foot of the options flyout. Every
+     one of these was a constant in the pipeline's source until the panel could
+     reach it, and every default reproduces the old behaviour exactly. ---- */
+  'ctl.advanced': 'Advanced',
+  'ctl.advancedHint':
+    'Pipeline limits. The defaults suit almost every site; changing one changes what the next build fetches.',
+  'ctl.advShow': 'Show advanced settings',
+  'ctl.advHide': 'Hide advanced settings',
+  'ctl.advReset': 'Reset to defaults',
+  'ctl.advFetch': 'Fetch limits',
+  'ctl.advBuildingCap': 'Building cap',
+  'ctl.advBuildingCapHint':
+    'Footprints past this are dropped, not merged. Beyond a few thousand the browser, not the service, is the limit.',
+  'ctl.advTreeCap': 'Tree cap',
+  'ctl.advSiteMax': 'Maximum site side',
+  'ctl.advSiteMaxHint':
+    'Applies to the next rectangle you draw. Overpass and the IGN WFS start refusing past 2000 m.',
+  'ctl.advTimeout': 'Overpass timeout',
+  'ctl.advTimeoutHint':
+    'Per mirror, across three. The server-side budget follows five seconds under it.',
+  'ctl.advTerrainSec': 'Terrain',
+  'ctl.advGridMax': 'Grid ceiling',
+  'ctl.advGridCells': '{n}×{n}',
+  'ctl.advGridMaxHint':
+    'The densest lattice any provider may build. Every vertex is another point in the exported file.',
+  'ctl.advConformStep': 'Drape step',
+  'ctl.advConformStepHint':
+    'How closely roads and surfaces follow the ground between terrain posts. Finer is truer and heavier.',
+  'ctl.advGeometry': 'Geometry defaults',
+  'ctl.advStoreyHeight': 'Storey height',
+  'ctl.advStoreyHeightHint':
+    'Used when a building states its number of levels but not its height.',
+  'ctl.advLaneWidth': 'Lane width',
+  'ctl.advTrackWidth': 'Rail track width',
+
   'ctl.build': 'Build sheet',
   'ctl.building': 'Building…',
   'ctl.download': 'Download IFC',
@@ -149,6 +197,8 @@ export const en = {
   'tree.noMatch': 'Nothing matches.',
   'tree.expand': 'Expand {layer}',
   'tree.collapse': 'Collapse {layer}',
+  'tree.hide': 'Hide {layer}',
+  'tree.show': 'Show {layer}',
   'tree.colourOf': 'Colour of {layer}',
   'tree.merged': 'One merged element — recolour or move it from the layer above.',
 
@@ -247,6 +297,9 @@ export const en = {
   'err.noBuildingsOsm':
     'No buildings mapped inside that rectangle. Draw a larger one, or pick a denser area.',
   'err.noSite': 'Draw a site rectangle on the map first.',
+  'err.crsUnknown': '{epsg} is not in the CRS index.',
+  'err.crsIndexUnavailable':
+    'The CRS index could not be loaded. Pick the automatic UTM zone, or reload the page.',
 
   /* ---- notes. `body` marks code spans with backticks. ---- */
   notes: [
@@ -264,7 +317,7 @@ export const en = {
     },
     {
       title: 'Drawing the site.',
-      body: 'The rectangle you place on the OpenStreetMap basemap — two corner clicks, or one drag — is the whole site definition. Nothing is selected until you draw it: its bounds go to Overpass and the IGN WFS as a bbox, size the terrain grid, and clip every polygon that crosses the edge. It is a WGS84 rectangle, so in a projected CRS it is very slightly rotated by grid convergence; the local clip box is taken from the outermost corner so nothing you drew is cropped. Sides are held between 100 m and 2000 m — past that Overpass and the WFS start refusing. Basemap tiles and the place search come from OpenStreetMap and Nominatim; both are free services, so keep the requests light.',
+      body: 'The rectangle you place on the OpenStreetMap basemap — two corner clicks, or one drag — is the whole site definition. Nothing is selected until you draw it: its bounds go to Overpass and the IGN WFS as a bbox, size the terrain grid, and clip every polygon that crosses the edge. It is a WGS84 rectangle, so in a projected CRS it is very slightly rotated by grid convergence; the local clip box is taken from the outermost corner so nothing you drew is cropped. Sides are held between 100 m and 2000 m by default — past that Overpass and the WFS start refusing, and Advanced is where you decide how close to that you want to sail. Basemap tiles and the place search come from OpenStreetMap and Nominatim; both are free services, so keep the requests light.',
     },
     {
       title: 'Two providers.',

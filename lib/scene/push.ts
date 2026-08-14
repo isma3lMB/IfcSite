@@ -1,3 +1,4 @@
+import { DEFAULT_TUNABLES, type Tunables } from '@/lib/build/tunables';
 import { type SplitPolygon, unionPolygons, unionRings } from '@/lib/geo/boolean';
 import { conformToTerrain } from '@/lib/geo/conform';
 import { skirtInto } from '@/lib/geo/mesh';
@@ -23,8 +24,15 @@ import type {
   Vec3,
 } from '@/lib/types';
 
-/** Past this the browser, not the services, becomes the bottleneck. */
-export const BUILDING_CAP = 4000;
+/**
+ * Past this the browser, not the services, becomes the bottleneck.
+ *
+ * The hard ceiling, now that the panel can lower it: the build path reads
+ * `tune.buildingCap` instead, and TUNE_RANGE pins that slider's maximum to this
+ * number. The viewer's draw tool still reads this one directly, which is safe
+ * precisely because a tunable can only ever sit at or under it.
+ */
+export const BUILDING_CAP = DEFAULT_TUNABLES.buildingCap;
 
 /**
  * Shared by both providers: a footprint ring in local metres becomes a scene
@@ -296,6 +304,7 @@ function finishRibbons(
   layer: 'road' | 'railway',
   top: Vec3[][],
   walls: Vec3[][],
+  tune: Tunables,
 ): void {
   if (!ribbons.length) return;
   for (const { outer, holes } of unionPolygons(ribbons)) {
@@ -306,6 +315,7 @@ function finishRibbons(
       sampleZ,
       LAYER_DZ[layer],
       holes,
+      tune.conformStep,
     );
     if (!faces.length) continue;
     const skirt = skirtInto(verts, faces, skirtDepth(layer));
@@ -320,8 +330,9 @@ export function finishRoads(
   ribbons: SplitPolygon[],
   toGeo: ToGeo,
   sampleZ: SampleZ,
+  tune: Tunables,
 ): void {
-  finishRibbons(scene, ribbons, toGeo, sampleZ, 'road', scene.roads, scene.roadWalls);
+  finishRibbons(scene, ribbons, toGeo, sampleZ, 'road', scene.roads, scene.roadWalls, tune);
 }
 
 export function finishRailways(
@@ -329,6 +340,16 @@ export function finishRailways(
   ribbons: SplitPolygon[],
   toGeo: ToGeo,
   sampleZ: SampleZ,
+  tune: Tunables,
 ): void {
-  finishRibbons(scene, ribbons, toGeo, sampleZ, 'railway', scene.railways, scene.railwayWalls);
+  finishRibbons(
+    scene,
+    ribbons,
+    toGeo,
+    sampleZ,
+    'railway',
+    scene.railways,
+    scene.railwayWalls,
+    tune,
+  );
 }

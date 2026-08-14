@@ -1,3 +1,4 @@
+import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import { MAX_GRID_N, gridSampler, gridSize } from '@/lib/geo/grid';
 import type { Grid, Site, SiteRect, StatusFn, ToLocal, Vec3 } from '@/lib/types';
@@ -52,9 +53,15 @@ export function pickZoom(rect: SiteRect, lat: number, cell: number): number {
  * extra triangles carry interpolation, not terrain, and they are paid for again
  * in the IFC.
  */
-export function terrariumN(rect: SiteRect, lat: number, span: number, cell: number): number {
+export function terrariumN(
+  rect: SiteRect,
+  lat: number,
+  span: number,
+  cell: number,
+  maxN: number = MAX_GRID_N,
+): number {
   const mpp = mppAt(pickZoom(rect, lat, cell), lat);
-  return gridSize(span, cell, Math.max(8, Math.min(MAX_GRID_N, Math.floor(span / mpp))));
+  return gridSize(span, cell, Math.max(8, Math.min(maxN, Math.floor(span / mpp))));
 }
 
 const loadTile = (z: number, x: number, y: number): Promise<HTMLImageElement> => {
@@ -72,6 +79,7 @@ export async function terrariumGrid(
   toLocal: ToLocal,
   cell: number,
   _onStatus: StatusFn,
+  tune: Tunables,
 ): Promise<Grid> {
   const z = pickZoom(site, site.lat, cell);
   const tl = tileXY(site.maxLat, site.minLon, z);
@@ -130,7 +138,7 @@ export async function terrariumGrid(
   };
 
   const span = 2 * Math.max(site.halfX, site.halfY);
-  const N = terrariumN(site, site.lat, span, cell);
+  const N = terrariumN(site, site.lat, span, cell, tune.maxGridN);
 
   const verts: Vec3[] = [];
   const faces: number[][] = [];

@@ -1,3 +1,4 @@
+import { DEFAULT_TUNABLES } from '@/lib/build/tunables';
 import type { SampleZ, SiteRect, TerrainAccuracy } from '@/lib/types';
 
 /**
@@ -28,8 +29,14 @@ export const ACCURACY_CELL: Record<TerrainAccuracy, number> = {
  * It lives here rather than beside either fetch so the options panel can predict
  * the grid without importing the WFS module — and with it three.js, via the mesh
  * helpers — into the panel's chunk.
+ *
+ * The panel can now lower it per build (`tune.maxGridN`); this stays the ceiling
+ * that lowering happens under, and MAX_BLOCKS in lib/geo/conform still sizes
+ * itself off it. The number is not round because it cannot be: it is the largest
+ * N with (N+1)^2 <= ALTI_MAX * ALTI_MAX_CHUNKS, which is why TUNE_RANGE pins the
+ * slider's maximum here rather than anywhere convenient.
  */
-export const MAX_GRID_N = 211;
+export const MAX_GRID_N = DEFAULT_TUNABLES.maxGridN;
 
 /**
  * Cells across the site for a target cell size, given whatever ceiling the

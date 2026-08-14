@@ -57,6 +57,29 @@ export const IconDrawSite = () => (
   </Svg>
 );
 
+/* The theme pair. Both are filled rather than outlined: at 16 px on a 1.3
+   stroke a hollow disc reads as a ring, and the ring is what the origin marker
+   already means in this set. The sun's rays are square-capped like everything
+   else here, so they read as ticks rather than as a lens flare. */
+export const IconSun = () => (
+  <Svg>
+    <circle cx="8" cy="8" r="3" fill="currentColor" stroke="none" />
+    <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M12.9 3.1l-1.4 1.4M4.5 11.5l-1.4 1.4" />
+  </Svg>
+);
+
+/* One path, not a disc with a bite taken out: an overlapping second circle
+   would need a fill matching the button's background, which changes on hover. */
+export const IconMoon = () => (
+  <Svg>
+    <path
+      d="M13.4 9.9A6 6 0 0 1 6.1 2.6a6 6 0 1 0 7.3 7.3Z"
+      fill="currentColor"
+      stroke="none"
+    />
+  </Svg>
+);
+
 export const IconPan = () => (
   <Svg>
     <path d="M8 1.5v13M1.5 8h13" />
@@ -191,5 +214,25 @@ export const IconLayers = () => (
 export const IconCompass = () => (
   <Svg>
     <path d="M8 .8 12.6 15.2 8 12.2 3.4 15.2Z" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/* The lens as two arcs rather than an ellipse element, to keep the corners
+   square like everything else in the set — an ellipse's own curvature already
+   reads as round without help from the stroke join. */
+export const IconEye = () => (
+  <Svg>
+    <path d="M1 8s2.6-4.6 7-4.6S15 8 15 8s-2.6 4.6-7 4.6S1 8 1 8Z" />
+    <circle cx="8" cy="8" r="2" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/* The same lens, struck through — the slash reads at this size where closing
+   the lids into a line would not. */
+export const IconEyeOff = () => (
+  <Svg>
+    <path d="M1 8s2.6-4.6 7-4.6S15 8 15 8s-2.6 4.6-7 4.6S1 8 1 8Z" />
+    <circle cx="8" cy="8" r="2" fill="currentColor" stroke="none" />
+    <path d="M2 14 14 2" />
   </Svg>
 );

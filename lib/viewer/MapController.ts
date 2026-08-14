@@ -19,6 +19,32 @@ export type MapCallbacks = {
 const DRAG_PX = 6;
 
 /**
+ * The basemap per theme.
+ *
+ * CARTO's dark_all is the conventional dark pairing for OSM data and is free to
+ * use at this scale; it is still OpenStreetMap underneath, which is why the
+ * credit stays and CARTO's is added rather than substituted. Attribution is part
+ * of the tuple and not a constant for exactly that reason — swapping the URL
+ * without swapping the credit would be a licence breach, not a styling bug.
+ */
+const BASEMAPS: Record<
+  'light' | 'dark',
+  { url: string; attribution: string }
+> = {
+  light: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
+      '© <a href="https://carto.com/attributions">CARTO</a>',
+  },
+};
+
+/**
  * The 2D site map — Leaflet over OSM tiles. The rectangle drawn here is the
  * only description of the site: there is no centre point to type and no radius,
  * so every fetch reads this rectangle and nothing else.
@@ -32,6 +58,13 @@ export class MapController {
   private readonly map: L.Map;
   private readonly cb: MapCallbacks;
   private readonly resizeObserver: ResizeObserver;
+
+  private readonly tiles: L.TileLayer;
+  private theme: 'light' | 'dark' = 'light';
+  /** The live ceiling from the options panel's Advanced group, which arrives
+   *  after construction and can change again — hence a field rather than an
+   *  argument, like `theme` above. */
+  private siteMax = SITE_MAX;
 
   private siteRect: SiteRect | null = null;
   private rectLayer: L.Rectangle | null = null;
@@ -53,11 +86,10 @@ export class MapController {
     // shift-drag is ours now
     this.map = leaflet.map(host, { boxZoom: false, zoomControl: false });
     leaflet.control.zoom({ position: 'topright' }).addTo(this.map);
-    leaflet
-      .tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    this.tiles = leaflet
+      .tileLayer(BASEMAPS.light.url, {
         maxZoom: 19,
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        attribution: BASEMAPS.light.attribution,
       })
       .addTo(this.map);
     this.map.setView([48.8539, 2.3407], 5);
@@ -90,6 +122,36 @@ export class MapController {
     return this.siteRect;
   }
 
+  /**
+   * Swap the basemap with the app's theme.
+   *
+   * setUrl() on the existing layer rather than remove/add: the layer holds the
+   * tile cache and the pane it draws into, and replacing it would blank the map
+   * for a beat and drop it below the site rectangle in the pane order. The
+   * attribution has to be moved by hand — Leaflet reads that option once, when
+   * the layer is added to the map.
+   */
+  setTheme(theme: 'light' | 'dark'): void {
+    const was = this.theme;
+    if (theme === was) return;
+    this.theme = theme;
+
+    this.map.attributionControl.removeAttribution(BASEMAPS[was].attribution);
+    this.map.attributionControl.addAttribution(BASEMAPS[theme].attribution);
+    this.tiles.setUrl(BASEMAPS[theme].url);
+  }
+
+  /**
+   * The longest side a drawn rectangle may have, in metres.
+   *
+   * Binds the next gesture, not the current rectangle: lowering the ceiling
+   * under a site you already drew would move a rectangle you did not touch, and
+   * silently invalidate the scene built from it.
+   */
+  setSiteLimits(max: number): void {
+    this.siteMax = max;
+  }
+
   /** armed || mid-gesture — Escape precedence needs this. */
   get isDrawing(): boolean {
     return this.armed || !!this.drawStart;
@@ -104,11 +166,14 @@ export class MapController {
     r: SiteRect,
     { anchor = null, live = false }: { anchor?: L.LatLng | null; live?: boolean } = {},
   ): void {
-    const { rect, clamped } = clampRect(r, anchor);
+    const { rect, clamped } = clampRect(r, anchor, this.siteMax);
     this.siteRect = rect;
     this.syncSiteLayers();
     this.cb.onSite(rect);
-    if (clamped && !live) this.cb.onStatus('status.siteClamped', { min: SITE_MIN, max: SITE_MAX });
+    // Reports the live ceiling, not the shipped one, so the toast cannot name a
+    // limit the drag was not actually held to.
+    if (clamped && !live)
+      this.cb.onStatus('status.siteClamped', { min: SITE_MIN, max: this.siteMax });
   }
 
   private clearSiteLayers(): void {

@@ -1,3 +1,4 @@
+import type { Tunables } from '@/lib/build/tunables';
 import type { LayerKey, Params, StatusKey } from '@/lib/i18n/keys';
 
 export type Vec2 = [number, number];
@@ -315,7 +316,22 @@ export type BuildOptions = {
   veg: boolean;
   water: boolean;
   parcels: boolean;
+  /** Pipeline limits and geometry fallbacks. Nested rather than flattened in
+   *  beside the rest so the fields above stay the things a build is *about* —
+   *  where, from whom, with what in it — and the knobs stay knobs. See
+   *  lib/build/tunables. */
+  tune: Tunables;
 };
+
+/**
+ * What the options panel hands back on a change.
+ *
+ * `tune` is partial in its own right — the panel sends one slider at a time —
+ * which a plain Partial<BuildOptions> would type as a whole Tunables, obliging
+ * every row to spread the other eight fields it has no opinion about. The
+ * reducer merges it one level deeper to match; see onFormChange.
+ */
+export type FormPatch = Omit<Partial<BuildOptions>, 'tune'> & { tune?: Partial<Tunables> };
 
 /**
  * The closing summary, structured rather than pre-formatted. The original built

@@ -53,6 +53,10 @@ lib/
   scene/             scene-record construction and the per-element transform type
   sources/           network adapters: Overpass, IGN, Nominatim, Terrarium
   viewer/            imperative three.js Viewer and Leaflet MapController
+public/
+  epsg.json          generated CRS index — `npm run epsg`, committed, see §9
+scripts/
+  build-epsg.ts      generates the above from the epsg-index package
 context-ifc-browser.html         the original single-file page this was ported from
 context_48.8566_2.3522.ifc       a sample export
 ```
@@ -95,18 +99,48 @@ Loads IBM Plex Sans/Mono as CSS variables and sets static metadata in the defaul
 client-side once the stored/URL preference is known — the page is prerendered at build
 time, so reading `localStorage` during render would be a hydration mismatch.
 
-### [app/page.tsx](app/page.tsx)
-Just `<LangProvider><IfcSite /></LangProvider>`. The provider sits *above* everything
-so switching language never remounts the WebGL canvas or the Leaflet map — both are
-imperative and would lose camera, selection and undo stack.
+Also carries the **no-flash theme script**, inlined in `<head>` so it runs before the first
+paint. The app is a static export: the HTML on disk has no theme on it, so without this a
+visitor who has chosen dark gets a white flash for as long as the bundle takes to load. It
+duplicates the resolution in [lib/theme/context.tsx](lib/theme/context.tsx) — a stored
+override, otherwise light — and **the two have to stay in step**, or the first frame and
+the first render disagree. `suppressHydrationWarning` on `<html>` is for the class and
+`color-scheme` it writes.
 
-### [app/globals.css](app/globals.css) (~1000 lines)
+### [app/page.tsx](app/page.tsx)
+Just `<ThemeProvider><LangProvider><IfcSite /></LangProvider></ThemeProvider>`. Both sit
+*above* everything so switching language or theme never remounts the WebGL canvas or the
+Leaflet map — both are imperative and would lose camera, selection and undo stack.
+
+### [app/globals.css](app/globals.css) (~1300 lines)
 Tailwind 4 with `@theme` tokens (the ink/yellow/paper palette), shadcn's semantic tokens
 retuned to it, and a `@layer components` block holding the hand-written chrome: the
-floating dock, flow bar, element editor, HUD, info overlay, readout strip, Leaflet
-overrides and the narrow-viewport rules. Layout is one full-bleed viewer with everything
-else floating over it on a grid, so panels can never cover one another and the gaps stay
-transparent to map/orbit gestures.
+floating dock, status bar, site readout, status toast, element editor, info overlay,
+Leaflet overrides and the narrow-viewport rules. Layout is one full-bleed viewer with
+everything else floating over it on a grid, so panels can never cover one another and the
+gaps stay transparent to map/orbit gestures.
+
+**Theming** is one `html.dark { … }` block that re-declares the palette. The `@theme` block
+is deliberately left non-inline: that makes Tailwind emit `--color-ink` and friends into
+`:root` *and* compile `bg-ink`/`text-ink` to `var(--color-ink)`, so re-declaring the same
+names under `html.dark` re-tints the utilities and the hand-written component layer in one
+move. Switching it to `@theme inline` would stop those custom properties being emitted and
+every `var(--color-ink)` in the file would resolve to nothing.
+
+Two consequences worth knowing before editing colours:
+
+- **Pairing tokens.** `--color-ink` inverts, so `background: ink; color: yellow` would come
+  out yellow-on-white in the dark theme. Anything painted *on* another colour uses
+  `--color-on-ink` / `--color-on-yellow` / `--color-on-err` instead of naming a hue.
+  `--color-on-yellow` is dark in both themes — the accent is the same yellow either way.
+- **Surfaces** (`--color-surface`, `--color-surface-solid`, `--color-scrim`,
+  `--color-shadow`, `--color-basemap`, `--color-hairline`, `--color-code`) were extracted
+  from literals that had nothing to override. Do not reintroduce a raw `#fff`.
+
+[lang-toggle.tsx](components/lang-toggle.tsx) holds its colours as Tailwind classes rather
+than in this file (they have to displace shadcn's own utilities), so it writes them as
+arbitrary values off the same custom properties — not as `bg-white` plus a `dark:` variant,
+which would be a second source of truth for the flip.
 
 ---
 
@@ -134,9 +168,53 @@ The single stateful component. It owns:
   outermost-first — info card, then a drawing gesture, then the 3D selection.
 - **Provider coupling**: switching to IGN forces EPSG:2154 (Lambert-93, the datum IGN
   publishes in); switching away clears the IGN-only layers, which have no OSM equivalent.
+- **CRS follows the site.** Each new rectangle selects the best system for where it landed
+  (`bestAt`), until the field is used by hand — after that the choice is the user's, and a
+  rectangle nudged fifty metres must not overrule it. Changing the CRS with a scene up also
+  raises `siteDirty`: reprojecting moves every coordinate in the file, so what is on screen
+  no longer describes what Download would write.
 - **`onBuild`** calls `runBuild`, then feeds the result to the emitter and the viewer and
   flips to the 3D tab. **`onDownload`** flushes the emitter's debounce window and triggers
   a Blob download named `context_<lat>_<lon>.ifc`.
+- **Theme push.** Both viewers own a backdrop CSS cannot reach — a shader dome and a tile
+  URL — so the class on `<html>` is not enough for either. An effect on `theme` calls
+  `Viewer.setTheme` and `MapController.setTheme`; both return early when the theme has not
+  moved. The map is constructed from a promise (Leaflet is imported dynamically), so it
+  reads the theme off `themeRef` when it lands rather than relying on that effect, which
+  has usually already run against a null ref.
+
+### The bottom of the window, split three ways
+
+There was one full-width status bar holding four unrelated jobs. They are separated by how
+long each is true for, which is what let two of the three stop being permanent chrome:
+
+| Component | Lifetime |
+| --- | --- |
+| [status-bar.tsx](components/status-bar.tsx) | The two actions, plus the height field while a draw tool is armed. Shrink-wrapped and centred on the window (`grid-column: 1 / -1; justify-self: center`, so the element editor opening does not slide it). Returns `null` when it would be empty — a bordered `.floating` box with nothing in it would sit there as a stray chip. |
+| [site-readout.tsx](components/site-readout.tsx) | Standing facts: site size, buildings, entities, file size, origin. Bottom-right corner of the same grid row as the bar, as text rather than a panel, with `pointer-events: none` — a corner of the map that cannot be dragged because a number is lying on it is a worse trade than the number. |
+| [status-toast.tsx](components/status-toast.tsx) | What just happened. Floats over the stage above the bar and fades on its own. |
+
+The toast holds two lifetimes of its own, and the distinction is the design: the **draw
+hint** and the **stale-scene warning** are conditions, not events — they are true for
+exactly as long as a tool is armed or the rectangle is ahead of the scene, so they pin and
+never time out. Everything routed through `setStatus` is transient: 5 s for a message, 9 s
+for a build summary, and **errors do not fade at all** (they wait to be superseded or
+dismissed — a failure that erases itself before it is read is worse than one that lingers).
+
+Three things there are easy to break:
+
+- The live region is **mounted for the life of the app** and emptied rather than unmounted.
+  A `role="status"` element that appears at the same moment as its text is announced
+  unreliably.
+- The toast is keyed on the `status` **object**, not its contents. `setStatus` always builds
+  a fresh literal, so the same message twice still restarts the timer — which is what keeps
+  the toast up across a build's run of progress lines.
+- `status.ready` is the boot state, not news; the first effect run is skipped or the page
+  opens with a toast already fading.
+
+`draw → sited → busy → ready` is derived, not stored, and now lives in
+[lib/ui/step.ts](lib/ui/step.ts) because the bar and the toast both branch on it and have to
+agree — the bar offers Rebuild in the same step the toast calls the scene stale.
 
 ### Panels
 
@@ -144,7 +222,8 @@ The single stateful component. It owns:
 | --- | --- |
 | [stage.tsx](components/stage.tsx) | The two viewer hosts. Both stay mounted; the map is an overlay toggled with `display`, never unmounted. `StageHud` holds the compass (also permanently mounted — the viewer is handed the element once, on mount) plus the legend and hint. |
 | [top-bar.tsx](components/top-bar.tsx) | Wordmark, Map/3D tabs, the projected origin of the current build, the readout strip (buildings, tagged %, road faces, trees, layers, entities, file size), the info button and the language toggle. |
-| [controls-panel.tsx](components/controls-panel.tsx) | The options dock: place search, site extent readout, CRS select, default-height slider, provider select, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. **Holds no actions** — settings only. |
+| [controls-panel.tsx](components/controls-panel.tsx) | The options dock: place search, site extent readout, the CRS field, default-height slider, provider select, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections. Every one is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
+| [crs-field.tsx](components/crs-field.tsx) | The projected CRS, as a searchable list of the systems valid where the site actually is. It carries its own loading rather than sitting in the dock, because the list is a function of a rectangle drawn on the other side of the app — and it is inert until there is one, since a CRS list has nothing to be evaluated against and any choice made early is one the first rectangle invalidates. The hint line doubles as the loading and failure channel. |
 | [flow-bar.tsx](components/flow-bar.tsx) | The whole path from empty map to `.ifc` as one bar that only ever offers the next thing. The step (`draw → sited → busy → ready`) is *derived* from existing state; nothing new is stored. Also surfaces the stale-scene warning rather than letting Download quietly export the old model. |
 | [element-editor.tsx](components/element-editor.tsx) | Selection name, gizmo mode buttons, colour swatch, and X/Y/Z fields for position/rotation/scale, plus uniform-scale lock, reset and undo/redo. |
 | [status-line.tsx](components/status-line.tsx) | Renders a `StatusState` — a *key plus params*, a `BuildSummary`, or an error. The closing summary is composed from clauses here, not stored as one template, because the clauses order differently in French. |
@@ -206,8 +285,28 @@ threshold, InstancedMesh trees, and an undo stack keyed on live mesh state.
   position, which defaults to +Y).
 - **Sky dome** ([sky.ts](lib/viewer/sky.ts)) — a `ShaderMaterial` sphere parented to the
   *camera*, so orbit distance can never escape it. The gradient keys on the world-space Z
-  of the view ray, so the horizon does not tilt with the camera. Below the horizon it
-  brightens to white rather than going black.
+  of the view ray, so the horizon does not tilt with the camera. In the light theme it
+  brightens to white below the horizon rather than going black; in the dark theme it
+  darkens both ways from a lighter horizon band. `applySky()` writes the five uniforms in
+  place — the dome is created once and the camera is what scales it into the frustum, so
+  rebuilding it would mean redoing that and recompiling the program for a colour change.
+- **What `setTheme` deliberately does not touch.** Three things move with the theme: the
+  dome's uniforms, the clear colour behind it, and the lighting *ratio* (`LIGHTS` in
+  [Viewer.ts](lib/viewer/Viewer.ts) — a much darker ground bounce and a slightly stronger,
+  warmer key, not the light rig turned down). The scene's own colours do **not**.
+  `TERRAIN_COLOR` and the rest of [lib/scene/stack.ts](lib/scene/stack.ts) are the *export*
+  palette, read by [lib/ifc/writer.ts](lib/ifc/writer.ts) and
+  [lib/sources/ign.ts](lib/sources/ign.ts) as well as by the viewer; re-tinting them here
+  would make the downloaded file's colours depend on which theme was on screen. **A
+  regression test for any change in this area: the same site downloaded in each theme must
+  produce identical files.** The edge lines are left alone for a plainer reason — they are
+  drawn over those same near-white surfaces in both themes, so a dark edge is still the
+  readable one, and lightening them for the dark theme would erase them.
+- **Basemap** — `MapController.setTheme` swaps the tile URL via `setUrl()` on the existing
+  layer (remove/add would blank the map for a beat and drop it below the site rectangle in
+  the pane order). Dark is CARTO `dark_all`; the attribution is part of the same tuple and
+  is moved by hand, because Leaflet reads that option once when the layer is added — and
+  swapping the URL without the credit would be a licence breach, not a styling bug.
 - **Scene construction** (`setScene`): the site outline (the drawn rectangle, readable in
   3D too), roads as a translucent double-sided mesh plus edges, one
   `ExtrudeGeometry` mesh per building with a two-material side/top split and an outline as
@@ -267,6 +366,45 @@ Order of operations:
 7. **Empty result** → an error, distinguishing IGN (likely off coverage — a bounding box
    cannot tell France from its neighbours) from OSM.
 
+`opts.tune` is re-sanitised on entry rather than trusted from the caller. The panel's
+sliders cannot produce a bad value, but the panel is not the only way one arrives: tunables
+are restored from `localStorage`, where a hand-edited or stale blob can carry a `NaN` that
+would turn every `length >= cap` guard in the parsers into a no-op — a tab pulling down a
+whole city rather than a wrong number on screen.
+
+### [tunables.ts](lib/build/tunables.ts) — the pipeline's limits, as data
+Nine numbers that used to be `const`s beside their one call site: `buildingCap`, `treeCap`,
+`siteMax`, `overpassTimeoutMs`, `maxGridN`, `conformStep`, `storeyHeight`, `laneWidth`,
+`railTrackWidth`. `runBuild` fans one `tune` object out to every parse path, so the change
+is a parameter, not a module global — the purity above still holds.
+
+Naming them once also fixed three numbers that were written down twice, once for OSM and
+once for BD TOPO (storey height, lane width, rail track width), and collapsed the Overpass
+client deadline and the query's own `[timeout:N]` into one value with the other derived.
+
+**The module imports nothing at runtime, deliberately.** `controls-panel` imports it, and a
+module the panel touches must not drag `lib/scene` (and with it `polygon-clipping`) or
+`lib/sources` (and with it three.js) into the panel's chunk — the same rule that put
+`MAX_GRID_N` in [grid.ts](lib/geo/grid.ts). So the literals live here and the pipeline
+imports *from* here.
+
+Two invariants hold the design together:
+
+- **A tunable's range maximum never exceeds the module constant a non-threaded call site
+  still reads.** `TUNE_RANGE.buildingCap[1] === BUILDING_CAP` and
+  `TUNE_RANGE.maxGridN[1] === MAX_GRID_N`, which is why `Viewer`'s draw-tool guard and
+  `conform.ts`'s `MAX_BLOCKS` needed no change at all: a tunable may tighten a ceiling those
+  enforce, never lift one.
+- **`sanitizeTunables` walks the keys of `DEFAULT_TUNABLES`, never the keys of what it was
+  given.** Missing key → default; unknown key → dropped; wrong type, `null`, `NaN` or
+  `Infinity` → default; out of range → clamped; corrupt JSON → the whole object defaults.
+  Renaming a field in a future version needs no migration. Finiteness is tested *before* the
+  clamp, because `Math.min(hi, Math.max(lo, NaN))` is `NaN`.
+
+`maxGridN`'s maximum of 211 is pinned, not chosen: it is the largest `N` with
+`(N+1)² ≤ ALTI_MAX × ALTI_MAX_CHUNKS`, and offering 212 would make the IGN terrain path
+throw `err.altiGridTooLarge` on a value the panel itself handed it.
+
 ### [emitter.ts](lib/build/emitter.ts) — `IfcEmitter`
 Owns the live scene and the serialised text. Edits are cheap but re-serialising a few
 hundred buildings is not, so `markDirty()` debounces re-emission by 250 ms and `flush()`
@@ -279,17 +417,21 @@ run.
 ## 8. Data sources (`lib/sources/`)
 
 ### [overpass.ts](lib/sources/overpass.ts) — OSM, worldwide
-- Three mirrors tried in order, each with a **client-side 45 s deadline**: `[timeout:40]`
-  only binds the server's own work, so an overloaded mirror sits on the connection and 504s
-  much later — without a client deadline, three wedged mirrors stall a build for minutes.
+- Three mirrors tried in order, each with a **client-side deadline** (`tune.overpassTimeoutMs`,
+  45 s by default): `[timeout:N]` only binds the server's own work, so an overloaded mirror
+  sits on the connection and 504s much later — without a client deadline, three wedged
+  mirrors stall a build for minutes. The query's own budget is *derived* from the client one
+  (five seconds under it) rather than written down separately, so the server always gives up
+  first and the two cannot drift.
 - One query for `way["building"]`, building multipolygon relations and (optionally)
   highways of ten classes, straight against the drawn bbox.
-- `parseHeight`: `height` / `building:height` → `building:levels × 3` → the form fallback,
-  recording which one won as `HeightSource`.
+- `parseHeight`: `height` / `building:height` → `building:levels × tune.storeyHeight` (3 m by
+  default) → the form fallback, recording which one won as `HeightSource`.
 - Relations contribute their `outer` rings only (holes are dropped, matching the IGN path).
-- Roads: lane count → width (`lanes × 3.25`, min 3 m), buffered into flat quads.
-- `osmTrees` is a second round trip, capped at `TREE_CAP = 1500`, deriving crown radius from
-  `diameter_crown` and trunk radius from `circumference`.
+- Roads: lane count → width (`lanes × tune.laneWidth`, 3.25 m by default, min 3 m), buffered
+  into flat quads.
+- `osmTrees` is a second round trip, capped at `tune.treeCap` (1500), deriving crown radius
+  from `diameter_crown` and trunk radius from `circumference`.
 
 ### [ign.ts](lib/sources/ign.ts) — IGN Géoplateforme, France only (516 lines)
 No API key, CORS-open. Four WFS layers are declared in a table (`IGN_LAYERS`) with their
@@ -303,7 +445,8 @@ Hard-won details captured in the code:
 - WFS caps at 5000 features per call, so `wfs()` **pages** on `numberMatched` (dense Paris
   at 900 m matches 6423 buildings).
 - Buildings use the surveyed `hauteur` — the reason to prefer BD TOPO over OSM's
-  levels-times-three guess — falling back to `nombre_d_etages × 3`. The polygon Z is the
+  levels-times-storey-height guess — falling back to `nombre_d_etages × tune.storeyHeight`,
+  the same multiplier the OSM path uses rather than a second copy of it. The polygon Z is the
   *roof* outline, so the base comes from `altitude_minimale_sol`.
 - `rgeAltiGrid` is a drop-in replacement for the Terrarium grid: same `{verts, faces,
   sample}` shape, sized to the site (N ≤ 69, so ≤ 4900 points per POST). The service rejects
@@ -337,12 +480,38 @@ A five-result search. Explicitly a convenience — the caller reports failure an
 
 | File | Contents |
 | --- | --- |
-| [crs.ts](lib/geo/crs.ts) | Four proj4 definitions (Lambert-93, British National Grid, ETRS89/UTM32N, RD New) plus an `auto` mode deriving the UTM zone from the site centre. Each carries its datum and vertical datum for the IFC header. |
-| [rect.ts](lib/geo/rect.ts) | Site-rectangle arithmetic in degrees, free of any Leaflet import (`boundsOf` takes `{lat,lng}` structurally). Sides are clamped to 100–2000 m — past 2000 m Overpass and the IGN WFS start refusing. Clamping keeps whichever edge the user is *not* moving fixed, so hitting the limit does not drag the opposite corner. |
+| [crs.ts](lib/geo/crs.ts) | Four hand-written proj4 definitions (Lambert-93, British National Grid, ETRS89/UTM32N, RD New), an `auto` mode deriving the UTM zone from the site centre, and `resolveCRS` — which consults those four first and otherwise reads the generated index. Curated-first is not sentiment: EPSG publishes 27700 with an NTv2 grid file proj4js cannot load, so the `+towgs84` form here is the only usable British National Grid. No vertical datum: a projected CRS is 2D and the one that matters belongs to the DEM. |
+| [epsg.ts](lib/geo/epsg.ts) | The location-aware index. `containsPoint` (two-branch longitude test — areas of use cross the antimeridian), `areaOf`, `candidatesAt` (smallest containing area first, coarse datum ties demoted, later realization winning a tie) and `bestAt`, which prefers a curated national grid over the registry's own more-local answers — EPSG publishes the HS2 and MML07 railway grids over London, all tighter than 27700 and none of them what anyone means. |
+| [rect.ts](lib/geo/rect.ts) | Site-rectangle arithmetic in degrees, free of any Leaflet import (`boundsOf` takes `{lat,lng}` structurally). Sides are clamped to 100 m–`tune.siteMax` (2000 m by default) — past that Overpass and the IGN WFS start refusing. Clamping keeps whichever edge the user is *not* moving fixed, so hitting the limit does not drag the opposite corner. The ceiling reaches the clamp as a defaulted argument, pushed down to `MapController.setSiteLimits` — it binds the next gesture, never a rectangle already drawn. |
 | [rings.ts](lib/geo/rings.ts) | Pure ring arithmetic, free of three.js so the IFC serialiser does not pull in a renderer. `dedupe`, `signedArea`, `ensureCCW` (IFC profiles need CCW outer curves — skip it and half the buildings render inverted), `clipToBox` (Sutherland–Hodgman against the site square: one BD TOPO forest polygon near Fontainebleau is 3539 vertices spanning 4 km), `densify` (split long edges so a drape has stations to follow the ground between — elevation is only ever looked up *at vertices*, so a 200 m road segment across a valley otherwise dives clean under the terrain), `ringCentre`. |
 | [grid.ts](lib/geo/grid.ts) | `gridSampler` — elevation lookup that interpolates the DEM lattice over the *same* two triangles the terrain mesh is drawn from, rather than bilinearly. A bilinear value sags below those triangles on a twisted cell, so anything placed with it sinks into the ground the user actually sees. Both providers return one. |
 | [mesh.ts](lib/geo/mesh.ts) | The parts that genuinely need three: `triangulate` (three's own earcut), `drape` (a clipped ring onto terrain, lifted by `dz` against z-fighting), `prismInto` (extrude into shared arrays for merged layers; the base comes from a per-*point* callback, not a number, so the underside can follow the terrain — point rather than index because the ring is reordered and deduplicated inside), `treeProxy` (a 6-sided trunk and canopy cone, ~24 triangles). |
 | [euler.ts](lib/geo/euler.ts) | `xfAxes` — an XYZ Euler as the local Z and X unit vectors `IfcAxis2Placement3D` wants, expanded in closed form from three's own `'XYZ'` branch so the serialiser stays renderer-free. Returns `null` when unrotated, which keeps unedited files small. |
+
+### The CRS index
+
+`npm run epsg` turns the `epsg-index` package into `public/epsg.json` — 3795 systems,
+1.2 MB, committed, fetched once when the first rectangle is drawn. There is no backend and
+epsg.io is not CORS-open, so a lookup service was never on the table; and because the file
+carries each definition's proj4 string next to its area of use, the same fetch answers both
+*what can I use here* and *how do I project into it*.
+
+The filtering is the substance. **Of 8112 EPSG entries, 3795 survive**, and each rule drops
+a class the browser cannot honour rather than passing the problem downstream — a bad CRS
+here does not fail, it converts silently and writes a wrong answer into a file whose entire
+job is to say where something is:
+
+| Dropped | Why |
+| --- | --- |
+| 1863 not projected | Geographic, geocentric, vertical and compound CRSs are not something to build a metric site model in. |
+| 980 not EPSG codes | The registry carries ESRI's numbering too (102400 "London Survey Grid"). Writing one as `EPSG:102400` would be a false citation. |
+| 944 not metres | The pipeline is metres throughout — the 100–2000 m clamp, `lanes × 3.25`, `IfcSIUnit`. EPSG:2263 (ftUS) would produce a model 3.28× wrong and no error anywhere. This also removes Web Mercator, whose "metres" are inflated by 1/cos(lat). |
+| 145 need an NTv2 grid | `+nadgrids=` names a binary file proj4js cannot load. Stripping it is worse than dropping it: OSGB36's shift is ~450 m in X, so the definition would convert cleanly and land a site in the next borough. |
+| 261 with no datum tie | No `+datum=`, no `+towgs84=`, and not on GRS80/WGS84 — proj4js applies no shift at all and treats WGS84 latitude/longitude as if it were already on Krassovsky or Clarke 1880. Worth 100–500 m. |
+| 66 failed the round trip | The generator projects each area-of-use centre and brings it back **through the same proj4 the app uses**. Whether a CRS works is settled at generation time, not mid-build. It proves nothing about datums — a stripped grid round-trips perfectly — which is what the two rules above are for. |
+
+Accuracy to expect: a `+towgs84` 7-parameter tie is good to 1–3 m, not the centimetres a
+grid file would give. That is what the tool already delivered for all four curated CRSs.
 
 ---
 
@@ -365,8 +534,10 @@ type Building = {
 
 **`ring` is relative to `center`**, so rotation and scale pivot on the building rather than
 on a site origin hundreds of metres away. `pushBuilding` ([push.ts](lib/scene/push.ts))
-enforces that, along with dedupe/CCW, and caps at `BUILDING_CAP = 4000` — past that the
-browser, not the services, is the bottleneck.
+enforces that, along with dedupe/CCW. The build path caps at `tune.buildingCap` — past a few
+thousand the browser, not the services, is the bottleneck. `BUILDING_CAP = 4000` remains the
+*ceiling* that tunable is clamped to and the viewer's draw tool still reads directly, which
+is safe precisely because a tunable can only ever sit at or under it.
 
 `Xf` ([xf.ts](lib/scene/xf.ts)) holds `pos`/`rot`/`scale`/`color`, where `color: null`
 means "use the source-derived default". Those defaults encode provenance quietly:
@@ -437,6 +608,14 @@ IfcProject ──IfcRelAggregates──> IfcSite ──IfcRelContainedInSpatialS
 That combination is **LoGeoRef 50** — the model sits at a local origin and the projected
 easting/northing of that origin travels in `IfcMapConversion`.
 
+`VerticalDatum` follows the **elevation source**, not the horizontal grid: NGF-IGN69 for
+RGE ALTI, EGM96 for Terrarium (the datum of its dominant source — the tiles are a mosaic,
+so read it as good to about a metre), and `$` when the build established no altimetry at
+all. A projected CRS is two-dimensional and names no vertical datum, so tying it to the
+grid would mean claiming Ordnance Datum Newlyn for heights that came out of an SRTM mosaic.
+This is `RefElevation`'s rule, one attribute along: with nothing to declare, declare
+nothing.
+
 Element mapping:
 
 | Scene item | IFC |
@@ -472,6 +651,15 @@ for React to render.
   from `?lang=` then `localStorage` in an effect (never in a state initialiser — this page
   is prerendered), exposes `t()`, locale-aware `n()` number formatting, the notes array,
   and `errorText()` which translates an `AppError`'s code and falls back to `e.message`.
+- [lib/theme/context.tsx](lib/theme/context.tsx) mirrors it for the theme: `ThemeProvider` /
+  `useTheme()`, key `ifcsite.theme`, resolved in an effect for the same prerender reason,
+  and it is the **single writer** of the `dark` class on `documentElement`. **Light is the
+  default**: with no stored override the app is light whatever the OS prefers, and dark is
+  something you opt into with the toggle. See also the no-flash script in
+  [app/layout.tsx](app/layout.tsx), which must resolve identically.
+- [lib/build/tunables.ts](lib/build/tunables.ts) is the third store, key `ifcsite.tunables`,
+  loaded and saved in `ifc-site.tsx` under the same in-an-effect rule. No pre-paint script
+  here: nothing a tunable changes is visible until a build runs.
 - **Nested interpolation**: a `{param}` whose value is itself a dictionary key is translated
   first. That is how `status.undone` takes an `edit.*` label, `status.fetchingIgnLayer`
   takes a `layer.*` name, and `status.terrainUnavailable` takes the `err.*` code that

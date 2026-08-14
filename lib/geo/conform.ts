@@ -1,3 +1,4 @@
+import { DEFAULT_TUNABLES } from '@/lib/build/tunables';
 import { MAX_GRID_N } from '@/lib/geo/grid';
 import { drape, triangulate } from '@/lib/geo/mesh';
 import { clipToConvex, dedupe, ensureCCW, signedArea } from '@/lib/geo/rings';
@@ -23,19 +24,17 @@ import type { Grid, SampleZ, ToGeo, Vec2, Vec3 } from '@/lib/types';
    offsets back in charge.
    ===================================================================== */
 
-/**
- * Block size in metres when the lattice is finer than a drape needs. The same
- * number as VEG_STEP, so the whole scene states how closely anything follows
- * the ground once: two stations to a 15 m IGN cell is already more than the
- * DEM knows, and past it the pieces cost entities, not fidelity.
- *
- * Roads used to pre-split their centrelines to this same number before
- * buffering. They no longer do — the cut below gives them stations off the
- * terrain's own lattice, which is strictly better than an arbitrary 8 m, and
- * the pre-split was feeding the boolean layer collinear quad pairs it throws
- * on. See pushRoadway in lib/scene/push.
- */
-const CONFORM_STEP = 8;
+/* Block size in metres when the lattice is finer than a drape needs is now
+   `tune.conformStep` — one number for the whole scene, which is what the old
+   CONFORM_STEP and VEG_STEP were already trying to be. Two stations to a 15 m
+   IGN cell is already more than the DEM knows, and past it the pieces cost
+   entities, not fidelity.
+
+   Roads used to pre-split their centrelines to the same number before
+   buffering. They no longer do — the cut below gives them stations off the
+   terrain's own lattice, which is strictly better than any fixed span, and the
+   pre-split was feeding the boolean layer collinear quad pairs it throws on.
+   See pushRoadway in lib/scene/push. */
 
 /** No ring may cut into more pieces than the densest terrain has cells. With
  *  the welding below that holds one ring to roughly one terrain mesh, which is
@@ -121,6 +120,7 @@ export function conformToTerrain(
   sampleZ: SampleZ,
   dz: number,
   ringHoles: Vec2[][] = [],
+  step: number = DEFAULT_TUNABLES.conformStep,
 ): { verts: Vec3[]; faces: number[][] } {
   const r = ensureCCW(dedupe(ring));
   // Wound against the outer, which is what triangulate and skirtInto both read
@@ -197,10 +197,10 @@ export function conformToTerrain(
   j1 = Math.min(hi, Math.ceil(j1) + PAD);
   if (i1 <= i0 || j1 <= j0) return flat();
 
-  // A lattice finer than CONFORM_STEP is subdivided in blocks rather than
-  // cells. Block corners are still draped through sampleZ and so still exact;
-  // only a block's interior approximates, by the margin CONFORM_STEP sets.
-  let stride = Math.max(1, Math.round(CONFORM_STEP / Math.max(frame.cell, 1e-6)));
+  // A lattice finer than `step` is subdivided in blocks rather than cells.
+  // Block corners are still draped through sampleZ and so still exact; only a
+  // block's interior approximates, by the margin `step` sets.
+  let stride = Math.max(1, Math.round(step / Math.max(frame.cell, 1e-6)));
   const blocks = (): number =>
     Math.ceil((i1 - i0) / stride) * Math.ceil((j1 - j0) / stride);
   while (blocks() > MAX_BLOCKS) stride++;

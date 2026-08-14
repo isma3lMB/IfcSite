@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ColourField } from '@/components/colour-field';
+import { IconEye, IconEyeOff } from '@/components/icons';
 import { useT } from '@/lib/i18n/context';
 import type { StringKey } from '@/lib/i18n/context';
 import type { LayerId } from '@/lib/types';
@@ -80,6 +81,7 @@ export type ModelTreeProps = {
   onSelectLayer: (id: LayerId) => void;
   onSelectItem: (id: string) => void;
   onLayerColor: (id: LayerId, hex: number, commit: boolean) => void;
+  onLayerVisible: (id: LayerId, on: boolean) => void;
   onClose: () => void;
 };
 
@@ -184,7 +186,7 @@ export function ModelTree(p: ModelTreeProps) {
           return (
             <div className="treeNode" key={n.id} role="treeitem" aria-expanded={isOpen}>
               <div
-                className={`treeRow${selected ? ' on' : ''}`}
+                className={`treeRow${selected ? ' on' : ''}${n.visible ? '' : ' off'}`}
                 title={expandable ? undefined : t('tree.merged')}
               >
                 <button
@@ -204,6 +206,19 @@ export function ModelTree(p: ModelTreeProps) {
                   }
                 >
                   {expandable ? (isOpen ? '▾' : '▸') : '·'}
+                </button>
+
+                <button
+                  type="button"
+                  className="treeEye"
+                  title={n.visible ? t('tree.hide', { layer: label }) : t('tree.show', { layer: label })}
+                  aria-label={
+                    n.visible ? t('tree.hide', { layer: label }) : t('tree.show', { layer: label })
+                  }
+                  aria-pressed={n.visible}
+                  onClick={() => p.onLayerVisible(n.id, !n.visible)}
+                >
+                  {n.visible ? <IconEye /> : <IconEyeOff />}
                 </button>
 
                 <button

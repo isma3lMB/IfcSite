@@ -28,6 +28,9 @@ export const fr: Dict = {
   'ui.options': 'Options',
   'ui.originMarker': 'Afficher l’origine du modèle',
   'ui.projection': 'Vue orthographique',
+  'ui.themeDark': 'Passer au thème sombre',
+  'ui.themeLight': 'Passer au thème clair',
+  'ui.dismiss': 'Masquer',
 
   /* ---- barre d’outils : uniquement des icônes, donc chacun de ces libellés
      est tout ce que l’outil obtient — infobulle et aria-label à la fois. ---- */
@@ -60,6 +63,12 @@ export const fr: Dict = {
   'ctl.zoomSite': 'Zoomer sur le site',
   'ctl.crs': 'SCR projeté',
   'ctl.crsAuto': 'UTM / WGS84 automatique',
+  'ctl.crsNeedsSite': 'Tracez d’abord un site — la liste dépend de son emplacement.',
+  'ctl.crsSearch': 'Code EPSG ou nom…',
+  'ctl.crsLoading': 'Chargement de l’index des SCR…',
+  'ctl.crsError': 'Index des SCR indisponible — l’UTM automatique reste utilisable.',
+  'ctl.crsNone': 'Aucun résultat.',
+  'ctl.crsValidHere': '{n} valables sur ce site',
   'ctl.defaultHeight': 'Hauteur si non renseignée',
   'ctl.dataSource': 'Source de données',
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — monde entier',
@@ -83,6 +92,40 @@ export const fr: Dict = {
   'ctl.veg': 'Végétation et haies',
   'ctl.water': 'Surfaces en eau',
   'ctl.parcels': 'Parcelles cadastrales',
+
+  /* ---- avancé ---- */
+  'ctl.advanced': 'Avancé',
+  'ctl.advancedHint':
+    'Limites du pipeline. Les valeurs par défaut conviennent à presque tous les sites ; en modifier une change ce que la prochaine construction récupère.',
+  'ctl.advShow': 'Afficher les réglages avancés',
+  'ctl.advHide': 'Masquer les réglages avancés',
+  'ctl.advReset': 'Rétablir les valeurs par défaut',
+  'ctl.advFetch': 'Limites de récupération',
+  'ctl.advBuildingCap': 'Plafond de bâtiments',
+  'ctl.advBuildingCapHint':
+    'Les emprises au-delà sont abandonnées, pas fusionnées. Passé quelques milliers, c’est le navigateur qui limite, pas le service.',
+  'ctl.advTreeCap': 'Plafond d’arbres',
+  'ctl.advSiteMax': 'Côté maximal du site',
+  'ctl.advSiteMaxHint':
+    'S’applique au prochain rectangle tracé. Overpass et le WFS IGN commencent à refuser au-delà de 2000 m.',
+  'ctl.advTimeout': 'Délai d’attente Overpass',
+  'ctl.advTimeoutHint':
+    'Par miroir, sur trois. Le budget côté serveur suit cinq secondes en dessous.',
+  'ctl.advTerrainSec': 'Terrain',
+  'ctl.advGridMax': 'Plafond de la grille',
+  'ctl.advGridCells': '{n}×{n}',
+  'ctl.advGridMaxHint':
+    'Le maillage le plus dense qu’un fournisseur puisse produire. Chaque sommet est un point de plus dans le fichier exporté.',
+  'ctl.advConformStep': 'Pas de drapage',
+  'ctl.advConformStepHint':
+    'À quel point la voirie et les surfaces suivent le sol entre les points du terrain. Plus fin, plus juste, plus lourd.',
+  'ctl.advGeometry': 'Valeurs géométriques par défaut',
+  'ctl.advStoreyHeight': 'Hauteur d’étage',
+  'ctl.advStoreyHeightHint':
+    'Utilisée lorsqu’un bâtiment indique son nombre de niveaux mais pas sa hauteur.',
+  'ctl.advLaneWidth': 'Largeur d’une voie',
+  'ctl.advTrackWidth': 'Largeur d’une voie ferrée',
+
   'ctl.build': 'Construire la maquette',
   'ctl.building': 'Construction…',
   'ctl.download': 'Télécharger l’IFC',
@@ -148,6 +191,8 @@ export const fr: Dict = {
   'tree.noMatch': 'Aucun résultat.',
   'tree.expand': 'Déplier : {layer}',
   'tree.collapse': 'Replier : {layer}',
+  'tree.hide': 'Masquer : {layer}',
+  'tree.show': 'Afficher : {layer}',
   'tree.colourOf': 'Couleur : {layer}',
   'tree.merged': 'Un seul élément fusionné — recolorez-le ou déplacez-le depuis le calque ci-dessus.',
 
@@ -246,6 +291,9 @@ export const fr: Dict = {
   'err.noBuildingsOsm':
     'Aucun bâtiment cartographié dans ce rectangle. Tracez-en un plus grand, ou choisissez un secteur plus dense.',
   'err.noSite': 'Tracez d’abord un rectangle de site sur la carte.',
+  'err.crsUnknown': '{epsg} ne figure pas dans l’index des SCR.',
+  'err.crsIndexUnavailable':
+    'L’index des SCR n’a pas pu être chargé. Choisissez la zone UTM automatique, ou rechargez la page.',
 
   /* ---- notes ---- */
   notes: [
@@ -263,7 +311,7 @@ export const fr: Dict = {
     },
     {
       title: 'Tracer le site.',
-      body: 'Le rectangle que vous posez sur le fond OpenStreetMap — deux clics de coin, ou un glisser — constitue toute la définition du site. Rien n’est sélectionné tant que vous ne l’avez pas tracé : ses limites partent vers Overpass et le WFS de l’IGN comme bbox, dimensionnent la grille de terrain et découpent tout polygone qui franchit le bord. C’est un rectangle WGS84 : dans un SCR projeté il est donc très légèrement pivoté par la convergence des méridiens ; la boîte de découpe locale est prise sur le coin le plus extérieur, afin que rien de ce que vous avez tracé ne soit rogné. Les côtés sont maintenus entre 100 m et 2000 m — au-delà, Overpass et le WFS commencent à refuser. Les tuiles du fond de plan et la recherche de lieu proviennent d’OpenStreetMap et de Nominatim ; ce sont des services gratuits, gardez donc les requêtes légères.',
+      body: 'Le rectangle que vous posez sur le fond OpenStreetMap — deux clics de coin, ou un glisser — constitue toute la définition du site. Rien n’est sélectionné tant que vous ne l’avez pas tracé : ses limites partent vers Overpass et le WFS de l’IGN comme bbox, dimensionnent la grille de terrain et découpent tout polygone qui franchit le bord. C’est un rectangle WGS84 : dans un SCR projeté il est donc très légèrement pivoté par la convergence des méridiens ; la boîte de découpe locale est prise sur le coin le plus extérieur, afin que rien de ce que vous avez tracé ne soit rogné. Les côtés sont maintenus par défaut entre 100 m et 2000 m — au-delà, Overpass et le WFS commencent à refuser, et c’est dans Avancé que vous décidez à quelle distance de cette limite naviguer. Les tuiles du fond de plan et la recherche de lieu proviennent d’OpenStreetMap et de Nominatim ; ce sont des services gratuits, gardez donc les requêtes légères.',
     },
     {
       title: 'Deux fournisseurs.',

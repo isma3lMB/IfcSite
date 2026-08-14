@@ -46,16 +46,26 @@ const LANGS: { lang: Lang; Flag: typeof FlagFR; name: string }[] = [
 /* The shadcn defaults are overridden through className rather than from
    globals.css, because those defaults are Tailwind utilities and would outrank
    a plain component-layer rule. cn() is tailwind-merge, so passing the same
-   utility group here drops the default instead of stacking on it. */
-const TRIGGER =
-  'langTrigger rounded-full border-ink bg-white pr-2 pl-2.5 text-[11px] font-mono tracking-[0.04em] uppercase ' +
-  'transition-colors hover:bg-ink hover:text-yellow data-[popup-open]:bg-ink data-[popup-open]:text-yellow';
+   utility group here drops the default instead of stacking on it.
 
-const MENU = 'langMenu w-auto min-w-[152px] border border-ink bg-white p-0 ring-0 shadow-[0_3px_14px_rgba(15,17,18,0.22)]';
+   The colours are written as arbitrary values off the same custom properties the
+   component layer uses, not as `bg-white` plus a `dark:` variant — the theme
+   flip lives in one html.dark block in globals.css, and a second source of truth
+   here is how the two drift apart. text-on-ink/on-yellow are the pairing tokens:
+   --color-ink inverts, so a fixed `text-yellow` on it would be yellow on white
+   in the dark theme. */
+const TRIGGER =
+  'langTrigger rounded-full border-ink bg-[var(--color-surface-solid)] pr-2 pl-2.5 text-[11px] font-mono tracking-[0.04em] uppercase ' +
+  'transition-colors hover:bg-ink hover:text-[var(--color-on-ink)] ' +
+  'data-[popup-open]:bg-ink data-[popup-open]:text-[var(--color-on-ink)]';
+
+const MENU =
+  'langMenu w-auto min-w-[152px] border border-ink bg-[var(--color-surface-solid)] p-0 ring-0 ' +
+  'shadow-[0_3px_14px_var(--color-shadow-soft)]';
 
 const ITEM =
   'langItem gap-2.5 py-2 pr-7 pl-2.5 text-xs font-mono cursor-pointer ' +
-  'hover:bg-yellow hover:text-ink focus:bg-yellow focus:text-ink';
+  'hover:bg-yellow hover:text-[var(--color-on-yellow)] focus:bg-yellow focus:text-[var(--color-on-yellow)]';
 
 export function LangToggle() {
   const { lang, setLang, t } = useT();

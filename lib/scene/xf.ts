@@ -31,6 +31,18 @@ export function sameXf(a: Xf, b: Xf): boolean {
   );
 }
 
+/** Absolute model z of a building's roof — the top of the prism applyXf and
+ *  buildingGeometry produce together, transform included.
+ *
+ *  `baseZ || 0` rather than `baseZ` to match applyXf, readMeshInto and the IFC
+ *  writer: they all collapse a null-ish base to the datum, and a roof computed
+ *  on different terms than the mesh it describes would sit off it.
+ *
+ *  Exact under the Z-rotations the gizmo makes, which keep the cap horizontal.
+ *  A building tipped about X or Y has no single roof elevation to give. */
+export const roofZ = (b: Building): number =>
+  (b.baseZ || 0) + b.xf.pos[2] + b.h * b.xf.scale[2];
+
 /** off-white = sourced massing, blue = drawn here. Height source no longer tints
  *  the massing: tagged and estimated buildings read as one material, and the
  *  estimated count stays legible in the status line instead.

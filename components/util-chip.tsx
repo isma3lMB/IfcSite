@@ -1,9 +1,10 @@
 'use client';
 
 import type { RefObject } from 'react';
-import { IconCompass, IconOrigin, IconProjection } from '@/components/icons';
+import { IconCompass, IconMoon, IconOrigin, IconProjection, IconSun } from '@/components/icons';
 import { LangToggle } from '@/components/lang-toggle';
 import { useT } from '@/lib/i18n/context';
+import { useTheme } from '@/lib/theme/context';
 import type { ViewTab } from '@/lib/types';
 
 export type UtilChipProps = {
@@ -27,7 +28,9 @@ export type UtilChipProps = {
  */
 export function UtilChip(p: UtilChipProps) {
   const { t } = useT();
+  const { theme, toggle } = useTheme();
   const isMap = p.view === 'map';
+  const dark = theme === 'dark';
 
   return (
     <div className="utilChip floating">
@@ -71,6 +74,20 @@ export function UtilChip(p: UtilChipProps) {
           </button>
         </>
       )}
+
+      {/* Outside the !isMap block above: the theme is the whole window, not the
+          3D scene, so it is as available over the map as over the stage. It
+          carries no `on` state — the icon is the state, and it shows the theme
+          the press would move to rather than the one in force. */}
+      <button
+        type="button"
+        className="iconBtn"
+        title={t(dark ? 'ui.themeLight' : 'ui.themeDark')}
+        aria-label={t(dark ? 'ui.themeLight' : 'ui.themeDark')}
+        onClick={toggle}
+      >
+        {dark ? <IconSun /> : <IconMoon />}
+      </button>
 
       <button
         type="button"

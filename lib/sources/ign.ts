@@ -1,10 +1,11 @@
+import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import type { SplitPolygon } from '@/lib/geo/boolean';
 import { conformToTerrain } from '@/lib/geo/conform';
-import { MAX_GRID_N, gridSampler, gridSize } from '@/lib/geo/grid';
+import { gridSampler, gridSize } from '@/lib/geo/grid';
 import { prismInto, skirtInto } from '@/lib/geo/mesh';
 import { clipToBox, dedupe, densify } from '@/lib/geo/rings';
-import { BUILDING_CAP, pushBuilding, pushRoadway } from '@/lib/scene/push';
+import { pushBuilding, pushRoadway } from '@/lib/scene/push';
 import { LAYER_DZ, SURFACE_COLOR, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
@@ -109,9 +110,10 @@ export const LAYER_IFC_NAME: Record<ThemeKey, string> = {
   parcel: 'parcels',
 };
 
-/** Vegetation rings are clipped to the site but still carry edges hundreds of
- * metres long; the drape needs stations to follow the ground between them. */
-const VEG_STEP = 8;
+/* Vegetation rings are clipped to the site but still carry edges hundreds of
+   metres long; the drape needs stations to follow the ground between them. That
+   spacing is `tune.conformStep` — the same number the conform itself uses, which
+   is what the old VEG_STEP was already set to by hand. */
 
 // Every IGN request shares the drawn rectangle with the terrain grid, so
 // surfaces and ground always cover the same extent.
@@ -254,9 +256,10 @@ export async function rgeAltiGrid(
   toLocal: ToLocal,
   cell: number,
   onStatus: StatusFn,
+  tune: Tunables,
 ): Promise<Grid> {
   const span = 2 * Math.max(site.halfX, site.halfY);
-  const N = gridSize(span, cell, MAX_GRID_N);
+  const N = gridSize(span, cell, tune.maxGridN);
   const box = site;
   const lats: string[] = [];
   const lons: string[] = [];
@@ -270,8 +273,10 @@ export async function rgeAltiGrid(
       ll.push([la, lo]);
     }
   const chunks = Math.ceil(ll.length / ALTI_MAX);
-  // gridSize already clamps to ALTI_MAX_N, so this is a guard on the constants
-  // agreeing with each other rather than on anything a caller can trigger.
+  // gridSize clamps to tune.maxGridN, whose own ceiling — MAX_GRID_N, pinned in
+  // TUNE_RANGE — is the largest N these two constants can pay for. So this stays
+  // a guard on the constants agreeing with each other rather than on anything a
+  // caller, or the options panel, can trigger.
   if (chunks > ALTI_MAX_CHUNKS) throw new AppError('err.altiGridTooLarge');
 
   const z: unknown[] = [];
@@ -328,9 +333,6 @@ export async function rgeAltiGrid(
  * is the roof outline, not the ground, so the base comes from
  * altitude_minimale_sol instead (min_sol + hauteur == max polygon Z).
  */
-/** Metres of ribbon width added per parallel track, absent a usable numeric width. */
-const RAIL_TRACK_WIDTH = 3.5;
-
 export async function parseIGN(
   scene: SceneData,
   site: Site,
@@ -342,6 +344,7 @@ export async function parseIGN(
   wantRoads: boolean,
   wantRailways: boolean,
   onStatus: StatusFn,
+  tune: Tunables,
 ): Promise<{
   tagged: number;
   over: boolean;
@@ -375,7 +378,7 @@ export async function parseIGN(
     );
 
     for (const f of bat) {
-      if (scene.buildings.length >= BUILDING_CAP) {
+      if (scene.buildings.length >= tune.buildingCap) {
         over = true;
         break;
       }
@@ -383,7 +386,7 @@ export async function parseIGN(
       let h = Number(p.hauteur);
       let src: HeightSource = 'ign:hauteur';
       if (!(h > 0)) {
-        h = Number(p.nombre_d_etages) * 3;
+        h = Number(p.nombre_d_etages) * tune.storeyHeight;
         src = 'ign:etages';
       }
       if (!(h > 0)) {
@@ -446,7 +449,7 @@ export async function parseIGN(
     for (const f of rt) {
       const p = f.properties || {};
       const w = Math.max(
-        Number(p.largeur_de_chaussee) || (Number(p.nombre_de_voies) || 2) * 3.25,
+        Number(p.largeur_de_chaussee) || (Number(p.nombre_de_voies) || 2) * tune.laneWidth,
         3,
       );
       for (const r of geoRings(f.geometry)) {
@@ -474,7 +477,10 @@ export async function parseIGN(
       const p = f.properties || {};
       // `largeur` on this layer is a categorical string, not a metre value —
       // size from track count instead, same as roads size from lane count.
-      const w = Math.max((Number(p.nombre_de_voies) || 1) * RAIL_TRACK_WIDTH, RAIL_TRACK_WIDTH);
+      const w = Math.max(
+        (Number(p.nombre_de_voies) || 1) * tune.railTrackWidth,
+        tune.railTrackWidth,
+      );
       for (const r of geoRings(f.geometry)) {
         pushRoadway(railwayRibbons, r.map((c): Vec2 => toLocal(c[0], c[1])), w, site);
       }
@@ -498,6 +504,7 @@ export async function fetchThemeLayer(
   toGeo: ToGeo,
   sampleZ: SampleZ,
   layerName: string,
+  tune: Tunables,
 ): Promise<number> {
   const L = IGN_LAYERS[key];
   const hx = site.halfX;
@@ -543,7 +550,7 @@ export async function fetchThemeLayer(
         // for its four corner samples to track the ground.
         const w = Math.max(Number(p.largeur) || 1.5, 0.8);
         const h = Math.max(Number(p.hauteur) || 3, 0.5);
-        ring = densify(ring, VEG_STEP);
+        ring = densify(ring, tune.conformStep);
         for (let i = 0; i < ring.length - 1; i++) {
           const [x1, y1] = ring[i];
           const [x2, y2] = ring[i + 1];
@@ -580,7 +587,15 @@ export async function fetchThemeLayer(
       // triangles stretched between its boundary elevations — a tilted plane
       // through the hillside and through every layer above it. Conforming is
       // what makes the centimetre offsets in lib/scene/stack decide the order.
-      const { verts, faces } = conformToTerrain(ring, scene.terrain, toGeo, sampleZ, L.dz!);
+      const { verts, faces } = conformToTerrain(
+        ring,
+        scene.terrain,
+        toGeo,
+        sampleZ,
+        L.dz!,
+        [],
+        tune.conformStep,
+      );
       if (!faces.length) continue;
       // Close the drape into a solid that reaches under the terrain, so the
       // layer is a grounded slab rather than a skin hovering over the ground

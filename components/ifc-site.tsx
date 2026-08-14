@@ -8,18 +8,32 @@ import { type AxisKey, ElementEditor } from '@/components/element-editor';
 import { InfoOverlay } from '@/components/info-overlay';
 import { ModelTree } from '@/components/model-tree';
 import { SearchFlyout } from '@/components/search-flyout';
+import { SiteReadout } from '@/components/site-readout';
 import { Stage } from '@/components/stage';
 import { StatusBar } from '@/components/status-bar';
 import type { StatusState } from '@/components/status-line';
+import { StatusToast } from '@/components/status-toast';
 import { ToolRail } from '@/components/tool-rail';
 import { UtilChip } from '@/components/util-chip';
 import { IfcEmitter } from '@/lib/build/emitter';
 import { runBuild } from '@/lib/build/run';
+import {
+  DEFAULT_TUNABLES,
+  SCENE_TUNABLES,
+  type Tunables,
+  loadTunables,
+  saveTunables,
+} from '@/lib/build/tunables';
+import { EPSG_CHOICES } from '@/lib/geo/crs';
+import { bestAt, loadEpsgIndex } from '@/lib/geo/epsg';
+import { rectCentre } from '@/lib/geo/rect';
 import { useT } from '@/lib/i18n/context';
 import { MOVABLE_LAYERS } from '@/lib/scene/layers';
+import { type Theme, useTheme } from '@/lib/theme/context';
 import type { Place } from '@/lib/sources/nominatim';
 import type {
   BuildOptions,
+  FormPatch,
   GizmoMode,
   IfcStats,
   LayerId,
@@ -61,10 +75,12 @@ const DEFAULT_FORM: BuildOptions = {
   veg: false,
   water: false,
   parcels: false,
+  tune: { ...DEFAULT_TUNABLES },
 };
 
 export function IfcSite() {
   const { t } = useT();
+  const { theme } = useTheme();
 
   /* ---- imperative state, deliberately outside React ------------------
      The scene is thousands of buildings with their rings; the viewer mutates
@@ -75,6 +91,13 @@ export function IfcSite() {
   const compassRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const mapRef = useRef<MapController | null>(null);
+  /** So the map, which arrives asynchronously, can read the theme on arrival. */
+  const themeRef = useRef<Theme>('light');
+  /** And the site-size ceiling, for the same reason. */
+  const siteMaxRef = useRef(DEFAULT_TUNABLES.siteMax);
+  /** Guards the save effect below so mounting with the defaults does not write
+   *  them over what is already stored, a beat before the load effect reads it. */
+  const tuneHydrated = useRef(false);
   // The emitter holds the live scene; the viewer mutates that same object in
   // place during an edit, which is how a gizmo drag reaches the download.
   const emitterRef = useRef<IfcEmitter | null>(null);
@@ -158,6 +181,10 @@ export function IfcSite() {
   /** The rectangle moved since the last build, so the scene on screen — and the
       IFC behind Download — no longer describes it. */
   const [siteDirty, setSiteDirty] = useState(false);
+  /** Whether the CRS was chosen by hand. Until it is, each new rectangle picks
+      the best system for where it landed; after it is, the choice is the user's
+      and a rectangle nudged fifty metres must not overrule it. */
+  const epsgPickedRef = useRef(false);
 
   /* ---- viewer ---------------------------------------------------------- */
   useEffect(() => {
@@ -213,6 +240,14 @@ export function IfcSite() {
     }).then((m) => {
       if (disposed) return m.dispose();
       mapRef.current = m;
+      // Leaflet is imported dynamically, so this lands some frames after the
+      // theme was resolved and the effect below has already run against a null
+      // ref. Read the theme off the ref rather than closing over it: this effect
+      // is mount-only, and a captured value would be the boot default for ever.
+      m.setTheme(themeRef.current);
+      // Same handoff for the site-size ceiling, which is restored from storage
+      // in an effect that has already run by the time Leaflet lands.
+      m.setSiteLimits(siteMaxRef.current);
       // Drawing is the first thing anyone does here, so it is live on arrival
       // rather than waiting behind a button. Pan is one click (or Esc) away.
       m.arm();
@@ -235,6 +270,45 @@ export function IfcSite() {
   useEffect(() => {
     viewerRef.current?.setRightInset(selection && window.innerWidth > 860 ? 308 : 12);
   }, [selection]);
+
+  /* ---- theme ------------------------------------------------------------
+     Both viewers own a backdrop that CSS cannot reach — a shader dome and a tile
+     URL — so the class on <html> is not enough for either. Pushed down the same
+     way every other viewer command is, and idempotent at both ends: each setter
+     returns early when the theme has not moved, so the run on first mount costs
+     nothing. */
+  useEffect(() => {
+    themeRef.current = theme;
+    viewerRef.current?.setTheme(theme);
+    mapRef.current?.setTheme(theme);
+  }, [theme]);
+
+  /* ---- advanced settings ------------------------------------------------
+     Restored in an effect rather than in the useState initialiser above, for
+     the same reason ThemeProvider does it that way: this page is prerendered at
+     build time with no `window`, so reading storage during render would be a
+     hydration mismatch. Nothing here is visible until a build runs, so unlike
+     the theme there is no pre-paint script to keep in step. */
+  useEffect(() => {
+    setForm((f) => ({ ...f, tune: loadTunables() }));
+    tuneHydrated.current = true;
+  }, []);
+
+  /* Written from the value rather than from inside onFormChange: a slider drag
+     fires the reducer once per tick, and a synchronous storage write per tick is
+     waste. The ref suppresses the run on mount, which would otherwise put the
+     defaults over the stored blob the effect above is on its way to reading. */
+  useEffect(() => {
+    if (tuneHydrated.current) saveTunables(form.tune);
+  }, [form.tune]);
+
+  /* The map is imperative and outside React, and its clamp binds at drag time
+     rather than at build time — so this is the one tunable that does not travel
+     inside BuildOptions. */
+  useEffect(() => {
+    siteMaxRef.current = form.tune.siteMax;
+    mapRef.current?.setSiteLimits(form.tune.siteMax);
+  }, [form.tune.siteMax]);
 
   /* ---- footprint authoring ---------------------------------------------
      The viewer cannot translate, so the name a drawn building gets is pushed
@@ -359,6 +433,11 @@ export function IfcSite() {
   }, []);
 
   const onSelectLayer = useCallback((id: LayerId) => viewerRef.current?.selectLayer(id), []);
+
+  const onLayerVisible = useCallback(
+    (id: LayerId, on: boolean) => viewerRef.current?.setLayerVisible(id, on),
+    [],
+  );
 
   /* The swatch on a tree row edits the selection, so it selects first — which
      also puts the layer in the inspector beside it, where its offset is typed.
@@ -513,10 +592,62 @@ export function IfcSite() {
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
 
+  /* ---- CRS ------------------------------------------------------------- */
+  /**
+   * Follow the site until someone says otherwise.
+   *
+   * The old default was EPSG:2154 for everyone, so a rectangle drawn in Toronto
+   * projected through Lambert-93 unless its author noticed the dropdown. The
+   * rectangle knows where it is; this is it saying so.
+   *
+   * IGN is exempt because it is France-only and publishes in Lambert-93, which
+   * the provider switch below already sets.
+   */
+  useEffect(() => {
+    if (!rect || epsgPickedRef.current || form.provider === 'ign') return;
+    let live = true;
+    const { lat, lon } = rectCentre(rect);
+    loadEpsgIndex().then(
+      (list) => {
+        const best = bestAt(list, EPSG_CHOICES, lat, lon);
+        // Nothing to do if the index has no system for this point — mid-ocean,
+        // in practice — where the automatic UTM zone is already the answer.
+        if (live && best) setForm((f) => ({ ...f, epsg: String(best.c) }));
+      },
+      // A missing index is the field's to report, not something to interrupt a
+      // build over: whatever is selected still resolves.
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [rect, form.provider]);
+
   /* ---- form ------------------------------------------------------------ */
-  const onFormChange = useCallback((patch: Partial<BuildOptions>) => {
+  const onFormChange = useCallback((patch: FormPatch) => {
+    // A CRS in a patch came from the field, which only the user touches — the
+    // automatic pick above writes to setForm directly and deliberately does not
+    // come through here.
+    if (patch.epsg) epsgPickedRef.current = true;
+    // Reprojecting moves every coordinate in the file, so a scene built in the
+    // old system no longer describes what Download would write. Same warning
+    // the rectangle raises when it moves.
+    if (patch.epsg) setSiteDirty((d) => d || hasScene);
+    // A tunable is an input to runBuild exactly as the CRS is, so touching one
+    // means the scene on screen was built under rules the next build would not
+    // use. siteMax is the exception the set is there to name: it bounds the
+    // rectangle you may draw next and says nothing about a scene already built.
+    if (patch.tune && Object.keys(patch.tune).some((k) => SCENE_TUNABLES.has(k as keyof Tunables)))
+      setSiteDirty((d) => d || hasScene);
     setForm((f) => {
-      const next = { ...f, ...patch };
+      // `tune` is re-spread after the shallow merge: the panel sends one field
+      // at a time, so {...f, ...patch} alone would put a one-key object where
+      // the whole nested one was and lose the other eight.
+      const next: BuildOptions = {
+        ...f,
+        ...patch,
+        tune: patch.tune ? { ...f.tune, ...patch.tune } : f.tune,
+      };
       if (patch.provider && patch.provider !== f.provider) {
         if (patch.provider === 'ign') {
           next.epsg = '2154'; // Lambert-93 is the datum IGN publishes in
@@ -529,7 +660,7 @@ export function IfcSite() {
       }
       return next;
     });
-  }, []);
+  }, [hasScene]);
 
   /* ---- actions --------------------------------------------------------- */
   // Draw and Pan are the two halves of one toggle rather than one button that
@@ -628,8 +759,12 @@ export function IfcSite() {
     [uniform],
   );
 
+  /* The tab is on the root as a class as well as on the Stage: the two viewers
+     put different furniture at the foot of the window — the map draws Leaflet's
+     attribution along the very bottom — and the overlay has to know which one is
+     up to keep off it. */
   return (
-    <div className="app">
+    <div className={`app app--${view}`}>
       <Stage viewportRef={viewportRef} mapRef={mapHostRef} view={view} />
 
       {/* Everything below floats over the viewers on a grid, so the rail, the
@@ -692,7 +827,7 @@ export function IfcSite() {
             <ControlsPanel form={form} onChange={onFormChange} rect={rect} onClose={closeOptions} />
           )}
 
-          {searchOpen && (
+          {searchOpen && view !== '3d' && (
             <SearchFlyout
               inputRef={searchInputRef}
               onPickPlace={onPickPlace}
@@ -710,6 +845,7 @@ export function IfcSite() {
               onSelectLayer={onSelectLayer}
               onSelectItem={(id) => viewerRef.current?.select(id)}
               onLayerColor={onLayerColor}
+              onLayerVisible={onLayerVisible}
               onClose={closeTree}
             />
           )}
@@ -737,21 +873,37 @@ export function IfcSite() {
           onDeselect={() => viewerRef.current?.select(null)}
         />
 
-        <StatusBar
+        {/* What the status bar was, split by how long each part is true for:
+            the momentary sentence floats over the viewer and leaves, the
+            standing facts sit in the bottom-right corner, and the bar itself is
+            down to the actions. All three read the same state as before. */}
+        <StatusToast
           rect={rect}
           busy={busy}
           hasScene={hasScene}
           siteDirty={siteDirty}
           status={status}
-          buildings={buildings}
-          stats={stats}
-          originLabel={originLabel}
           drawTool={drawTool}
           drawPoints={drawPoints}
+        />
+
+        <StatusBar
+          rect={rect}
+          busy={busy}
+          hasScene={hasScene}
+          siteDirty={siteDirty}
+          drawTool={drawTool}
           drawHeight={drawHeight}
           onDrawHeight={setDrawHeight}
           onBuild={onBuild}
           onDownload={onDownload}
+        />
+
+        <SiteReadout
+          rect={rect}
+          buildings={buildings}
+          stats={stats}
+          originLabel={originLabel}
         />
       </div>
 

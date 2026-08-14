@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 
+export type SkyPalette = {
+  zenith: number;
+  mid: number;
+  horizon: number;
+  ground: number;
+  nadir: number;
+};
+
 /**
  * The sky palette — a near-white backdrop with only a faint cool cast at the
  * zenith, so the massing reads as a model on paper rather than as a scene under
@@ -8,14 +16,32 @@ import * as THREE from 'three';
  *
  * The gradient is deliberately shallow. It is here to keep the dome from being
  * a flat fill, not to be noticed.
+ *
+ * The dark palette is the same idea with the values turned over: the backdrop
+ * darkens toward the zenith and toward the nadir, and the horizon stays the
+ * lightest band so it still reads as a horizon. It is deliberately not black —
+ * a pure black dome would make the near-white terrain glare, and the shallow
+ * gradient is what tells you the camera is tilting.
  */
-export const SKY = {
-  zenith: 0xe6ebf0,
-  mid: 0xf1f4f6,
-  horizon: 0xf8f9fa,
-  ground: 0xfcfcfb,
-  nadir: 0xffffff,
-} as const;
+export const SKY_THEMES: Record<'light' | 'dark', SkyPalette> = {
+  light: {
+    zenith: 0xe6ebf0,
+    mid: 0xf1f4f6,
+    horizon: 0xf8f9fa,
+    ground: 0xfcfcfb,
+    nadir: 0xffffff,
+  },
+  dark: {
+    zenith: 0x0d1013,
+    mid: 0x14181c,
+    horizon: 0x1d2328,
+    ground: 0x15191d,
+    nadir: 0x0b0e10,
+  },
+};
+
+/** The light palette, kept under its old name for the modules that import it. */
+export const SKY = SKY_THEMES.light;
 
 const VERT = /* glsl */ `
   varying vec3 vWorldPosition;
@@ -74,4 +100,22 @@ export function createSkyDome(): THREE.Mesh {
   dome.frustumCulled = false;
   dome.renderOrder = -1;
   return dome;
+}
+
+/**
+ * Re-tint an existing dome in place.
+ *
+ * The uniforms are written rather than the material rebuilt: the dome is created
+ * once and parented to the camera, which is also what scales it into the
+ * frustum. Replacing it would mean redoing that, and a new ShaderMaterial would
+ * recompile the program for a colour change.
+ */
+export function applySky(dome: THREE.Mesh, palette: SkyPalette): void {
+  const mat = dome.material as THREE.ShaderMaterial;
+  const u = mat.uniforms;
+  (u.zenith.value as THREE.Color).setHex(palette.zenith);
+  (u.mid.value as THREE.Color).setHex(palette.mid);
+  (u.horizon.value as THREE.Color).setHex(palette.horizon);
+  (u.ground.value as THREE.Color).setHex(palette.ground);
+  (u.nadir.value as THREE.Color).setHex(palette.nadir);
 }

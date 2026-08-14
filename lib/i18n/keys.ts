@@ -54,7 +54,9 @@ export type ErrorCode =
   | 'err.ignOutsideFrance'
   | 'err.noBuildingsIgn'
   | 'err.noBuildingsOsm'
-  | 'err.noSite';
+  | 'err.noSite'
+  | 'err.crsUnknown'
+  | 'err.crsIndexUnavailable';
 
 /**
  * Layer names. These appear in progress lines ("Fetching IGN vegetation…"), in

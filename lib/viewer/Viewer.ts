@@ -26,10 +26,10 @@ import {
   TREE_CANOPY_COLOR,
   TREE_TRUNK_COLOR,
 } from '@/lib/scene/stack';
-import { MIN_SCALE, cloneXf, defaultColors, newXf, sameXf } from '@/lib/scene/xf';
+import { MIN_SCALE, cloneXf, defaultColors, newXf, roofZ, sameXf } from '@/lib/scene/xf';
 import { type FootprintDraft, createFootprintDraft } from '@/lib/viewer/footprintDraft';
 import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/originMarker';
-import { SKY, createSkyDome } from '@/lib/viewer/sky';
+import { SKY, SKY_THEMES, applySky, createSkyDome } from '@/lib/viewer/sky';
 import { type ViewAxis, type ViewTriad, axisEye, createViewTriad } from '@/lib/viewer/viewTriad';
 import type { EditLabelKey, Params, StatusKey } from '@/lib/i18n/keys';
 import {
@@ -138,6 +138,8 @@ export type LayerNode = {
   color: number;
   /** Whether the layer accepts an offset. See MOVABLE_LAYERS. */
   movable: boolean;
+  /** Whether the layer is on screen. View state only — see setLayerVisible. */
+  visible: boolean;
   /** Individually selectable leaves. Empty for the merged layers. */
   items: { id: string; name: string }[];
 };
@@ -145,6 +147,32 @@ export type LayerNode = {
 /** Which footprint tool the ground clicks are feeding, if any. 'tree' is a
  *  single click rather than a footprint — no drag, no ring. */
 export type DrawTool = 'rect' | 'polygon' | 'tree';
+
+/** The two backdrops. Named here rather than imported from lib/theme so nothing
+ *  under lib/viewer depends on a React context. */
+export type ViewerTheme = 'light' | 'dark';
+
+/**
+ * The lighting rig per backdrop.
+ *
+ * Both intensities are written as the irradiance actually wanted times π, for
+ * the reason set out at length where they are first applied — read the light
+ * ones as 0.85 fill and 0.3 sun.
+ *
+ * The dark set is not the light set turned down. The massing keeps its paper
+ * colours (they are the export palette, and the file must not change with the
+ * toggle), so dimming the fill would only make a grey model on a black card.
+ * What changes is the *ratio*: a much darker ground bounce, so undersides fall
+ * away from the lit roofs, and a slightly stronger, warmer key to hold the
+ * silhouette against the dark dome.
+ */
+const LIGHTS: Record<
+  ViewerTheme,
+  { sky: number; ground: number; fill: number; sun: number; key: number }
+> = {
+  light: { sky: 0xffffff, ground: 0xe0e2e4, fill: 0.85, sun: 0xffffff, key: 0.3 },
+  dark: { sky: 0xdfe6ec, ground: 0x272d33, fill: 0.72, sun: 0xfff4e2, key: 0.42 },
+};
 
 export type ViewerCallbacks = {
   onSelect: (sel: Selection | null) => void;
@@ -346,6 +374,9 @@ export class Viewer {
   private readonly controls: OrbitControls;
   private readonly contentGroup: THREE.Group;
   private readonly skyDome: THREE.Mesh;
+  private readonly hemi: THREE.HemisphereLight;
+  private readonly sun: THREE.DirectionalLight;
+  private theme: ViewerTheme = 'light';
   private readonly gizmo: TransformControls;
   private readonly resizeObserver: ResizeObserver;
   private readonly raycaster = new THREE.Raycaster();
@@ -375,10 +406,12 @@ export class Viewer {
   private readonly originOffset = new THREE.Vector3();
 
   /* ---- footprint authoring ----
-     The ground is whatever a new corner lands on: the terrain mesh when the
-     scene has one, so a drawn building follows a slope instead of floating over
-     it, and a flat plane at the datum otherwise. The plane's normal is +Z
-     because this scene is Z-up (see camera.up in the constructor). */
+     The ground is whatever a new corner lands on: a building's roof when one is
+     in front of the terrain, so a new massing can be laid on top of an existing
+     or previously drawn one; the terrain mesh next, so a drawn building follows
+     a slope instead of floating over it; and a flat plane at the datum
+     otherwise. The plane's normal is +Z because this scene is Z-up (see
+     camera.up in the constructor), and it doubles as the roof work plane. */
   private groundMesh: THREE.Mesh | null = null;
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   private readonly draft: FootprintDraft;
@@ -393,6 +426,21 @@ export class Viewer {
   private drawTreeSeq = 0;
   /** Where a rectangle drag started; null unless one is in progress. */
   private rectAnchor: THREE.Vector3 | null = null;
+  /**
+   * The elevation the live gesture is pinned to, once its first corner landed
+   * on a roof rather than on the ground; null while drawing on terrain.
+   *
+   * The start of the gesture decides, and every later corner is picked on a
+   * horizontal plane at that height. That is what lets a footprint overhang the
+   * roof it was started on instead of falling to the terrain the moment the
+   * cursor clears the edge, and it keeps all four corners at one base. On
+   * terrain it stays null so each corner keeps its own elevation and the base
+   * can go on being the lowest of them.
+   *
+   * Strictly paired with rectAnchor and drawPts: a stale value would silently
+   * pin the next gesture to a roof the user has moved on from.
+   */
+  private drawPlaneZ: number | null = null;
 
   private firstFrame = true;
   /** frameCamera's inputs, kept because a projection swap has to re-derive the
@@ -412,6 +460,10 @@ export class Viewer {
    * are unaffected by their meshes having gained a parent.
    */
   private readonly layerGroups = new Map<LayerId, THREE.Group>();
+  /** Layers hidden from view. Deliberately not in LayerXf: hiding is a way to
+   *  see through the model, not an edit — it stays out of the undo stack and
+   *  out of the file the emitter writes. */
+  private readonly hidden = new Set<LayerId>();
   /** The box drawn round the selected layer. Layers have no outline of their
    *  own to recolour the way a building does, and tinting their materials would
    *  fight the colour being edited. */
@@ -517,6 +569,9 @@ export class Viewer {
     const sun = new THREE.DirectionalLight(0xffffff, 0.3 * Math.PI);
     sun.position.set(180, -260, 520);
     this.sceneGL.add(sun);
+    // Held so setTheme can retune them. Both stay in the scene for its life.
+    this.hemi = hemi;
+    this.sun = sun;
 
     this.contentGroup = new THREE.Group();
     this.sceneGL.add(this.contentGroup);
@@ -1095,16 +1150,45 @@ export class Viewer {
         count,
         color: s.layers[id].color ?? defaultLayerColor(id),
         movable: MOVABLE_LAYERS.has(id),
+        visible: this.shown(id),
         items,
       };
     }).filter((n) => n.count > 0);
+  }
+
+  /** Whether a layer is on screen right now. */
+  private shown(id: LayerId): boolean {
+    return !this.hidden.has(id);
+  }
+
+  /** True when the current selection lives under the given layer — a building
+   *  or a tree under their fixed category, or the layer group itself. */
+  private selectionIn(id: LayerId): boolean {
+    const t = this.selected;
+    if (!t) return false;
+    if (t.kind === 'building') return id === 'buildings';
+    if (t.kind === 'tree') return id === 'trees';
+    return t.kind === 'layer' && t.id === id;
+  }
+
+  /** Show or hide a whole category. Purely a view toggle — kept off LayerXf so
+   *  it never enters the undo stack or the exported file. A hidden layer loses
+   *  its selection, the same reason setMarkerVisible drops one on the origin:
+   *  a gizmo has no business on something that is not on screen. */
+  setLayerVisible(id: LayerId, on: boolean): void {
+    if (on) this.hidden.delete(id);
+    else this.hidden.add(id);
+    const g = this.layerGroups.get(id);
+    if (g) g.visible = on;
+    if (!on && this.selectionIn(id)) this.selectTarget(null);
+    this.cb.onLayers();
   }
 
   /** Select a whole category. The tree's own affordance: layers are deliberately
    *  not raycast (see initPicking), or every click on the ground would take the
    *  selection off the building the user was aiming at. */
   selectLayer(id: LayerId | null): void {
-    if (id === null) return this.selectTarget(null);
+    if (id === null || this.hidden.has(id)) return this.selectTarget(null);
     const g = this.layerGroups.get(id);
     this.selectTarget(g ? { kind: 'layer', obj: g, id } : null);
   }
@@ -1118,6 +1202,9 @@ export class Viewer {
     this.treeMeshes = [];
     this.groundMesh = null;
     this.layerGroups.clear();
+    // A new scene starts fully visible: nothing carries over from a layer left
+    // hidden in the one it replaces.
+    this.hidden.clear();
     Viewer.disposeGroup(this.contentGroup);
     // A rebuild re-derives the site, so an offset measured against the old one
     // means nothing — the origin goes back to the centre with it.
@@ -1807,20 +1894,67 @@ export class Viewer {
   }
 
   /**
-   * Where a pointer meets the ground, in world metres.
+   * Where a pointer meets the surface a footprint would be laid on, in world
+   * metres, and whether that surface was a building.
    *
-   * The terrain mesh first, so a corner placed on a hillside carries that
-   * hillside's elevation and the drawn building sits on it; the datum plane
-   * otherwise, which is the whole ground of a flat scene. Null when the ray
-   * misses both — pointing at the sky.
+   * Buildings and the terrain are raycast separately and the nearer wins — the
+   * same arbitration the selection pick below makes between buildings and
+   * trees, and for the same reason: one combined list cannot express that the
+   * outline child of a building mesh is deliberately unpickable. The list is
+   * buildingMeshes, which holds fetched and hand-drawn buildings alike, so a
+   * massing can be stacked on something drawn a moment ago.
+   *
+   * A building hit reports its roof rather than the point actually struck, so
+   * clicking a *wall* resolves to the top of that wall. Accepting only up-facing
+   * faces instead would drop the pick through to whatever terrain stands behind
+   * the building, which reads as the cursor jumping to the horizon.
+   *
+   * Then the terrain mesh, so a corner placed on a hillside carries that
+   * hillside's elevation; then the datum plane, which is the whole ground of a
+   * flat scene. Null when the ray misses everything — pointing at the sky.
+   */
+  private pickSupport(e: PointerEvent | MouseEvent): { p: THREE.Vector3; roof: boolean } | null {
+    this.setRay(e);
+    const bHit = this.shown('buildings')
+      ? this.raycaster.intersectObjects(this.buildingMeshes, false)[0]
+      : undefined;
+    const gHit =
+      this.groundMesh && this.shown('terrain')
+        ? this.raycaster.intersectObject(this.groundMesh, false)[0]
+        : undefined;
+
+    if (bHit && (!gHit || bHit.distance < gHit.distance)) {
+      const b = (bHit.object as THREE.Mesh).userData.building as Building;
+      return { p: new THREE.Vector3(bHit.point.x, bHit.point.y, roofZ(b)), roof: true };
+    }
+    if (gHit) return { p: gHit.point.clone(), roof: false };
+
+    this.groundPlane.constant = -(this.scene?.datumZ ?? 0);
+    const p = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(this.groundPlane, p) ? { p, roof: false } : null;
+  }
+
+  /**
+   * Where a pointer meets the ground for every corner after the one that opened
+   * the gesture.
+   *
+   * Buildings are deliberately not hit-tested here — only the opening corner
+   * consults them, through pickSupport. A rectangle dragged from the terrain
+   * across a roof would otherwise have its live corner climb onto that roof and
+   * back off again, and the shape on screen would jump with it.
+   *
+   * So: the roof plane when the gesture was opened on one, which keeps the
+   * footprint flat and lets it run past the edge; the terrain otherwise, so a
+   * corner on a hillside still carries that hillside's elevation; the datum
+   * plane when the scene has no terrain. Null when the ray misses — sky.
    */
   private pickGround(e: PointerEvent | MouseEvent): THREE.Vector3 | null {
     this.setRay(e);
-    if (this.groundMesh) {
+    if (this.drawPlaneZ === null && this.groundMesh && this.shown('terrain')) {
       const hit = this.raycaster.intersectObject(this.groundMesh, false)[0];
       if (hit) return hit.point.clone();
     }
-    this.groundPlane.constant = -(this.scene?.datumZ ?? 0);
+    this.groundPlane.constant = -(this.drawPlaneZ ?? this.scene?.datumZ ?? 0);
     const p = new THREE.Vector3();
     return this.raycaster.ray.intersectPlane(this.groundPlane, p) ? p : null;
   }
@@ -1839,9 +1973,12 @@ export class Viewer {
       // A rectangle is one drag, so it takes the camera off the left button for
       // the duration — the same arbitration the gizmo makes in dragging-changed.
       if (this.drawTool === 'rect' && e.button === 0) {
-        const p = this.pickGround(e);
-        if (!p) return;
-        this.rectAnchor = p;
+        // The anchor is the corner that decides the surface: pickSupport rather
+        // than pickGround, and the work plane it locks holds for the whole drag.
+        const s = this.pickSupport(e);
+        if (!s) return;
+        this.rectAnchor = s.p;
+        this.drawPlaneZ = s.roof ? s.p.z : null;
         this.controls.enabled = false;
       }
     });
@@ -1849,7 +1986,8 @@ export class Viewer {
     dom.addEventListener('pointermove', (e) => {
       // Nothing to rubber-band from until a gesture is under way. Checked before
       // the pick, because that pick raycasts the terrain mesh and this fires on
-      // every move the pointer makes while a tool is armed.
+      // every move the pointer makes while a tool is armed. (On a roof it is
+      // only a plane intersection, so the guard matters least there.)
       const live = this.drawTool === 'rect' ? !!this.rectAnchor : this.drawPts.length > 0;
       if (!this.drawTool || !live) return;
       const p = this.pickGround(e);
@@ -1866,13 +2004,16 @@ export class Viewer {
         const anchor = this.rectAnchor;
         this.rectAnchor = null;
         this.controls.enabled = true;
-        if (!anchor || e.button !== 0) return;
+        if (!anchor || e.button !== 0) return this.clearDrawPlane();
         const p = this.pickGround(e);
         // A click rather than a drag: no rectangle was described, so this is a
         // miss, not an empty building.
         if (p && Math.hypot(e.clientX - downX, e.clientY - downY) > CLICK_PX)
           this.commitFootprint(Viewer.rectCorners(anchor, p));
-        else this.showDraft([], false);
+        else {
+          this.showDraft([], false);
+          this.clearDrawPlane();
+        }
         return;
       }
 
@@ -1881,8 +2022,13 @@ export class Viewer {
 
       if (this.drawTool === 'polygon') {
         if (e.button !== 0) return this.cancelDraw();
-        const p = this.pickGround(e);
+        // Same rule as the rectangle's anchor: the opening click chooses the
+        // surface, the rest of the ring is drawn on it.
+        const first = this.drawPts.length === 0;
+        const s = first ? this.pickSupport(e) : null;
+        const p = first ? (s?.p ?? null) : this.pickGround(e);
         if (!p) return;
+        if (s) this.drawPlaneZ = s.roof ? s.p.z : null;
         // Clicking the first corner closes the ring, which is the gesture every
         // map editor uses. Tested in screen space, so the target stays the same
         // size to aim at however far the camera is pulled back.
@@ -1896,7 +2042,10 @@ export class Viewer {
 
       if (this.drawTool === 'tree') {
         if (e.button !== 0) return this.cancelDraw();
-        const p = this.pickGround(e);
+        // One click is the whole gesture, so there is no plane to lock: the
+        // support pick is the answer, roof included — a tree can stand on a
+        // terrace as well as on the ground.
+        const p = this.pickSupport(e)?.p;
         if (p) this.commitTreePlacement(p);
         return;
       }
@@ -1911,8 +2060,16 @@ export class Viewer {
       // a tree is a Group whose trunk/canopy children are the actual geometry,
       // so it needs a recursive one. Comparing distances keeps the nearer
       // object winning regardless of which kind it is.
-      const bHit = this.raycaster.intersectObjects(this.buildingMeshes, false)[0];
-      const tHit = this.raycaster.intersectObjects(this.treeMeshes, true)[0];
+      // A hidden layer is not pickable: three does not consult .visible when
+      // raycasting (see the module note on setLayerVisible), so a hidden
+      // building or tree would otherwise still catch a click meant for
+      // whatever is now visible behind it.
+      const bHit = this.shown('buildings')
+        ? this.raycaster.intersectObjects(this.buildingMeshes, false)[0]
+        : undefined;
+      const tHit = this.shown('trees')
+        ? this.raycaster.intersectObjects(this.treeMeshes, true)[0]
+        : undefined;
       if (tHit && (!bHit || tHit.distance < bHit.distance))
         this.selectTarget(this.treeTarget(tHit.object.userData.treeRoot as THREE.Group));
       else this.selectTarget(this.buildingTarget(bHit?.object as THREE.Mesh | undefined));
@@ -1956,6 +2113,13 @@ export class Viewer {
     ];
   }
 
+  /** Release the roof work plane. Called wherever rectAnchor or drawPts are
+   *  cleared, never on its own: a plane that outlives its gesture pins the next
+   *  one to a roof the user has already left. */
+  private clearDrawPlane(): void {
+    this.drawPlaneZ = null;
+  }
+
   /** Draw the in-progress footprint, lifted clear of the ground so it is not
    *  swallowed by the surface it is being drawn on. */
   private showDraft(pts: THREE.Vector3[], closed: boolean): void {
@@ -1982,9 +2146,13 @@ export class Viewer {
       return this.selectTarget(
         this.originMarker.visible ? { kind: 'origin', obj: this.originMarker } : null,
       );
-    const mesh = this.buildingMeshes.find((m) => (m.userData.building as Building).id === id);
+    const mesh = this.shown('buildings')
+      ? this.buildingMeshes.find((m) => (m.userData.building as Building).id === id)
+      : undefined;
     if (mesh) return this.selectTarget(this.buildingTarget(mesh));
-    const group = this.treeMeshes.find((g) => (g.userData.tree as Tree).id === id);
+    const group = this.shown('trees')
+      ? this.treeMeshes.find((g) => (g.userData.tree as Tree).id === id)
+      : undefined;
     this.selectTarget(this.treeTarget(group));
   }
 
@@ -2471,11 +2639,41 @@ export class Viewer {
      swallowing the clicks meant for the ground beneath it.
      ------------------------------------------------------------------- */
 
+  /**
+   * Swap the backdrop the model is seen against.
+   *
+   * Three things move: the dome's uniforms, the clear colour behind it, and the
+   * lighting ratio. The scene's own colours deliberately do not — TERRAIN_COLOR
+   * and the rest of lib/scene/stack are the *export* palette, read by lib/ifc's
+   * writer as well as by this viewer, and re-tinting them here would make the
+   * downloaded file's colours depend on which theme happened to be on screen.
+   *
+   * The edge lines are left alone for a plainer reason: they are drawn over
+   * those same near-white surfaces in both themes, so a dark edge is still the
+   * readable one. Lightening them for the dark theme would erase them.
+   */
+  setTheme(theme: ViewerTheme): void {
+    if (theme === this.theme) return;
+    this.theme = theme;
+
+    const sky = SKY_THEMES[theme];
+    applySky(this.skyDome, sky);
+    (this.sceneGL.background as THREE.Color).setHex(sky.horizon);
+
+    const l = LIGHTS[theme];
+    this.hemi.color.setHex(l.sky);
+    this.hemi.groundColor.setHex(l.ground);
+    this.hemi.intensity = l.fill * Math.PI;
+    this.sun.color.setHex(l.sun);
+    this.sun.intensity = l.key * Math.PI;
+  }
+
   setDrawMode(tool: DrawTool | null): void {
     if (tool === this.drawTool) return;
     this.drawTool = tool;
     this.drawPts = [];
     this.rectAnchor = null;
+    this.clearDrawPlane();
     this.controls.enabled = true;
     this.draft.clear();
     if (tool) this.selectTarget(null);
@@ -2501,6 +2699,7 @@ export class Viewer {
     if (!this.drawTool) return;
     this.drawPts = [];
     this.rectAnchor = null;
+    this.clearDrawPlane();
     this.controls.enabled = true;
     this.draft.clear();
     this.cb.onDraw(this.drawTool, 0);
@@ -2529,13 +2728,15 @@ export class Viewer {
    * centroid — so a drawn footprint arrives under exactly the invariants the
    * gizmo, the undo stack and the IFC writer already assume of a fetched one.
    * The base sits at the lowest corner so that no part of the building floats
-   * over a slope.
+   * over a slope. On a roof that is the identity — drawPlaneZ has already held
+   * every corner at the same height — so this one rule covers both surfaces.
    */
   private commitFootprint(pts: THREE.Vector3[]): void {
     const s = this.scene;
     const tool = this.drawTool;
     this.drawPts = [];
     this.rectAnchor = null;
+    this.clearDrawPlane();
     this.draft.clear();
     if (tool) this.cb.onDraw(tool, 0);
     if (!s || pts.length < 3) return;

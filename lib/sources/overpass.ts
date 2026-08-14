@@ -1,6 +1,7 @@
+import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import type { SplitPolygon } from '@/lib/geo/boolean';
-import { BUILDING_CAP, pushBuilding, pushRoadway } from '@/lib/scene/push';
+import { pushBuilding, pushRoadway } from '@/lib/scene/push';
 import { LAYER_DZ } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
 import type {
@@ -28,11 +29,19 @@ const ROADS =
 // disused/abandoned track is not really "there" for a site context model.
 const RAILWAYS = 'rail|light_rail|tram|narrow_gauge|funicular|monorail';
 
-// [out:json][timeout:40] only binds the server's own work. A mirror that is
-// overloaded sits on the connection and 504s much later, so without a client
-// deadline three wedged mirrors can stall a build for minutes — twice over now
-// that trees are a second round trip.
-const OVERPASS_TIMEOUT = 45000;
+/**
+ * The query's own `[out:json][timeout:N]` only binds the server's own work. A
+ * mirror that is overloaded sits on the connection and 504s much later, so
+ * without a client deadline three wedged mirrors can stall a build for minutes —
+ * twice over now that trees are a second round trip.
+ *
+ * The two used to be written down separately (45 s here, 40 s in the query) and
+ * had to be edited together to stay coherent. Deriving one from the other makes
+ * that structural: the server is asked to give up first, by a margin, so a slow
+ * mirror answers "I could not" rather than being cut off mid-sentence.
+ */
+const serverSecs = (t: Tunables): number =>
+  Math.max(10, Math.round(t.overpassTimeoutMs / 1000) - 5);
 
 type OverpassGeom = { lat: number; lon: number };
 type OverpassElement = {
@@ -46,7 +55,7 @@ type OverpassElement = {
 };
 type OverpassResponse = { elements: OverpassElement[] };
 
-async function overpassQuery(q: string): Promise<OverpassResponse> {
+async function overpassQuery(q: string, tune: Tunables): Promise<OverpassResponse> {
   let lastErr: AppError | undefined;
   for (const url of ENDPOINTS) {
     const host = url.split('/')[2];
@@ -55,7 +64,7 @@ async function overpassQuery(q: string): Promise<OverpassResponse> {
         method: 'POST',
         body: 'data=' + encodeURIComponent(q),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        signal: AbortSignal.timeout(OVERPASS_TIMEOUT),
+        signal: AbortSignal.timeout(tune.overpassTimeoutMs),
       });
       if (!res.ok) throw new AppError('err.overpassStatus', { host, status: res.status });
       return (await res.json()) as OverpassResponse;
@@ -80,23 +89,32 @@ export async function overpass(
   wantBuildings: boolean,
   wantRoads: boolean,
   wantRailways: boolean,
+  tune: Tunables,
 ): Promise<OverpassResponse> {
   const bb = overpassBox(box);
-  return overpassQuery(`[out:json][timeout:40];(
+  return overpassQuery(
+    `[out:json][timeout:${serverSecs(tune)}];(
     ${wantBuildings ? `way["building"](${bb});` : ''}
     ${wantBuildings ? `relation["building"]["type"="multipolygon"](${bb});` : ''}
     ${wantRoads ? `way["highway"~"^(${ROADS})$"](${bb});` : ''}
     ${wantRailways ? `way["railway"~"^(${RAILWAYS})$"](${bb});` : ''}
-  );out geom;`);
+  );out geom;`,
+    tune,
+  );
 }
 
 // Individual trees are the one thing IGN has no national layer for — BD TOPO
-// stops at vegetation polygons — so this stays on OSM under both providers.
-export const TREE_CAP = 1500;
-
-export async function osmTrees(box: SiteRect, toLocal: ToLocal, sampleZ: SampleZ): Promise<Tree[]> {
+// stops at vegetation polygons — so this stays on OSM under both providers, and
+// tune.treeCap binds whichever one is selected.
+export async function osmTrees(
+  box: SiteRect,
+  toLocal: ToLocal,
+  sampleZ: SampleZ,
+  tune: Tunables,
+): Promise<Tree[]> {
   const data = await overpassQuery(
-    `[out:json][timeout:40];node["natural"="tree"](${overpassBox(box)});out geom;`,
+    `[out:json][timeout:${serverSecs(tune)}];node["natural"="tree"](${overpassBox(box)});out geom;`,
+    tune,
   );
   const out: Tree[] = [];
   for (const el of data.elements) {
@@ -127,7 +145,7 @@ export async function osmTrees(box: SiteRect, toLocal: ToLocal, sampleZ: SampleZ
       xf: newXf(),
       src: 'osm',
     });
-    if (out.length >= TREE_CAP) break;
+    if (out.length >= tune.treeCap) break;
   }
   return out;
 }
@@ -135,6 +153,7 @@ export async function osmTrees(box: SiteRect, toLocal: ToLocal, sampleZ: SampleZ
 export function parseHeight(
   tags: Record<string, string>,
   fallback: number,
+  storeyHeight: number,
 ): [number, HeightSource] {
   const h = tags.height || tags['building:height'];
   if (h) {
@@ -144,13 +163,10 @@ export function parseHeight(
   const l = tags['building:levels'];
   if (l) {
     const v = parseFloat(l);
-    if (v > 0) return [v * 3.0, 'tag:levels'];
+    if (v > 0) return [v * storeyHeight, 'tag:levels'];
   }
   return [fallback, 'fallback'];
 }
-
-/** Metres of ribbon width added per parallel track, absent an explicit `width`. */
-const RAIL_TRACK_WIDTH = 3.5;
 
 /** Returns how many buildings arrived with a real height tag. */
 export function parseOSM(
@@ -163,6 +179,7 @@ export function parseOSM(
   wantBuildings: boolean,
   wantRoads: boolean,
   wantRailways: boolean,
+  tune: Tunables,
 ): { tagged: number; roadRibbons: SplitPolygon[]; railwayRibbons: SplitPolygon[] } {
   let tagged = 0;
   if (wantBuildings) {
@@ -177,10 +194,10 @@ export function parseOSM(
       }
     }
     for (const [geom, tags, id] of rings) {
-      if (scene.buildings.length >= BUILDING_CAP) break;
+      if (scene.buildings.length >= tune.buildingCap) break;
       const ring = geom.map((p) => toLocal(p.lon, p.lat));
       if (ring.length < 4) continue;
-      const [h, src] = parseHeight(tags, fallbackH);
+      const [h, src] = parseHeight(tags, fallbackH, tune.storeyHeight);
       const props: PropBag = { osm_id: 'way/' + id, height_source: src, height_m: h };
       const ok = pushBuilding(
         scene,
@@ -202,7 +219,7 @@ export function parseOSM(
       if (el.type !== 'way' || !el.tags || !el.tags.highway || !el.geometry) continue;
       const lanes =
         parseFloat(el.tags.lanes) || (/motorway|trunk|primary/.test(el.tags.highway) ? 4 : 2);
-      const w = Math.max(parseFloat(el.tags.width) || lanes * 3.25, 3);
+      const w = Math.max(parseFloat(el.tags.width) || lanes * tune.laneWidth, 3);
       pushRoadway(roadRibbons, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
     }
   }
@@ -212,7 +229,10 @@ export function parseOSM(
     for (const el of data.elements) {
       if (el.type !== 'way' || !el.tags || !el.tags.railway || !el.geometry) continue;
       const tracks = parseFloat(el.tags.tracks) || 1;
-      const w = Math.max(parseFloat(el.tags.width) || tracks * RAIL_TRACK_WIDTH, RAIL_TRACK_WIDTH);
+      const w = Math.max(
+        parseFloat(el.tags.width) || tracks * tune.railTrackWidth,
+        tune.railTrackWidth,
+      );
       pushRoadway(railwayRibbons, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
     }
   }

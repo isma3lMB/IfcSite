@@ -1,3 +1,4 @@
+import { DEFAULT_TUNABLES } from '@/lib/build/tunables';
 import type { SiteRect } from '@/lib/types';
 
 /**
@@ -6,9 +7,15 @@ import type { SiteRect } from '@/lib/types';
  * Leaflet: `boundsOf` takes {lat,lng} structurally rather than an L.LatLng.
  */
 
-/** Metres per side. Past 2000 m Overpass and the IGN WFS start refusing. */
+/**
+ * Metres per side. Past 2000 m Overpass and the IGN WFS start refusing — which
+ * is why SITE_MAX is only the default ceiling now that the options panel can
+ * raise it: the services are the real limit, and how close to it you want to
+ * sail is a judgement the panel hands back to you. Both clamps below take the
+ * live ceiling as a defaulted argument.
+ */
 export const SITE_MIN = 100;
-export const SITE_MAX = 2000;
+export const SITE_MAX = DEFAULT_TUNABLES.siteMax;
 export const SITE_DEFAULT = 600;
 
 export const M_PER_LAT = 111320;
@@ -59,9 +66,10 @@ export function clampAxis(
   max: number,
   perDeg: number,
   anchor: number | null | undefined,
+  maxSide: number = SITE_MAX,
 ): [number, number, boolean] {
   const size = (max - min) * perDeg;
-  const want = Math.min(SITE_MAX, Math.max(SITE_MIN, size));
+  const want = Math.min(maxSide, Math.max(SITE_MIN, size));
   if (want === size) return [min, max, false];
   const d = want / perDeg;
   if (anchor === min) return [min, min + d, true];
@@ -74,9 +82,10 @@ export function clampAxis(
 export function clampRect(
   r: SiteRect,
   anchor?: LatLngLike | null,
+  maxSide: number = SITE_MAX,
 ): { rect: SiteRect; clamped: boolean } {
   const midLat = (r.minLat + r.maxLat) / 2;
-  const [minLat, maxLat, cy] = clampAxis(r.minLat, r.maxLat, M_PER_LAT, anchor?.lat);
-  const [minLon, maxLon, cx] = clampAxis(r.minLon, r.maxLon, mPerLon(midLat), anchor?.lng);
+  const [minLat, maxLat, cy] = clampAxis(r.minLat, r.maxLat, M_PER_LAT, anchor?.lat, maxSide);
+  const [minLon, maxLon, cx] = clampAxis(r.minLon, r.maxLon, mPerLon(midLat), anchor?.lng, maxSide);
   return { rect: { minLat, maxLat, minLon, maxLon }, clamped: cx || cy };
 }

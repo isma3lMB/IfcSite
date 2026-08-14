@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "npx serve out",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "epsg": "tsx scripts/build-epsg.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -33,6 +34,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/three": "^0.160.0",
+    "epsg-index": "^2.0.0",
     "postcss": "^8.5.25",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.1",

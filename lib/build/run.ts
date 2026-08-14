@@ -1,4 +1,5 @@
 import proj4 from 'proj4';
+import { sanitizeTunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import type { SplitPolygon } from '@/lib/geo/boolean';
 import { resolveCRS } from '@/lib/geo/crs';
@@ -13,9 +14,9 @@ import {
   siteDatumZ,
   type ThemeKey,
 } from '@/lib/sources/ign';
-import { TREE_CAP, osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
+import { osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
 import { terrariumGrid } from '@/lib/sources/terrain';
-import { BUILDING_CAP, finishRailways, finishRoads } from '@/lib/scene/push';
+import { finishRailways, finishRoads } from '@/lib/scene/push';
 import { emptyScene } from '@/lib/types';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
@@ -55,6 +56,11 @@ export async function runBuild(
   const lon = (rect.minLon + rect.maxLon) / 2;
   const ign = opts.provider === 'ign';
   const fallbackH = opts.defaultHeight;
+  // Re-checked here rather than trusted from the caller. The panel's sliders
+  // cannot produce a bad value, but the panel is not the only way one arrives:
+  // these are restored from localStorage, where a hand-edited or stale blob can
+  // carry a NaN that would turn every `length >= cap` guard below into a no-op.
+  const tune = sanitizeTunables(opts.tune);
 
   const themes: ThemeKey[] = [];
   if (ign) {
@@ -76,7 +82,16 @@ export async function runBuild(
 
   // Projection first: every parse path below needs toLocal, and the theme
   // layers need the inverse as well to look elevation back up after clipping.
-  const crs = resolveCRS(opts.epsg, lat, lon);
+  // Resolving a code outside the curated four reads the generated index, so this
+  // is the one step here that can fail before any network work is attempted —
+  // and a failure has to come back as a result, not a rejection: the caller
+  // awaits this and has no catch of its own.
+  let crs;
+  try {
+    crs = await resolveCRS(opts.epsg, lat, lon);
+  } catch (e) {
+    return { ok: false, error: e instanceof AppError ? e : new AppError('err.crsIndexUnavailable') };
+  }
   proj4.defs('TARGET', crs.def);
   const fwd = (lo: number, la: number): Vec2 => proj4('EPSG:4326', 'TARGET', [lo, la]) as Vec2;
   const origin = fwd(lon, lat);
@@ -111,6 +126,7 @@ export async function runBuild(
         toLocal,
         ACCURACY_CELL[opts.terrainAccuracy],
         onStatus,
+        tune,
       );
       scene.terrain = t;
       scene.terrainSource = ign ? 'IGN RGE ALTI' : 'Terrarium DEM';
@@ -150,7 +166,13 @@ export async function runBuild(
     epsg: crs.epsg,
     crsName: crs.name,
     geodeticDatum: crs.datum,
-    verticalDatum: ign ? 'NGF-IGN69' : crs.vert,
+    // The vertical datum belongs to whatever produced the heights, not to the
+    // horizontal grid — a projected CRS is two-dimensional and names none. So it
+    // follows the DEM, and follows RefElevation's rule directly below it: with no
+    // altimetry there is no datum to declare, and naming one would be a claim
+    // nothing in the file supports. EGM96 is the datum of Terrarium's dominant
+    // source; the tiles are a mosaic, so read it as accurate to about a metre.
+    verticalDatum: scene.datumZ === null ? null : ign ? 'NGF-IGN69' : 'EGM96',
     refElevation: scene.datumZ,
     projectName: `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
   };
@@ -173,6 +195,7 @@ export async function runBuild(
         opts.roads,
         opts.railways,
         onStatus,
+        tune,
       );
       tagged = r.tagged;
       capped = r.over;
@@ -180,7 +203,7 @@ export async function runBuild(
       railwayRibbons = r.railwayRibbons;
     } else {
       onStatus('status.queryingOverpass');
-      const data = await overpass(site, opts.buildings, opts.roads, opts.railways);
+      const data = await overpass(site, opts.buildings, opts.roads, opts.railways, tune);
       const r = parseOSM(
         scene,
         data,
@@ -191,11 +214,12 @@ export async function runBuild(
         opts.buildings,
         opts.roads,
         opts.railways,
+        tune,
       );
       tagged = r.tagged;
       roadRibbons = r.roadRibbons;
       railwayRibbons = r.railwayRibbons;
-      capped = scene.buildings.length >= BUILDING_CAP;
+      capped = scene.buildings.length >= tune.buildingCap;
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e : new Error(String(e)) };
@@ -208,7 +232,7 @@ export async function runBuild(
     const label = IGN_LAYERS[key].label!;
     onStatus('status.fetchingIgnLayer', { layer: label });
     try {
-      await fetchThemeLayer(scene, key, site, toLocal, toGeo, sampleZ, LAYER_IFC_NAME[key]);
+      await fetchThemeLayer(scene, key, site, toLocal, toGeo, sampleZ, LAYER_IFC_NAME[key], tune);
     } catch {
       skipped.push(label);
     }
@@ -216,13 +240,13 @@ export async function runBuild(
 
   // Merges every road's own ribbon where they cross, then conforms the result
   // to the terrain and hangs a skirt under it.
-  finishRoads(scene, roadRibbons, toGeo, sampleZ);
-  finishRailways(scene, railwayRibbons, toGeo, sampleZ);
+  finishRoads(scene, roadRibbons, toGeo, sampleZ, tune);
+  finishRailways(scene, railwayRibbons, toGeo, sampleZ, tune);
 
   if (opts.trees) {
     onStatus('status.queryingTrees');
     try {
-      scene.trees = await osmTrees(site, toLocal, sampleZ);
+      scene.trees = await osmTrees(site, toLocal, sampleZ, tune);
     } catch {
       skipped.push('layer.trees');
     }
@@ -248,9 +272,9 @@ export async function runBuild(
       provider: opts.provider,
       fallbackH,
       capped,
-      capAt: BUILDING_CAP,
-      treesCapped: scene.trees.length === TREE_CAP,
-      treeCap: TREE_CAP,
+      capAt: tune.buildingCap,
+      treesCapped: scene.trees.length === tune.treeCap,
+      treeCap: tune.treeCap,
       skipped,
     },
   };
