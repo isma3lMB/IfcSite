@@ -438,6 +438,101 @@ html.dark {
     width: 300px;
     overflow: visible;
   }
+  /* ---- drafts panel ----
+     Wider than Options: the slot rows carry a name, a metadata line and three
+     icon buttons on one row, and at 330px the name truncates to nothing. */
+  .fileFlyout {
+    width: 360px;
+  }
+  /* The drop target is the panel itself, so the cue has to be a ring rather than
+     a background — half the panel is fields, and tinting under them would read
+     as a disabled state. */
+  .fileFlyout.dropOver {
+    outline: 2px dashed var(--color-accent);
+    outline-offset: -4px;
+  }
+  .fileActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  /* These size to their label, where .btn-primary/.btn-ghost are full-width by
+     default — the same override .barActions makes, for the same reason. */
+  .fileActions .btn-primary,
+  .fileActions .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    padding: 7px 12px;
+  }
+  .slotList {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    /* Six rows and then scroll: the panel is a flyout over the viewer, not a
+       page, and a long list would push Export off the bottom of the screen. */
+    max-height: 264px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .slotRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+  }
+  /* The whole name block is the open button — the icon beside it is a second
+     way in, for anyone who reads the row as a label rather than a control. */
+  .slotName {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    padding: 5px 6px;
+    text-align: left;
+    border: 1px solid transparent;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .slotName:hover,
+  .slotName:focus-visible {
+    border-color: var(--color-ink);
+  }
+  .slotTitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .slotMeta {
+    font-size: 11px;
+    opacity: 0.62;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .slotBtns {
+    display: flex;
+    flex-shrink: 0;
+    gap: 2px;
+  }
+  /* Destructive, and styled the way .presets button.danger is: outlined until
+     hovered rather than shouting from the row. Unlike that one there is no undo
+     stack behind it, which is why deleting a slot stops to ask. */
+  .iconBtn.danger {
+    border-color: var(--color-err);
+    color: var(--color-err);
+  }
+  .iconBtn.danger:hover {
+    background: var(--color-err);
+    color: var(--color-on-err);
+  }
   /* ---- status bar ----
      Down to the two actions that end the sequence, and the height field while a
      tool is armed. It used to span every column because it also held the status

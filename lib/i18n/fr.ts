@@ -41,6 +41,33 @@ export const fr: Dict = {
   'rail.drawPoly': 'Tracer une emprise polygonale',
   'rail.drawTree': 'Planter un arbre',
   'rail.model': 'Arborescence du modèle',
+  'rail.file': 'Brouillons',
+
+  /* ---- brouillons. Le document, par opposition au livrable : un brouillon se
+     rouvre dans cette application avec toutes ses modifications, un IFC s’ouvre
+     partout ailleurs. Les deux verbes ne sont pas synonymes — Enregistrer garde
+     le site dans ce navigateur, Exporter écrit un fichier déplaçable. ---- */
+  'file.title': 'Brouillons',
+  'file.name': 'Nom',
+  'file.namePlaceholder': 'Nom du site…',
+  'file.save': 'Enregistrer',
+  'file.saveHint':
+    'Conservé dans ce navigateur uniquement. Exportez un brouillon pour l’emporter ailleurs.',
+  'file.needScene': 'Construisez un site avant de l’enregistrer.',
+  'file.slots': 'Enregistrés dans ce navigateur',
+  'file.noSlots': 'Rien d’enregistré pour l’instant.',
+  'file.slotMeta': '{buildings} bâtiments · {size} · {when}',
+  'file.open': 'Ouvrir',
+  'file.rename': 'Renommer',
+  'file.delete': 'Supprimer',
+  'file.openFile': 'Ouvrir un fichier brouillon…',
+  'file.dropHint': 'ou déposez un fichier .ifcsite.json ici',
+  'file.exportDraft': 'Exporter le brouillon',
+  'file.exportHint':
+    'Un fichier .ifcsite.json transportable qui se rouvre ici avec toutes vos modifications. Ce n’est pas un livrable — Télécharger l’est.',
+  'file.unavailable':
+    'Ce navigateur n’enregistrera pas de brouillons. Exportez plutôt un fichier brouillon.',
+  'file.renamePrompt': 'Nouveau nom',
 
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
   'bar.site': 'Site',
@@ -228,6 +255,11 @@ export const fr: Dict = {
   'status.redone': 'Rétabli : {label} — {name}.',
   'status.searchUnavailable':
     'Recherche de lieu indisponible ({detail}) — déplacez la carte à la place.',
+  'status.draftSaved': '« {name} » enregistré.',
+  'status.draftOpening': 'Ouverture de « {name} »…',
+  'status.draftOpened': '« {name} » ouvert — {buildings} bâtiments.',
+  'status.draftExported': 'Brouillon écrit dans {file}.',
+  'status.draftDeleted': '« {name} » supprimé.',
 
   /* ---- build summary ---- */
   'sum.built':
@@ -272,6 +304,25 @@ export const fr: Dict = {
     'Reconstruire recharge le site depuis ses sources, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.rebuildAnyway': 'Reconstruire quand même',
   'confirm.keep': 'Continuer l’édition',
+  /* Ouvrir un brouillon remplace la scène en entier : la même perte qu’une
+     reconstruction, donc le même avertissement et la même distinction
+     singulier / pluriel. */
+  'confirm.openTitle': 'Abandonner les éléments tracés ?',
+  'confirm.openTitleOne': 'Abandonner l’élément tracé ?',
+  'confirm.openOverDrawn':
+    'Ouvrir un brouillon remplace tout ce qui est à l’écran, où {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+  'confirm.openOverDrawnOne':
+    'Ouvrir un brouillon remplace tout ce qui est à l’écran, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+  'confirm.openAnyway': 'Ouvrir quand même',
+  'confirm.overwriteTitle': 'Remplacer « {name} » ?',
+  'confirm.overwriteSlot':
+    'Un brouillon de ce nom est déjà enregistré dans ce navigateur. L’écraser est irréversible.',
+  'confirm.overwriteAnyway': 'Le remplacer',
+  'confirm.deleteSlotTitle': 'Supprimer « {name} » ?',
+  'confirm.deleteSlot':
+    'Le brouillon sera définitivement retiré de ce navigateur. Un .ifcsite.json déjà exporté n’est pas concerné.',
+  'confirm.deleteAnyway': 'Le supprimer',
+  'confirm.cancel': 'Annuler',
 
   /* ---- errors ---- */
   'err.overpassAllRefused': 'Tous les miroirs Overpass ont refusé la requête.',
@@ -294,6 +345,12 @@ export const fr: Dict = {
   'err.crsUnknown': '{epsg} ne figure pas dans l’index des SCR.',
   'err.crsIndexUnavailable':
     'L’index des SCR n’a pas pu être chargé. Choisissez la zone UTM automatique, ou rechargez la page.',
+  'err.draftUnreadable': 'Ce fichier n’est pas un brouillon IFC Site.',
+  'err.draftVersion':
+    'Ce brouillon a été écrit par une version plus récente d’IFC Site (format {version}). Actualisez la page et réessayez.',
+  'err.draftCorrupt': 'Le brouillon est incomplet et ne peut pas être ouvert.',
+  'err.slotsUnavailable':
+    'Ce navigateur n’enregistrera pas de brouillons — navigation privée, très probablement. Exportez plutôt un fichier brouillon.',
 
   /* ---- notes ---- */
   notes: [

@@ -424,6 +424,31 @@ export class MapController {
     else this.arm();
   }
 
+  /**
+   * Put a restored site rectangle back on the map.
+   *
+   * Deliberately not setSite, which is the *gesture* path: that one clamps, it
+   * reports, and it calls back through onSite — which the page reads as "the
+   * rectangle moved, so the scene no longer describes it" and would mark a
+   * freshly opened draft stale the instant it loaded. Nothing has moved here.
+   * React already holds this rectangle; the map is only catching up to it.
+   *
+   * No clamp either, for the reason setSiteLimits gives: a rectangle that has
+   * already been built from must not be cropped by a ceiling that changed after
+   * the fact.
+   *
+   * setView rather than fitBounds because an opened draft lands in the 3D tab,
+   * and fitBounds measures a container that is still display:none. Framing is
+   * the caller's to queue — see runOnMap in components/ifc-site.
+   */
+  showSite(rect: SiteRect): void {
+    this.siteRect = { ...rect };
+    this.syncSiteLayers();
+    // A restored site is not an invitation to draw another one over it.
+    if (this.armed) this.setArmed(false);
+    this.map.setView([(rect.minLat + rect.maxLat) / 2, (rect.minLon + rect.maxLon) / 2], 16);
+  }
+
   setView(lat: number, lon: number, zoom: number): void {
     this.map.setView([lat, lon], zoom);
   }

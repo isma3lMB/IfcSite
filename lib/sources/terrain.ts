@@ -1,7 +1,7 @@
 import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
-import { MAX_GRID_N, gridSampler, gridSize } from '@/lib/geo/grid';
-import type { Grid, Site, SiteRect, StatusFn, ToLocal, Vec3 } from '@/lib/types';
+import { MAX_GRID_N, gridFrom, gridLattice, gridSize } from '@/lib/geo/grid';
+import type { Grid, Site, SiteRect, StatusFn, ToLocal } from '@/lib/types';
 
 /* =====================================================================
    Terrain — AWS Terrarium tiles, elevation packed into RGB
@@ -140,30 +140,10 @@ export async function terrariumGrid(
   const span = 2 * Math.max(site.halfX, site.halfY);
   const N = terrariumN(site, site.lat, span, cell, tune.maxGridN);
 
-  const verts: Vec3[] = [];
-  const faces: number[][] = [];
-  const zn: number[] = [];
-  for (let j = 0; j <= N; j++)
-    for (let i = 0; i <= N; i++) {
-      const la = site.minLat + ((site.maxLat - site.minLat) * j) / N;
-      const lo = site.minLon + ((site.maxLon - site.minLon) * i) / N;
-      const p = toLocal(lo, la);
-      const zv = rasterZ(la, lo);
-      zn.push(zv);
-      verts.push([p[0], p[1], zv]);
-    }
-  for (let j = 0; j < N; j++)
-    for (let i = 0; i < N; i++) {
-      const a = j * (N + 1) + i;
-      const b = a + 1;
-      const c2 = a + N + 1;
-      const d = c2 + 1;
-      // Counter-clockwise in local metres — normals up, matching every other
-      // surface. See the same loop in lib/sources/ign.
-      faces.push([a, b, c2], [b, d, c2]);
-    }
+  const zn = gridLattice(site, N).map(([la, lo]) => rasterZ(la, lo));
   // Lookups interpolate the mesh rather than the raster it came from: the raster
   // is finer, so its answer routinely disagrees with the ground actually drawn
-  // and everything draped on it sinks in.
-  return { n: N, verts, faces, sample: gridSampler(zn, N, site) };
+  // and everything draped on it sinks in. gridFrom is what guarantees the mesh
+  // and the sampler come off the same lattice — see lib/geo/grid.
+  return gridFrom(site, N, zn, toLocal);
 }

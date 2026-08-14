@@ -1,8 +1,8 @@
 import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
-import type { SplitPolygon } from '@/lib/geo/boolean';
+import { clipPolygonToRect, type SplitPolygon } from '@/lib/geo/boolean';
 import { conformToTerrain } from '@/lib/geo/conform';
-import { gridSampler, gridSize } from '@/lib/geo/grid';
+import { gridFrom, gridLattice, gridSize } from '@/lib/geo/grid';
 import { prismInto, skirtInto } from '@/lib/geo/mesh';
 import { clipToBox, dedupe, densify } from '@/lib/geo/rings';
 import { pushBuilding, pushRoadway } from '@/lib/scene/push';
@@ -165,28 +165,50 @@ async function wfs(layer: IgnLayer, box: SiteRect, cap = 10000): Promise<Feature
   return feats;
 }
 
+/** One outer ring with the inner rings belonging to it, in source lon/lat. */
+export type GeoPart = { ring: number[][]; holes: number[][][] };
+
 /**
  * Every layer arrives as some mix of Point/LineString/Polygon/MultiPolygon.
- * Outer rings only, matching how the OSM relation path already drops holes.
+ * One part per polygon, carrying its inner rings alongside the outer — an
+ * island in a river, a clearing in a forest.
+ *
+ * Those used to be dropped here, and dropping them is not the harmless
+ * simplification it reads as: the flat layers are opaque solids that ENCLOSE
+ * whatever they cover (see lib/scene/stack), so a hole thrown away at ingest
+ * takes the island's ground, its streets and its buildings with it rather than
+ * merely tinting them. The Seine paved over Ile Saint-Louis. Everything
+ * downstream — triangulate and skirtInto in lib/geo/mesh, conformToTerrain in
+ * lib/geo/conform — has taken holes since roads started arriving as unioned
+ * ribbons with roundabouts in them, so carrying them here was the whole fix.
+ *
+ * The point and line cases carry no holes by construction, which is why the
+ * centreline callers can stay on geoRings below.
  */
-export function geoRings(g: GeoJsonGeometry | null | undefined): number[][][] {
+export function geoParts(g: GeoJsonGeometry | null | undefined): GeoPart[] {
+  const open = (rings: number[][][]): GeoPart[] => rings.map((ring) => ({ ring, holes: [] }));
   if (!g) return [];
   switch (g.type) {
     case 'Point':
-      return [[g.coordinates]];
+      return open([[g.coordinates]]);
     case 'MultiPoint':
     case 'LineString':
-      return [g.coordinates];
+      return open([g.coordinates]);
     case 'MultiLineString':
-      return g.coordinates;
+      return open(g.coordinates);
     case 'Polygon':
-      return [g.coordinates[0]];
+      return [{ ring: g.coordinates[0], holes: g.coordinates.slice(1) }];
     case 'MultiPolygon':
-      return g.coordinates.map((p) => p[0]);
+      return g.coordinates.map((p) => ({ ring: p[0], holes: p.slice(1) }));
     default:
       return [];
   }
 }
+
+/** Outer rings alone, for the callers that never meet a hole: building
+ *  footprints, road and rail centrelines. */
+export const geoRings = (g: GeoJsonGeometry | null | undefined): number[][][] =>
+  geoParts(g).map((p) => p.ring);
 
 /**
  * Drop-in replacement for terrariumGrid: same signature, same {verts,faces,
@@ -261,17 +283,9 @@ export async function rgeAltiGrid(
   const span = 2 * Math.max(site.halfX, site.halfY);
   const N = gridSize(span, cell, tune.maxGridN);
   const box = site;
-  const lats: string[] = [];
-  const lons: string[] = [];
-  const ll: [number, number][] = [];
-  for (let j = 0; j <= N; j++)
-    for (let i = 0; i <= N; i++) {
-      const la = box.minLat + ((box.maxLat - box.minLat) * j) / N;
-      const lo = box.minLon + ((box.maxLon - box.minLon) * i) / N;
-      lats.push(la.toFixed(6));
-      lons.push(lo.toFixed(6));
-      ll.push([la, lo]);
-    }
+  const ll = gridLattice(box, N);
+  const lats = ll.map(([la]) => la.toFixed(6));
+  const lons = ll.map(([, lo]) => lo.toFixed(6));
   const chunks = Math.ceil(ll.length / ALTI_MAX);
   // gridSize clamps to tune.maxGridN, whose own ceiling — MAX_GRID_N, pinned in
   // TUNE_RANGE — is the largest N these two constants can pay for. So this stays
@@ -301,30 +315,11 @@ export async function rgeAltiGrid(
   for (let i = 0; i < zs.length; i++) if (zs[i] === null) zs[i] = mean;
   const zn = zs as number[];
 
-  const verts: Vec3[] = [];
-  const faces: number[][] = [];
-  for (let k = 0; k < ll.length; k++) {
-    const p = toLocal(ll[k][1], ll[k][0]);
-    verts.push([p[0], p[1], zn[k]]);
-  }
-  for (let j = 0; j < N; j++)
-    for (let i = 0; i < N; i++) {
-      const a = j * (N + 1) + i;
-      const b = a + 1;
-      const c = a + N + 1;
-      const d = c + 1;
-      // Counter-clockwise in local metres, so the ground's normals point up
-      // like every other surface in the scene. Wound the other way the export
-      // is one inside-out mesh among right-side-out ones, and a viewer that
-      // lights or culls by normal has to guess. Split on the b-c diagonal,
-      // which is the same halving lib/geo/grid samples over.
-      faces.push([a, b, c], [b, d, c]);
-    }
-
   // Unlike Terrarium there is no raster left to re-query, so arbitrary lookups
   // interpolate the grid we already have — over the same triangles as `faces`,
-  // so a sampled point sits exactly on the ground the viewer draws.
-  return { n: N, verts, faces, sample: gridSampler(zn, N, box) };
+  // so a sampled point sits exactly on the ground the viewer draws. gridFrom
+  // builds both off the one lattice these heights were read on.
+  return gridFrom(box, N, zn, toLocal);
 }
 
 /**
@@ -538,8 +533,8 @@ export async function fetchThemeLayer(
     for (const k of L.props)
       if (p[k] !== null && p[k] !== undefined && p[k] !== '') props[k] = p[k] as string | number;
 
-    for (const r of geoRings(f.geometry)) {
-      let ring = r.map((c): Vec2 => toLocal(c[0], c[1]));
+    for (const part of geoParts(f.geometry)) {
+      let ring = part.ring.map((c): Vec2 => toLocal(c[0], c[1]));
       if (L.line) {
         // Hedges arrive as centrelines. Buffer each segment the way roads are
         // buffered, but merge every segment of every hedge into one faceset: a
@@ -579,39 +574,55 @@ export async function fetchThemeLayer(
         continue;
       }
 
-      ring = clipToBox(dedupe(ring), -hx, -hy, hx, hy);
-      if (ring.length < 3) continue;
-      // Cut on the terrain's own triangles before draping. Elevation is only
-      // ever looked up at vertices and the triangulator adds none, so a river
-      // or a forest spanning the site used to come back as a few huge
-      // triangles stretched between its boundary elevations — a tilted plane
-      // through the hillside and through every layer above it. Conforming is
-      // what makes the centimetre offsets in lib/scene/stack decide the order.
-      const { verts, faces } = conformToTerrain(
-        ring,
-        scene.terrain,
-        toGeo,
-        sampleZ,
-        L.dz!,
-        [],
-        tune.conformStep,
-      );
-      if (!faces.length) continue;
-      // Close the drape into a solid that reaches under the terrain, so the
-      // layer is a grounded slab rather than a skin hovering over the ground
-      // it covers — and so anything below it in the stack ends up enclosed
-      // rather than merely a few centimetres lower. See lib/scene/stack.
-      if (solid) skirtInto(verts, faces, skirtDepth(solid));
-      scene.surfaces.push({
-        verts,
-        faces,
-        color: L.color,
-        type: L.ifc!,
-        layer,
-        props,
-        name: p.nature ? String(p.nature) : p.idu ? String(p.idu) : layerName,
-      });
-      n++;
+      const holes = part.holes.map((h) => dedupe(h.map((c): Vec2 => toLocal(c[0], c[1]))));
+      // Two clippers on purpose. With no holes the site box is four half-planes
+      // and Sutherland-Hodgman is the whole job, which is what all but a handful
+      // of features take. With holes the outer and the holes have to be cut
+      // TOGETHER — see clipPolygonToRect — so an island straddling the site edge
+      // does not come back touching the boundary.
+      const pieces = holes.length
+        ? clipPolygonToRect({ outer: dedupe(ring), holes }, -hx, -hy, hx, hy)
+        : [{ outer: clipToBox(dedupe(ring), -hx, -hy, hx, hy), holes: [] }];
+
+      for (const piece of pieces) {
+        if (piece.outer.length < 3) continue;
+        // Cut on the terrain's own triangles before draping. Elevation is only
+        // ever looked up at vertices and the triangulator adds none, so a river
+        // or a forest spanning the site used to come back as a few huge
+        // triangles stretched between its boundary elevations — a tilted plane
+        // through the hillside and through every layer above it. Conforming is
+        // what makes the centimetre offsets in lib/scene/stack decide the order.
+        // The holes ride along and are cut with it; a sub-centimetre one is
+        // dropped there rather than here, by the same guard the road union needs.
+        const { verts, faces } = conformToTerrain(
+          piece.outer,
+          scene.terrain,
+          toGeo,
+          sampleZ,
+          L.dz!,
+          piece.holes,
+          tune.conformStep,
+        );
+        if (!faces.length) continue;
+        // Close the drape into a solid that reaches under the terrain, so the
+        // layer is a grounded slab rather than a skin hovering over the ground
+        // it covers — and so anything below it in the stack ends up enclosed
+        // rather than merely a few centimetres lower. See lib/scene/stack.
+        // An island's rim is walled the same way: skirtInto reads the outline
+        // back off the triangulation and tells a hole from a surface by signed
+        // area, so it needs to be told nothing about them.
+        if (solid) skirtInto(verts, faces, skirtDepth(solid));
+        scene.surfaces.push({
+          verts,
+          faces,
+          color: L.color,
+          type: L.ifc!,
+          layer,
+          props,
+          name: p.nature ? String(p.nature) : p.idu ? String(p.idu) : layerName,
+        });
+        n++;
+      }
     }
   }
 

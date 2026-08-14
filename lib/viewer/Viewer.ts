@@ -1027,6 +1027,23 @@ export class Viewer {
     while (g.children.length) g.remove(g.children[0]);
   }
 
+  /**
+   * The highest counter already spoken for by a set of generated ids.
+   *
+   * Used by setScene to resume the drawn-element counters over a restored draft.
+   * It reads the ids rather than counting the records because deleting the
+   * middle one of three drawn buildings must not make the next one reuse an id
+   * that is still on the undo stack.
+   */
+  private static maxSeq(items: { id: string }[], pattern: RegExp): number {
+    let max = 0;
+    for (const it of items) {
+      const m = pattern.exec(it.id);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    return max;
+  }
+
   /* ---- layers ---------------------------------------------------------
      A category, as one node of the scene graph. Grouping is what makes the
      model tree possible at all: before it, everything but the buildings, the
@@ -1195,6 +1212,14 @@ export class Viewer {
 
   setScene(scene: SceneData, site: Site): void {
     this.scene = scene;
+    // A restored draft brings its hand-drawn elements back with the ids they were
+    // saved under, so the counters have to resume past them: left at zero, the
+    // next footprint drawn would be handed an id a building in the scene already
+    // answers to, and select() would pick whichever it found first. A freshly
+    // built scene contains no drawn-* id at all, so this is zero there — which is
+    // what the fields were initialised to anyway.
+    this.drawSeq = Viewer.maxSeq(scene.buildings, /^drawn-(\d+)$/);
+    this.drawTreeSeq = Viewer.maxSeq(scene.trees, /^drawn-tree-(\d+)$/);
     this.clearHistory();
     this.setDrawMode(null);
     this.selectTarget(null);
@@ -2168,6 +2193,18 @@ export class Viewer {
     this.cb.onOrigin(this.originOffset.toArray() as Vec3);
     if (this.selected?.kind === 'origin') this.cb.onTransform(originXf(this.originOffset), 0);
     if (dirty) this.cb.onDirty();
+  }
+
+  /**
+   * Put the export origin back where a restored draft had it.
+   *
+   * Not undoable and not dirtying, which is what separates it from resetOrigin
+   * below: this is the state the file was saved in rather than an edit made to
+   * it, and setScene has just cleared the history it would otherwise join. The
+   * onOrigin callback still fires, which is how the readout catches up.
+   */
+  restoreOrigin(off: Vec3): void {
+    this.setOrigin(off, false);
   }
 
   /** Put the model origin back at the site centre, as one undoable step. */

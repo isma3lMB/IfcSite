@@ -34,7 +34,21 @@ import type {
 } from '@/lib/types';
 
 export type BuildResult =
-  | { ok: true; scene: SceneData; site: Site; meta: SiteMeta; summary: BuildSummary }
+  | {
+      ok: true;
+      scene: SceneData;
+      site: Site;
+      meta: SiteMeta;
+      summary: BuildSummary;
+      /** The proj4 definition the scene was projected through.
+       *
+       *  Carried out rather than dropped because a saved site has to rebuild its
+       *  terrain lattice on reopening, and resolveCRS would otherwise have to be
+       *  called again — which for anything outside the curated four means
+       *  fetching the generated EPSG index. Handing the string back is what
+       *  keeps opening a draft an offline operation. See lib/io/draft. */
+      crsDef: string;
+    }
   | { ok: false; error: AppError | Error };
 
 /** What a degraded step reports as its cause: the i18n code when we raised it
@@ -266,6 +280,7 @@ export async function runBuild(
     scene,
     site,
     meta,
+    crsDef: crs.def,
     summary: {
       buildings: scene.buildings.length,
       tagged,

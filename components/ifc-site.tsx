@@ -5,6 +5,7 @@ import { BrandChip } from '@/components/brand-chip';
 import { ConfirmCard } from '@/components/confirm-card';
 import { ControlsPanel } from '@/components/controls-panel';
 import { type AxisKey, ElementEditor } from '@/components/element-editor';
+import { FileFlyout } from '@/components/file-flyout';
 import { InfoOverlay } from '@/components/info-overlay';
 import { ModelTree } from '@/components/model-tree';
 import { SearchFlyout } from '@/components/search-flyout';
@@ -15,6 +16,7 @@ import type { StatusState } from '@/components/status-line';
 import { StatusToast } from '@/components/status-toast';
 import { ToolRail } from '@/components/tool-rail';
 import { UtilChip } from '@/components/util-chip';
+import { DEFAULT_FORM } from '@/lib/build/defaults';
 import { IfcEmitter } from '@/lib/build/emitter';
 import { runBuild } from '@/lib/build/run';
 import {
@@ -28,6 +30,25 @@ import { EPSG_CHOICES } from '@/lib/geo/crs';
 import { bestAt, loadEpsgIndex } from '@/lib/geo/epsg';
 import { rectCentre } from '@/lib/geo/rect';
 import { useT } from '@/lib/i18n/context';
+import {
+  DRAFT_EXT,
+  DRAFT_MIME,
+  type Draft,
+  type LoadedDraft,
+  draftToText,
+  parseDraft,
+  toDraft,
+} from '@/lib/io/draft';
+import { downloadText, readDraftFile, safeFileStem } from '@/lib/io/file';
+import {
+  type SlotMeta,
+  deleteSlot,
+  listSlots,
+  readSlot,
+  renameSlot,
+  slotsSupported,
+  writeSlot,
+} from '@/lib/io/slots';
 import { MOVABLE_LAYERS } from '@/lib/scene/layers';
 import { type Theme, useTheme } from '@/lib/theme/context';
 import type { Place } from '@/lib/sources/nominatim';
@@ -37,6 +58,8 @@ import type {
   GizmoMode,
   IfcStats,
   LayerId,
+  SceneData,
+  Site,
   SiteMeta,
   SiteRect,
   Vec3,
@@ -62,21 +85,20 @@ const originLabelOf = (m: SiteMeta): string =>
     m.origin[1] + m.exportOffset[1]
   ).toFixed(1)}`;
 
-const DEFAULT_FORM: BuildOptions = {
-  epsg: '2154',
-  defaultHeight: 9,
-  provider: 'ign',
-  buildings: true,
-  roads: true,
-  railways: false,
-  terrain: false,
-  terrainAccuracy: 'standard',
-  trees: false,
-  veg: false,
-  water: false,
-  parcels: false,
-  tune: { ...DEFAULT_TUNABLES },
-};
+/**
+ * What the confirm card is asking about.
+ *
+ * The card started as one question — "a rebuild will discard your drawn work" —
+ * held as a bare count. Drafts brought three more, all of them destructive in the
+ * same one-way manner, so the question became data: the card reads its four
+ * strings off `kind` and the handler switches on it, which is one card rather
+ * than four near-identical ones fighting over the same Escape key.
+ */
+type Pending =
+  | { kind: 'rebuild'; drawn: number }
+  | { kind: 'open'; drawn: number; draft: LoadedDraft }
+  | { kind: 'overwrite'; name: string; draft: Draft }
+  | { kind: 'deleteSlot'; name: string };
 
 export function IfcSite() {
   const { t } = useT();
@@ -102,6 +124,21 @@ export function IfcSite() {
   // place during an edit, which is how a gizmo drag reaches the download.
   const emitterRef = useRef<IfcEmitter | null>(null);
   const metaRef = useRef<SiteMeta | null>(null);
+  /** The live scene, and the site it was built for.
+   *
+   *  Held here for the same reason metaRef is: React must not own a few thousand
+   *  buildings, but Save has to read them, and both the viewer's and the
+   *  emitter's copies are private. This is the very object the viewer mutates in
+   *  place, so a save is a snapshot of what is on screen and of what Download
+   *  would write — no flush, no copy. */
+  const sceneRef = useRef<SceneData | null>(null);
+  const siteRef = useRef<Site | null>(null);
+  /** The proj4 definition the scene was projected through, so a saved site can
+   *  rebuild its terrain lattice without going back to the CRS index. */
+  const crsDefRef = useRef<string | null>(null);
+  /** The name this document was last saved or opened under; seeds the Save
+   *  field, and null after a rebuild because that is a new document. */
+  const draftNameRef = useRef<string | null>(null);
   /** Deferred until the map tab is actually laid out; see runOnMap. */
   const pendingMapAction = useRef<(() => void) | null>(null);
   /** Mirrors infoOpen for the mount-only key handler, which would otherwise
@@ -126,6 +163,10 @@ export function IfcSite() {
   /** And once more for the model tree, the third of the rail's flyouts. */
   const treeOpenRef = useRef(false);
   const treeBtnRef = useRef<HTMLButtonElement>(null);
+  /** And the fourth, Drafts — the only one with no view guard, because opening a
+      saved site has to work from a cold start with nothing drawn yet. */
+  const fileOpenRef = useRef(false);
+  const fileBtnRef = useRef<HTMLButtonElement>(null);
 
   /* ---- React state --------------------------------------------------- */
   const [form, setForm] = useState<BuildOptions>(DEFAULT_FORM);
@@ -155,6 +196,11 @@ export function IfcSite() {
       below — rather than pushed through a callback of their own. */
   const [treeOpen, setTreeOpenState] = useState(false);
   const [layerNodes, setLayerNodes] = useState<LayerNode[]>([]);
+  /** The Drafts flyout, and the saved sites it lists. The slot list is read from
+      IndexedDB in an effect below rather than held authoritatively here — the
+      store is what is true, and every mutation re-reads it. */
+  const [fileOpen, setFileOpenState] = useState(false);
+  const [slots, setSlots] = useState<SlotMeta[]>([]);
   /** Matches the viewer's own default; the marker is opt-in. */
   const [showOrigin, setShowOrigin] = useState(false);
   /** Also the viewer's default. Held here rather than reported back, like the
@@ -174,10 +220,12 @@ export function IfcSite() {
   const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
   const [drawPoints, setDrawPoints] = useState(0);
   const [drawHeight, setDrawHeight] = useState(DEFAULT_FORM.defaultHeight);
-  /** How many drawn buildings a pending rebuild would discard; null when the
-      card is down. The count is captured when it opens, so the card cannot
-      disagree with what it is about to destroy. */
-  const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
+  /** The question the confirm card is currently asking, or null when it is down.
+      Everything it needs to act on is captured here when it opens, so the card
+      cannot disagree with what it is about to do — the drawn count cannot drift,
+      and `open` carries an already-parsed draft so a corrupt file reports an
+      error rather than offering to destroy hand-drawn work for nothing. */
+  const [pending, setPending] = useState<Pending | null>(null);
   /** The rectangle moved since the last build, so the scene on screen — and the
       IFC behind Download — no longer describes it. */
   const [siteDirty, setSiteDirty] = useState(false);
@@ -342,7 +390,7 @@ export function IfcSite() {
    * the map therefore waits until the map is actually on screen — calling
    * fitBounds against a display:none container frames it against zero size.
    */
-  const runOnMap = useCallback(
+  const laterOnMap = useCallback(
     (fn: (m: MapController) => void) => {
       if (view === 'map') {
         const m = mapRef.current;
@@ -351,10 +399,20 @@ export function IfcSite() {
         fn(m);
       } else {
         pendingMapAction.current = () => mapRef.current && fn(mapRef.current);
-        setView('map');
       }
     },
     [view],
+  );
+
+  /** The same deferral, plus the switch. Split because opening a draft lands in
+   *  3D on purpose and only wants its rectangle framed correctly for whenever the
+   *  map is next visited — it must not drag the user away from the model. */
+  const runOnMap = useCallback(
+    (fn: (m: MapController) => void) => {
+      laterOnMap(fn);
+      if (view !== 'map') setView('map');
+    },
+    [laterOnMap, view],
   );
 
   /* ---- keyboard -------------------------------------------------------- */
@@ -398,6 +456,7 @@ export function IfcSite() {
       // whenever the map tab is up, so anything below it would never be reached.
       if (e.key === 'Escape') {
         if (infoOpenRef.current) closeInfo();
+        else if (fileOpenRef.current) closeFile();
         else if (optionsOpenRef.current) closeOptions();
         else if (searchOpenRef.current) closeSearch();
         else if (treeOpenRef.current) closeTree();
@@ -510,9 +569,9 @@ export function IfcSite() {
 
   /* Same pairing as setInfo: the ref is what the mount-only key handler reads,
      the state is what renders. Null closes the card. */
-  const openConfirm = useCallback((n: number | null) => {
-    confirmOpenRef.current = n !== null;
-    setConfirmDiscard(n);
+  const openConfirm = useCallback((p: Pending | null) => {
+    confirmOpenRef.current = p !== null;
+    setPending(p);
   }, []);
   const closeInfo = useCallback(() => setInfo(false), [setInfo]);
   const toggleInfo = useCallback(() => setInfo(!infoOpenRef.current), [setInfo]);
@@ -530,6 +589,7 @@ export function IfcSite() {
       options: { open: optionsOpenRef, set: setOptionsOpen, btn: gearRef },
       search: { open: searchOpenRef, set: setSearchOpenState, btn: searchBtnRef },
       tree: { open: treeOpenRef, set: setTreeOpenState, btn: treeBtnRef },
+      file: { open: fileOpenRef, set: setFileOpenState, btn: fileBtnRef },
     }),
     [],
   );
@@ -567,9 +627,11 @@ export function IfcSite() {
   const closeOptions = useCallback(() => closeFlyout('options'), [closeFlyout]);
   const closeSearch = useCallback(() => closeFlyout('search'), [closeFlyout]);
   const closeTree = useCallback(() => closeFlyout('tree'), [closeFlyout]);
+  const closeFile = useCallback(() => closeFlyout('file'), [closeFlyout]);
   const toggleOptions = useCallback(() => toggleFlyout('options'), [toggleFlyout]);
   const toggleSearch = useCallback(() => toggleFlyout('search'), [toggleFlyout]);
   const toggleTree = useCallback(() => toggleFlyout('tree'), [toggleFlyout]);
+  const toggleFile = useCallback(() => toggleFlyout('file'), [toggleFlyout]);
 
   /* The one auto-behaviour here: Search starts open because there is nothing
      to search *for* until a site rectangle exists, and it collapses to an
@@ -591,6 +653,7 @@ export function IfcSite() {
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
+
 
   /* ---- CRS ------------------------------------------------------------- */
   /**
@@ -710,6 +773,12 @@ export function IfcSite() {
     }
 
     metaRef.current = res.meta;
+    sceneRef.current = res.scene;
+    siteRef.current = res.site;
+    crsDefRef.current = res.crsDef;
+    // A rebuild fetches into a brand-new scene, so it is a new document rather
+    // than a new version of the one that was open.
+    draftNameRef.current = null;
     setBuildings(res.summary.buildings);
     setOriginLabel(originLabelOf(res.meta));
     // A rebuild re-derives the site, so a placement measured against the old one
@@ -735,7 +804,7 @@ export function IfcSite() {
      is not, which is why it is the one action that stops to ask. */
   const onBuild = useCallback(() => {
     const drawn = viewerRef.current?.drawnCount() ?? 0;
-    if (drawn > 0) return openConfirm(drawn);
+    if (drawn > 0) return openConfirm({ kind: 'rebuild', drawn });
     void runBuildNow();
   }, [openConfirm, runBuildNow]);
 
@@ -744,13 +813,298 @@ export function IfcSite() {
     const text = emitterRef.current?.flush();
     const meta = metaRef.current;
     if (!text || !meta) return;
-    const url = URL.createObjectURL(new Blob([text], { type: 'application/x-step' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `context_${meta.lat.toFixed(4)}_${meta.lon.toFixed(4)}.ifc`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    downloadText(
+      `context_${meta.lat.toFixed(4)}_${meta.lon.toFixed(4)}.ifc`,
+      text,
+      'application/x-step',
+    );
   }, []);
+
+  /* ---- drafts -----------------------------------------------------------
+     The document half, as against the deliverable onDownload writes. Save keeps
+     a site in this browser under a name; Export writes a file that reopens here
+     with every edit intact; Open restores either. */
+
+  /** Everything a draft is made of, or null when there is no scene to save. */
+  const collectDraft = useCallback((name: string): Draft | null => {
+    const scene = sceneRef.current;
+    const site = siteRef.current;
+    const meta = metaRef.current;
+    const crsDef = crsDefRef.current;
+    if (!scene || !site || !meta || !crsDef || !rect) return null;
+    // No emitter flush: that debounce guards the *IFC text*, and the model the
+    // gizmo mutates is always current. This reads the very object on screen.
+    return toDraft({
+      name,
+      rect,
+      site,
+      form,
+      epsgPicked: epsgPickedRef.current,
+      crsDef,
+      meta,
+      scene,
+    });
+  }, [form, rect]);
+
+  /**
+   * Restore a parsed draft.
+   *
+   * The tail of runBuildNow, in the same order, with the restores interleaved —
+   * the two paths end at the same place because a draft *is* a build result that
+   * came off a disk instead of the network. It does not set `busy`: that drives
+   * the step ladder to 'Building…', which this is not.
+   */
+  const openDraftNow = useCallback(
+    async (d: LoadedDraft) => {
+      setStatus({ kind: 'msg', key: 'status.draftOpening', params: { name: d.name } });
+      // Rebuilding a lattice and a few hundred meshes is real synchronous work;
+      // yield once so the line above paints before the page locks up for it.
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+
+      // Inputs first, so a Rebuild after an Open re-fetches what the draft was
+      // built from rather than whatever the panel happened to be holding.
+      setForm(d.form);
+      epsgPickedRef.current = d.epsgPicked;
+      // Note this does not dirty the site: only MapController's onSite does that,
+      // and nothing has moved — the scene still describes this rectangle.
+      setRect(d.rect);
+      crsDefRef.current = d.crsDef;
+
+      // Read before metaRef points at it. setScene puts the origin back at the
+      // site centre, which fires onOrigin, which writes [0,0,0] straight into
+      // metaRef.current.exportOffset — i.e. into this very object. Taken
+      // afterwards, the marker would always come back to the middle and the
+      // saved offset would be silently lost.
+      const exportOffset = d.meta.exportOffset;
+
+      metaRef.current = d.meta;
+      sceneRef.current = d.scene;
+      siteRef.current = d.site;
+      setBuildings(d.scene.buildings.length);
+      setOriginLabel(originLabelOf(d.meta));
+      // From the draft, not zeroed. A build zeroes these because it re-derives the
+      // site underneath them; an open is restoring the site they were measured
+      // against, so they still mean what they meant.
+      setProjectBase(d.meta.projectBase);
+      setProjectAngle(d.meta.projectAngle);
+      setDrawHeight(d.form.defaultHeight);
+
+      // The same scene object reaches both, exactly as a build's does — that
+      // shared reference is how a later gizmo drag reaches the download.
+      emitterRef.current?.setSource(d.scene, d.meta);
+      viewerRef.current?.setScene(d.scene, d.site);
+
+      // setScene resets the origin to the site centre and clears layer
+      // visibility, both of which are right for a rebuild and wrong here.
+      viewerRef.current?.restoreOrigin(exportOffset);
+      viewerRef.current?.setMarkerVisible(showOrigin);
+      viewerRef.current?.setProjection(ortho);
+
+      setHasScene(true);
+      setSiteDirty(false);
+      setView('3d');
+
+      // The map is behind the 3D tab and cannot be measured yet, so the rectangle
+      // goes back now and the framing waits until the tab is actually visited.
+      mapRef.current?.showSite(d.rect);
+      laterOnMap((m) => m.fitBounds(d.rect));
+
+      draftNameRef.current = d.name;
+      setStatus({
+        kind: 'msg',
+        key: 'status.draftOpened',
+        params: { name: d.name, buildings: d.scene.buildings.length },
+      });
+    },
+    [laterOnMap, ortho, showOrigin],
+  );
+
+  /** Validate first, ask second: a bad file must report itself rather than
+   *  offering to destroy hand-drawn work for nothing. */
+  const openDraftText = useCallback(
+    (text: string) => {
+      let d: LoadedDraft;
+      try {
+        d = parseDraft(text);
+      } catch (e) {
+        setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) });
+        return;
+      }
+      const drawn = viewerRef.current?.drawnCount() ?? 0;
+      if (drawn > 0) return openConfirm({ kind: 'open', drawn, draft: d });
+      void openDraftNow(d);
+    },
+    [openConfirm, openDraftNow],
+  );
+
+  const onExportDraft = useCallback(() => {
+    const name = draftNameRef.current ?? metaRef.current?.projectName ?? 'site';
+    const d = collectDraft(name);
+    if (!d) return;
+    const file = `${safeFileStem(name, 'site')}${DRAFT_EXT}`;
+    downloadText(file, draftToText(d), DRAFT_MIME);
+    draftNameRef.current = name;
+    setStatus({ kind: 'msg', key: 'status.draftExported', params: { file } });
+  }, [collectDraft]);
+
+  const onOpenFile = useCallback(
+    (f: File) => {
+      readDraftFile(f).then(openDraftText, (e) =>
+        setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) }),
+      );
+    },
+    [openDraftText],
+  );
+
+  /* ---- browser slots -----------------------------------------------------
+     The same draft, kept here instead of written out. Every one of these reports
+     its own failure and leaves the scene alone: storage being unavailable is a
+     reason to export a file, not a reason to lose what is on screen. */
+
+  const failStatus = useCallback(
+    (e: unknown) =>
+      setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) }),
+    [],
+  );
+
+  const refreshSlots = useCallback(() => {
+    if (!slotsSupported()) return setSlots([]);
+    listSlots().then(setSlots, () => setSlots([]));
+  }, []);
+
+  /* Re-read whenever the panel opens. In an effect rather than in a useState
+     initialiser for the reason the tunables above give: this page is prerendered
+     with no `window`, so there is no indexedDB to read during a render that
+     happens at build time. Reading on open rather than caching once also means a
+     draft saved in another tab of the same app shows up here. */
+  useEffect(() => {
+    if (fileOpen) refreshSlots();
+  }, [fileOpen, refreshSlots]);
+
+  const saveSlot = useCallback(
+    async (name: string, d: Draft) => {
+      const json = draftToText(d);
+      try {
+        await writeSlot(name, json, {
+          name,
+          savedAt: Date.now(),
+          bytes: json.length,
+          lat: d.meta.lat,
+          lon: d.meta.lon,
+          buildings: d.scene.buildings.length,
+          provider: d.form.provider,
+        });
+      } catch (e) {
+        return failStatus(e);
+      }
+      draftNameRef.current = name;
+      refreshSlots();
+      setStatus({ kind: 'msg', key: 'status.draftSaved', params: { name } });
+    },
+    [failStatus, refreshSlots],
+  );
+
+  /** Save asks before replacing a name already taken — the only way to lose a
+   *  saved draft other than deleting it outright. */
+  const onSaveSlot = useCallback(
+    (rawName: string) => {
+      const name = rawName.trim();
+      if (!name) return;
+      const d = collectDraft(name);
+      if (!d) return;
+      if (slots.some((s) => s.name === name)) return openConfirm({ kind: 'overwrite', name, draft: d });
+      void saveSlot(name, d);
+    },
+    [collectDraft, openConfirm, saveSlot, slots],
+  );
+
+  const onOpenSlot = useCallback(
+    (name: string) => {
+      readSlot(name).then(openDraftText, failStatus);
+    },
+    [failStatus, openDraftText],
+  );
+
+  const deleteSlotNow = useCallback(
+    async (name: string) => {
+      try {
+        await deleteSlot(name);
+      } catch (e) {
+        return failStatus(e);
+      }
+      if (draftNameRef.current === name) draftNameRef.current = null;
+      refreshSlots();
+      setStatus({ kind: 'msg', key: 'status.draftDeleted', params: { name } });
+    },
+    [failStatus, refreshSlots],
+  );
+
+  const onRenameSlot = useCallback(
+    (from: string, to: string) => {
+      const name = to.trim();
+      if (!name || name === from) return;
+      renameSlot(from, name).then(() => {
+        if (draftNameRef.current === from) draftNameRef.current = name;
+        refreshSlots();
+      }, failStatus);
+    },
+    [failStatus, refreshSlots],
+  );
+
+  /* The card's four strings, chosen by what it is asking. Singular and plural are
+     separate entries rather than an "(s)" — this card exists to be read carefully,
+     and one drawn element is the common case. */
+  const confirmText = useMemo(() => {
+    const p = pending;
+    const cancel = t('confirm.cancel');
+    if (!p) return { title: '', body: '', confirm: '', cancel };
+    switch (p.kind) {
+      case 'rebuild':
+        return {
+          title: t(p.drawn === 1 ? 'confirm.discardTitleOne' : 'confirm.discardTitle'),
+          body: t(p.drawn === 1 ? 'confirm.discardDrawnOne' : 'confirm.discardDrawn', { n: p.drawn }),
+          confirm: t('confirm.rebuildAnyway'),
+          cancel: t('confirm.keep'),
+        };
+      case 'open':
+        return {
+          title: t(p.drawn === 1 ? 'confirm.openTitleOne' : 'confirm.openTitle'),
+          body: t(p.drawn === 1 ? 'confirm.openOverDrawnOne' : 'confirm.openOverDrawn', { n: p.drawn }),
+          confirm: t('confirm.openAnyway'),
+          cancel: t('confirm.keep'),
+        };
+      case 'overwrite':
+        return {
+          title: t('confirm.overwriteTitle', { name: p.name }),
+          body: t('confirm.overwriteSlot'),
+          confirm: t('confirm.overwriteAnyway'),
+          cancel,
+        };
+      case 'deleteSlot':
+        return {
+          title: t('confirm.deleteSlotTitle', { name: p.name }),
+          body: t('confirm.deleteSlot'),
+          confirm: t('confirm.deleteAnyway'),
+          cancel,
+        };
+    }
+  }, [pending, t]);
+
+  const onConfirmPending = useCallback(() => {
+    const p = pending;
+    openConfirm(null);
+    if (!p) return;
+    switch (p.kind) {
+      case 'rebuild':
+        return void runBuildNow();
+      case 'open':
+        return void openDraftNow(p.draft);
+      case 'overwrite':
+        return void saveSlot(p.name, p.draft);
+      case 'deleteSlot':
+        return void deleteSlotNow(p.name);
+    }
+  }, [deleteSlotNow, openConfirm, openDraftNow, pending, runBuildNow, saveSlot]);
 
   /* ---- editor bridges --------------------------------------------------- */
   const onAxis = useCallback(
@@ -811,6 +1165,9 @@ export function IfcSite() {
             treeOpen={treeOpen}
             treeBtnRef={treeBtnRef}
             onToggleTree={toggleTree}
+            fileOpen={fileOpen}
+            fileBtnRef={fileBtnRef}
+            onToggleFile={toggleFile}
             onDraw={onDraw}
             onPan={onPan}
             onZoom={onZoom}
@@ -822,6 +1179,24 @@ export function IfcSite() {
             onUndo={() => viewerRef.current?.undo()}
             onRedo={() => viewerRef.current?.redo()}
           />
+
+          {/* No view guard, unlike the three below it: opening a saved site is
+              the one thing that has to work before anything else exists. */}
+          {fileOpen && (
+            <FileFlyout
+              hasScene={hasScene}
+              slots={slots}
+              currentName={draftNameRef.current}
+              suggestedName={metaRef.current?.projectName ?? ''}
+              onSave={onSaveSlot}
+              onOpenSlot={onOpenSlot}
+              onRenameSlot={onRenameSlot}
+              onDeleteSlot={(name) => openConfirm({ kind: 'deleteSlot', name })}
+              onOpenFile={onOpenFile}
+              onExportDraft={onExportDraft}
+              onClose={closeFile}
+            />
+          )}
 
           {optionsOpen && (
             <ControlsPanel form={form} onChange={onFormChange} rect={rect} onClose={closeOptions} />
@@ -910,17 +1285,12 @@ export function IfcSite() {
       <InfoOverlay open={infoOpen} onClose={closeInfo} />
 
       <ConfirmCard
-        open={confirmDiscard !== null}
-        title={t(confirmDiscard === 1 ? 'confirm.discardTitleOne' : 'confirm.discardTitle')}
-        body={t(confirmDiscard === 1 ? 'confirm.discardDrawnOne' : 'confirm.discardDrawn', {
-          n: confirmDiscard ?? 0,
-        })}
-        confirmLabel={t('confirm.rebuildAnyway')}
-        cancelLabel={t('confirm.keep')}
-        onConfirm={() => {
-          openConfirm(null);
-          void runBuildNow();
-        }}
+        open={pending !== null}
+        title={confirmText.title}
+        body={confirmText.body}
+        confirmLabel={confirmText.confirm}
+        cancelLabel={confirmText.cancel}
+        onConfirm={onConfirmPending}
         onCancel={() => openConfirm(null)}
       />
     </div>

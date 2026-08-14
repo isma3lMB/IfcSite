@@ -41,6 +41,31 @@ export const en = {
   'rail.drawPoly': 'Draw a polygon footprint',
   'rail.drawTree': 'Plant a tree',
   'rail.model': 'Model tree',
+  'rail.file': 'Drafts',
+
+  /* ---- drafts. The document, as against the deliverable: a draft reopens into
+     this app with every edit intact, an IFC opens in everything else. The two
+     verbs are deliberately not synonyms — Save keeps a site in this browser,
+     Export writes a file you can move. ---- */
+  'file.title': 'Drafts',
+  'file.name': 'Name',
+  'file.namePlaceholder': 'Site name…',
+  'file.save': 'Save',
+  'file.saveHint': 'Kept in this browser only. Export a draft to move it elsewhere.',
+  'file.needScene': 'Build a site before saving it.',
+  'file.slots': 'Saved in this browser',
+  'file.noSlots': 'Nothing saved yet.',
+  'file.slotMeta': '{buildings} buildings · {size} · {when}',
+  'file.open': 'Open',
+  'file.rename': 'Rename',
+  'file.delete': 'Delete',
+  'file.openFile': 'Open a draft file…',
+  'file.dropHint': 'or drop a .ifcsite.json file here',
+  'file.exportDraft': 'Export draft',
+  'file.exportHint':
+    'A portable .ifcsite.json that reopens here with every edit intact. Not a deliverable — Download is.',
+  'file.unavailable': 'This browser will not store drafts. Export a draft file instead.',
+  'file.renamePrompt': 'New name',
 
   /* ---- status bar: the one place anything is stated ---- */
   'bar.site': 'Site',
@@ -232,6 +257,11 @@ export const en = {
   'status.undone': 'Undone: {label} — {name}.',
   'status.redone': 'Redone: {label} — {name}.',
   'status.searchUnavailable': 'Place search unavailable ({detail}) — pan the map instead.',
+  'status.draftSaved': 'Saved “{name}”.',
+  'status.draftOpening': 'Opening “{name}”…',
+  'status.draftOpened': 'Opened “{name}” — {buildings} buildings.',
+  'status.draftExported': 'Draft written to {file}.',
+  'status.draftDeleted': 'Deleted “{name}”.',
 
   /* ---- build summary, composed from BuildSummary ---- */
   'sum.built':
@@ -278,6 +308,24 @@ export const en = {
     'Rebuilding re-fetches the site from its sources, and your hand-drawn element is not in them. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.rebuildAnyway': 'Rebuild anyway',
   'confirm.keep': 'Keep editing',
+  /* Opening a draft replaces the scene wholesale, so it destroys hand-drawn work
+     exactly as a rebuild does — same warning, same singular/plural split. */
+  'confirm.openTitle': 'Discard drawn elements?',
+  'confirm.openTitleOne': 'Discard the drawn element?',
+  'confirm.openOverDrawn':
+    'Opening a draft replaces everything on screen, and {n} hand-drawn buildings and trees are not in it. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
+  'confirm.openOverDrawnOne':
+    'Opening a draft replaces everything on screen, and your hand-drawn element is not in it. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
+  'confirm.openAnyway': 'Open anyway',
+  'confirm.overwriteTitle': 'Replace “{name}”?',
+  'confirm.overwriteSlot':
+    'A draft of that name is already saved in this browser. Saving over it cannot be undone.',
+  'confirm.overwriteAnyway': 'Replace it',
+  'confirm.deleteSlotTitle': 'Delete “{name}”?',
+  'confirm.deleteSlot':
+    'This removes the draft from this browser for good. Any .ifcsite.json you exported is unaffected.',
+  'confirm.deleteAnyway': 'Delete it',
+  'confirm.cancel': 'Cancel',
 
   /* ---- errors ---- */
   'err.overpassAllRefused': 'Every Overpass mirror refused the request.',
@@ -300,6 +348,12 @@ export const en = {
   'err.crsUnknown': '{epsg} is not in the CRS index.',
   'err.crsIndexUnavailable':
     'The CRS index could not be loaded. Pick the automatic UTM zone, or reload the page.',
+  'err.draftUnreadable': 'That is not an IFC Site draft file.',
+  'err.draftVersion':
+    'This draft was written by a newer version of IFC Site (format {version}). Update the page and try again.',
+  'err.draftCorrupt': 'The draft is incomplete and cannot be opened.',
+  'err.slotsUnavailable':
+    'This browser will not store drafts — private browsing, most likely. Export a draft file instead.',
 
   /* ---- notes. `body` marks code spans with backticks. ---- */
   notes: [

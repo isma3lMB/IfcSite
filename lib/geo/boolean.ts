@@ -1,12 +1,12 @@
 import polygonClipping from 'polygon-clipping';
 import type { MultiPolygon } from 'polygon-clipping';
-import { dedupe, signedArea } from '@/lib/geo/rings';
+import { clipToBox, dedupe, signedArea } from '@/lib/geo/rings';
 import type { Vec2 } from '@/lib/types';
 
 // The package's ESM build exports only a default object (union/difference/...
 // as properties) — its own .d.ts promises named exports that don't exist at
 // this build's runtime, so these are pulled off the default instead.
-const { union } = polygonClipping;
+const { intersection, union } = polygonClipping;
 
 /**
  * The one file that knows polygon-clipping's coordinate convention differs
@@ -133,6 +133,56 @@ export function unionPolygons(polys: SplitPolygon[]): SplitPolygon[] {
 /** The hole-free case, which is every caller that starts from raw rings. */
 export const unionRings = (rings: Vec2[][]): SplitPolygon[] =>
   unionPolygons(rings.map((outer) => ({ outer, holes: [] })));
+
+/**
+ * A region AND ITS HOLES cut to the site rectangle.
+ *
+ * clipToBox in ./rings is the cheaper tool and stays the right one for a bare
+ * ring, but it clips one ring at a time — and an outer and its holes clipped
+ * independently are not the same shape as the pair clipped together. An island
+ * straddling the site edge comes back sharing a segment with the clipped outer,
+ * and ear clipping does not cut a hole out, it BRIDGES to it: a hole touching
+ * the boundary is the one input it cannot be trusted on. A real intersection
+ * has no such case — the straddling island comes back as a notch in the outer
+ * ring, with no hole left to bridge to.
+ *
+ * It also returns one entry per component, so a river severed into two by the
+ * box comes back as the two regions it really is rather than as the single
+ * self-overlapping ring Sutherland-Hodgman can only hand back (the caveat
+ * clipToBox spells out).
+ *
+ * A caller with no holes should stay on clipToBox: this runs a sweep line where
+ * that runs four half-planes, and nothing above can arise without a hole.
+ */
+export function clipPolygonToRect(
+  poly: SplitPolygon,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): SplitPolygon[] {
+  if (poly.outer.length < 3) return [];
+  const rect: Vec2[] = [
+    [minX, minY],
+    [maxX, minY],
+    [maxX, maxY],
+    [minX, maxY],
+  ];
+  const out = laddered((q) => intersection(toPoly(poly, q), [close(snap(rect, q))]));
+  if (out) return out;
+  // Degrading the way unionPolygons does: the alternative to a caveated clip is
+  // no clip at all, and an unclipped BD TOPO river carries kilometres of
+  // geometry into the export. Per-ring, caveat and all, beats that.
+  console.warn('clipPolygonToRect: fell back to per-ring clipping');
+  const outer = clipToBox(poly.outer, minX, minY, maxX, maxY);
+  if (outer.length < 3) return [];
+  return [
+    {
+      outer,
+      holes: poly.holes.map((h) => clipToBox(h, minX, minY, maxX, maxY)).filter((h) => h.length >= 3),
+    },
+  ];
+}
 
 // There was an intersectPolygon here, for cutting a region with holes against
 // one terrain cell. lib/geo/conform no longer needs a general clipper: it

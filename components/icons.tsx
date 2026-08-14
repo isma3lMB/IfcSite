@@ -236,3 +236,62 @@ export const IconEyeOff = () => (
     <path d="M2 14 14 2" />
   </Svg>
 );
+
+/* Drafts: a disk with a reload arc turning back into it — the panel's two halves
+   in one glyph, save and pick up again. The arc is open at the top-right with a
+   solid arrowhead, which is the only part of a circular arrow that still reads at
+   16 px on a 1.3 stroke; a full ring with a thin barb turns to mush. */
+export const IconDrafts = () => (
+  <Svg>
+    {/* The disk, bottom-anchored: body, then the shutter that makes it a disk
+        rather than a plain box. */}
+    <path d="M3.5 7.5h9v6h-9z" />
+    <path d="M6 7.5v2.5h4V7.5" />
+    {/* The reload arc riding over it, open at the right so the arrowhead has
+        somewhere to sit. */}
+    <path d="M3.4 5.6A5 5 0 0 1 12 3.9" />
+    <path d="M12.9 1.2v3.9l-3.4-1Z" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/* A disk, kept because nothing else says "write this down" as quickly, drawn as
+   the shutter and the label rather than the whole outline. */
+export const IconSave = () => (
+  <Svg>
+    <path d="M2.5 2.5h9l2 2v9h-11z" />
+    <path d="M5 2.5v4h5v-4M5 13.5v-4h6v4" />
+  </Svg>
+);
+
+/* A sheet coming up out of the stack — the mirror of IconExport below, which
+   sends one down into it. */
+export const IconOpen = () => (
+  <Svg>
+    <path d="M8 10.5v-8M5 5.5 8 2.5l3 3" />
+    <path d="M2.5 9.5v4h11v-4" />
+  </Svg>
+);
+
+export const IconExport = () => (
+  <Svg>
+    <path d="M8 2.5v8M5 7.5 8 10.5l3-3" />
+    <path d="M2.5 9.5v4h11v-4" />
+  </Svg>
+);
+
+/* A bin. The lid is a separate stroke so it still reads at 16 px once the body
+   tapers. */
+export const IconTrash = () => (
+  <Svg>
+    <path d="M2.5 4.5h11M6 4.5v-2h4v2" />
+    <path d="M4 4.5l.7 9h6.6l.7-9" />
+  </Svg>
+);
+
+/* A pencil, for rename. Nib at the bottom-left so it points at the row it
+   edits. */
+export const IconRename = () => (
+  <Svg>
+    <path d="M11 2.5 13.5 5 5.5 13H3v-2.5z" />
+  </Svg>
+);

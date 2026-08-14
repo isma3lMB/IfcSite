@@ -3,6 +3,7 @@
 import { Fragment, type ReactNode, type RefObject } from 'react';
 import {
   IconBox,
+  IconDrafts,
   IconDrawSite,
   IconLayers,
   IconMove,
@@ -41,6 +42,9 @@ export type ToolRailProps = {
   treeOpen: boolean;
   treeBtnRef: RefObject<HTMLButtonElement | null>;
   onToggleTree: () => void;
+  fileOpen: boolean;
+  fileBtnRef: RefObject<HTMLButtonElement | null>;
+  onToggleFile: () => void;
   onDraw: () => void;
   onPan: () => void;
   onZoom: () => void;
@@ -185,7 +189,6 @@ export function ToolRail(p: ToolRailProps) {
 
   return (
     <div className="rail floating" role="toolbar" aria-orientation="vertical" aria-label={t('rail.label')}>
-      
       {/* Pinned beside the gear rather than folded into Options: finding a
           place is the first thing you do, before there is anything to
           configure. It starts expanded — see the flyout it opens — and
@@ -263,6 +266,31 @@ export function ToolRail(p: ToolRailProps) {
           ))}
         </Fragment>
       ))}
+
+      {/* Last on the rail, under its own separator, and the only button here with
+          no view guard: opening a saved site has to work from a cold start, where
+          there is no rectangle, no scene, and nothing else on this rail to do.
+
+          The gear's comment above explains why it is *not* down here — the body
+          between them changes with the view, so a foot-anchored button lands at a
+          different height in map and in 3D. That cost is real and is accepted for
+          this one: the gear is reached mid-task with the cursor already on the
+          rail, whereas saving and reopening bookend a session, and the foot is
+          where a document action is looked for. The rail shrink-wraps, so this is
+          the bottom of the chip rather than the bottom of the window. */}
+      <div className="railSep" />
+      <button
+        ref={p.fileBtnRef}
+        type="button"
+        className={`railBtn${p.fileOpen ? ' on' : ''}`}
+        data-tip={t('rail.file')}
+        aria-label={t('rail.file')}
+        aria-expanded={p.fileOpen}
+        aria-controls="fileFlyout"
+        onClick={p.onToggleFile}
+      >
+        <IconDrafts />
+      </button>
     </div>
   );
 }

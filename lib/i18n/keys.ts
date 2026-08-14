@@ -33,7 +33,12 @@ export type StatusKey =
   | 'status.editCommitted'
   | 'status.undone'
   | 'status.redone'
-  | 'status.searchUnavailable';
+  | 'status.searchUnavailable'
+  | 'status.draftSaved'
+  | 'status.draftOpening'
+  | 'status.draftOpened'
+  | 'status.draftExported'
+  | 'status.draftDeleted';
 
 /**
  * Failures. Every `throw` in the data layer carries one of these instead of an
@@ -56,7 +61,11 @@ export type ErrorCode =
   | 'err.noBuildingsOsm'
   | 'err.noSite'
   | 'err.crsUnknown'
-  | 'err.crsIndexUnavailable';
+  | 'err.crsIndexUnavailable'
+  | 'err.draftUnreadable'
+  | 'err.draftVersion'
+  | 'err.draftCorrupt'
+  | 'err.slotsUnavailable';
 
 /**
  * Layer names. These appear in progress lines ("Fetching IGN vegetation…"), in
