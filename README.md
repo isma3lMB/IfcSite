@@ -613,8 +613,28 @@ RGE ALTI, EGM96 for Terrarium (the datum of its dominant source — the tiles ar
 so read it as good to about a metre), and `$` when the build established no altimetry at
 all. A projected CRS is two-dimensional and names no vertical datum, so tying it to the
 grid would mean claiming Ordnance Datum Newlyn for heights that came out of an SRTM mosaic.
-This is `RefElevation`'s rule, one attribute along: with nothing to declare, declare
-nothing.
+
+The **origin marker is the single reference point**, and everything georeferencing-related
+is derived from wherever it currently sits. Its position is subtracted from every element —
+in `placement()` for buildings and trees, and from the vertex list itself in `addSurface`,
+since terrain, roads and draped layers arrive as absolute site coordinates. So the model's
+own numbers are purely local: a building on the ground exports near `z=0` rather than
+carrying the site's altitude. The same offset is added back into `IfcMapConversion`, whose
+`Eastings`/`Northings`/`OrthogonalHeight` are the authoritative placement. Drag the marker
+and the file is re-georeferenced without a single coordinate moving on the ground.
+
+`IfcSite.RefLatitude`, `RefLongitude` and `RefElevation` are populated as **informational**
+attributes — the "where on Earth is this" a properties panel shows — and all three describe
+the marker. The lat/lon pair is the marker's projected easting/northing inverted back to
+WGS84 through the build's own proj4 definition (`SiteMeta.crsDef`), written as
+`IfcCompoundPlaneAngleMeasure`: degrees, minutes, seconds and millionths, every component
+carrying the angle's sign. They are derived at write time rather than stored, so they cannot
+drift from the marker.
+
+`RefElevation` is the marker's own height above the vertical datum, which is **not**
+`OrthogonalHeight`: that one is the elevation of model `(0,0,0)`. The two coincide until the
+project is based off zero vertically (`projectBase[2]`), at which point they correctly
+diverge — `IfcSite` sits on the marker, not on model zero.
 
 Element mapping:
 

@@ -41,18 +41,18 @@ export const fr: Dict = {
   'rail.drawPoly': 'Tracer une emprise polygonale',
   'rail.drawTree': 'Planter un arbre',
   'rail.model': 'Arborescence du modèle',
-  'rail.file': 'Brouillons',
+  'rail.file': 'Ébauches',
 
-  /* ---- brouillons. Le document, par opposition au livrable : un brouillon se
+  /* ---- ébauches. Le document, par opposition au livrable : une ébauche se
      rouvre dans cette application avec toutes ses modifications, un IFC s’ouvre
      partout ailleurs. Les deux verbes ne sont pas synonymes — Enregistrer garde
      le site dans ce navigateur, Exporter écrit un fichier déplaçable. ---- */
-  'file.title': 'Brouillons',
+  'file.title': 'Ébauches',
   'file.name': 'Nom',
   'file.namePlaceholder': 'Nom du site…',
   'file.save': 'Enregistrer',
   'file.saveHint':
-    'Conservé dans ce navigateur uniquement. Exportez un brouillon pour l’emporter ailleurs.',
+    'Conservé dans ce navigateur uniquement. Exportez une ébauche pour l’emporter ailleurs.',
   'file.needScene': 'Construisez un site avant de l’enregistrer.',
   'file.slots': 'Enregistrés dans ce navigateur',
   'file.noSlots': 'Rien d’enregistré pour l’instant.',
@@ -60,13 +60,13 @@ export const fr: Dict = {
   'file.open': 'Ouvrir',
   'file.rename': 'Renommer',
   'file.delete': 'Supprimer',
-  'file.openFile': 'Ouvrir un fichier brouillon…',
+  'file.openFile': 'Ouvrir un fichier d’ébauche…',
   'file.dropHint': 'ou déposez un fichier .ifcsite.json ici',
-  'file.exportDraft': 'Exporter le brouillon',
+  'file.exportDraft': 'Exporter l’ébauche',
   'file.exportHint':
     'Un fichier .ifcsite.json transportable qui se rouvre ici avec toutes vos modifications. Ce n’est pas un livrable — Télécharger l’est.',
   'file.unavailable':
-    'Ce navigateur n’enregistrera pas de brouillons. Exportez plutôt un fichier brouillon.',
+    'Ce navigateur n’enregistrera pas d’ébauches. Exportez plutôt un fichier d’ébauche.',
   'file.renamePrompt': 'Nouveau nom',
 
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
@@ -96,6 +96,10 @@ export const fr: Dict = {
   'ctl.crsError': 'Index des SCR indisponible — l’UTM automatique reste utilisable.',
   'ctl.crsNone': 'Aucun résultat.',
   'ctl.crsValidHere': '{n} valables sur ce site',
+  'ctl.verticalDatum': 'Datum vertical',
+  'ctl.verticalDatumNone': 'Aucun — plat',
+  'ctl.verticalDatumHint':
+    'Les sites IGN utilisent NGF-IGN69 ; les sites OSM utilisent EGM96 dès lors que le terrain est inclus — sans lui, le modèle n’a aucune référence verticale.',
   'ctl.defaultHeight': 'Hauteur si non renseignée',
   'ctl.dataSource': 'Source de données',
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — monde entier',
@@ -163,6 +167,8 @@ export const fr: Dict = {
 
   /* ---- readout : ce que la construction a produit, dans la barre d’état ---- */
   'read.buildings': 'Bâtiments',
+  'read.datum': 'Datum',
+  'read.datumFlat': 'Aucun — plat',
   'read.entities': 'Entités',
   'read.file': 'Fichier',
   'unit.kb': 'ko',
@@ -194,7 +200,7 @@ export const fr: Dict = {
   'ed.redo': 'Rétablir (Ctrl+Maj+Z)',
   'ed.close': 'Désélectionner (Échap)',
   'ed.originName': 'Origine du modèle',
-  'ed.originPosition': 'Décalage depuis le centre du site (m)',
+  'ed.originPosition': 'Position globale — {epsg} (m)',
   'ed.resetOrigin': 'Recentrer l’origine',
   'ed.originHint':
     'Le point que l’IFC exporté appelle (0, 0, 0). Le déplacer rebase le fichier sans rien déplacer au sol.',
@@ -258,7 +264,7 @@ export const fr: Dict = {
   'status.draftSaved': '« {name} » enregistré.',
   'status.draftOpening': 'Ouverture de « {name} »…',
   'status.draftOpened': '« {name} » ouvert — {buildings} bâtiments.',
-  'status.draftExported': 'Brouillon écrit dans {file}.',
+  'status.draftExported': 'Ébauche écrite dans {file}.',
   'status.draftDeleted': '« {name} » supprimé.',
 
   /* ---- build summary ---- */
@@ -304,23 +310,23 @@ export const fr: Dict = {
     'Reconstruire recharge le site depuis ses sources, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.rebuildAnyway': 'Reconstruire quand même',
   'confirm.keep': 'Continuer l’édition',
-  /* Ouvrir un brouillon remplace la scène en entier : la même perte qu’une
+  /* Ouvrir une ébauche remplace la scène en entier : la même perte qu’une
      reconstruction, donc le même avertissement et la même distinction
      singulier / pluriel. */
   'confirm.openTitle': 'Abandonner les éléments tracés ?',
   'confirm.openTitleOne': 'Abandonner l’élément tracé ?',
   'confirm.openOverDrawn':
-    'Ouvrir un brouillon remplace tout ce qui est à l’écran, où {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Ouvrir une ébauche remplace tout ce qui est à l’écran, où {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.openOverDrawnOne':
-    'Ouvrir un brouillon remplace tout ce qui est à l’écran, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Ouvrir une ébauche remplace tout ce qui est à l’écran, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.openAnyway': 'Ouvrir quand même',
   'confirm.overwriteTitle': 'Remplacer « {name} » ?',
   'confirm.overwriteSlot':
-    'Un brouillon de ce nom est déjà enregistré dans ce navigateur. L’écraser est irréversible.',
+    'Une ébauche de ce nom est déjà enregistrée dans ce navigateur. L’écraser est irréversible.',
   'confirm.overwriteAnyway': 'Le remplacer',
   'confirm.deleteSlotTitle': 'Supprimer « {name} » ?',
   'confirm.deleteSlot':
-    'Le brouillon sera définitivement retiré de ce navigateur. Un .ifcsite.json déjà exporté n’est pas concerné.',
+    'L’ébauche sera définitivement retirée de ce navigateur. Un .ifcsite.json déjà exporté n’est pas concerné.',
   'confirm.deleteAnyway': 'Le supprimer',
   'confirm.cancel': 'Annuler',
 
@@ -345,12 +351,6 @@ export const fr: Dict = {
   'err.crsUnknown': '{epsg} ne figure pas dans l’index des SCR.',
   'err.crsIndexUnavailable':
     'L’index des SCR n’a pas pu être chargé. Choisissez la zone UTM automatique, ou rechargez la page.',
-  'err.draftUnreadable': 'Ce fichier n’est pas un brouillon IFC Site.',
-  'err.draftVersion':
-    'Ce brouillon a été écrit par une version plus récente d’IFC Site (format {version}). Actualisez la page et réessayez.',
-  'err.draftCorrupt': 'Le brouillon est incomplet et ne peut pas être ouvert.',
-  'err.slotsUnavailable':
-    'Ce navigateur n’enregistrera pas de brouillons — navigation privée, très probablement. Exportez plutôt un fichier brouillon.',
 
   /* ---- notes ---- */
   notes: [

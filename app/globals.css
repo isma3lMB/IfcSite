@@ -345,6 +345,13 @@ html.dark {
     align-items: center;
     gap: 4px;
     max-height: 100%;
+    /* .floating's backdrop-filter makes this its own stacking context, so the
+       tip below can only out-rank siblings within it — an open flyout, whose
+       backdrop-filter does the same, otherwise paints over the tip since it
+       comes later in the DOM. One explicit level above the (implicitly 0)
+       flyout is enough to put the tip back on top. */
+    position: relative;
+    z-index: 1;
   }
   .railBtn {
     width: 32px;
@@ -882,6 +889,18 @@ html.dark {
     border-radius: 0;
     height: auto;
   }
+  /* The native step arrows cost width no field here has to spare — every
+     number input is either dragged, typed with a keyboard, or both, so
+     nothing is lost by dropping the widget that just eats the room a long
+     coordinate needs. */
+  .ctl-input[type='number']::-webkit-inner-spin-button,
+  .ctl-input[type='number']::-webkit-outer-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+  }
+  .ctl-input[type='number'] {
+    -moz-appearance: textfield;
+  }
   .rangeval {
     float: right;
     color: var(--color-ink);
@@ -1039,15 +1058,15 @@ html.dark {
      column 3 is an `auto` track sized to the widest thing in it, and `stretch`
      on an item with a definite width degenerates to `start` — so left implicit,
      the panel hangs off the *track's* left edge and drifts inboard whenever
-     anything else in the column is wider than 296. It has to track the window,
-     not the column: the orientation widget's inset in ifc-site.tsx is 296 + the
+     anything else in the column is wider than 320. It has to track the window,
+     not the column: the orientation widget's inset in ifc-site.tsx is 320 + the
      grid gap, measured from the right edge of the screen. */
   .editPanel {
     grid-row: 2;
     grid-column: 3;
     align-self: stretch;
     justify-self: end;
-    width: 296px;
+    width: 320px;
     max-width: 88vw;
     padding: 14px;
     overflow-y: auto;
@@ -1083,7 +1102,7 @@ html.dark {
   }
   .axes {
     display: flex;
-    gap: 9px;
+    gap: 6px;
     margin-top: 2px;
   }
   .axes > label {
@@ -1094,7 +1113,7 @@ html.dark {
   }
   .axes > label > span {
     position: absolute;
-    left: 8px;
+    left: 6px;
     top: 50%;
     transform: translateY(-50%);
     pointer-events: none;
@@ -1103,7 +1122,9 @@ html.dark {
     z-index: 1;
   }
   .axes input {
-    padding-left: 20px;
+    padding-left: 15px;
+    padding-right: 4px;
+    font-size: 12px;
     text-align: right;
   }
   .colorInput {
@@ -1513,6 +1534,17 @@ html.dark {
 .leaflet-container {
   background: var(--color-basemap);
   font-family: var(--font-sans);
+}
+/* Dark mode is a color-invert filter on the tile imagery itself rather than a
+   second tile provider — same OSM tiles as light mode, same labels, same
+   language, just recolored. Scoped to the tile pane alone (not
+   .leaflet-container) so it never touches the site rectangle (overlayPane),
+   the drag handles (markerPane), or the controls, all of which are siblings
+   of this pane, not descendants. hue-rotate(180deg) restores natural hue for
+   water/land, which invert() swaps; brightness/contrast/saturate are the
+   knobs to retune here if the result reads too flat or too harsh. */
+html.dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.1) saturate(0.85);
 }
 /* The zoom control has to clear the floating chrome: 52 = the overlay's 12 px
    padding + one row of corner chips + clearance. Hard-coded against that

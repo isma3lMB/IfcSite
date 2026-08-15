@@ -259,8 +259,9 @@ export type SiteMeta = {
   origin: Vec2;
   /**
    * Local-site offset of the point the user wants exported as model (0,0,0),
-   * written by the origin marker. [0,0,0] is the site centre, which is where a
-   * fresh build leaves it.
+   * written by the origin marker. A fresh build leaves it at the site centre,
+   * resting on the ground — [0,0,datumZ] when the scene has a vertical datum,
+   * [0,0,0] otherwise (see Viewer.setScene).
    *
    * This moves where zero sits in the file, never where anything is on the
    * ground: the site is placed back by -exportOffset and the map conversion
@@ -286,9 +287,15 @@ export type SiteMeta = {
   crsName: string;
   geodeticDatum: string;
   verticalDatum: string | null;
-  /** Site ground elevation above verticalDatum, for IfcSite.RefElevation. Null
-   *  when the scene has no altimetry — see SceneData.datumZ. */
-  refElevation: number | null;
+  /**
+   * The proj4 definition the site was projected through.
+   *
+   * Carried here so the writer can invert the origin marker's easting/northing
+   * back to WGS84 for IfcSite's RefLatitude/RefLongitude. Derived at write time
+   * from this rather than stored as a lat/lon pair of its own: the marker moves,
+   * and a second copy of its position is a second thing to keep in step.
+   */
+  crsDef: string;
   projectName: string;
 };
 

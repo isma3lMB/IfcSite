@@ -380,7 +380,10 @@ const siteMeta = (v: unknown, rect: SiteRect): SiteMeta | null => {
     crsName: str(v.crsName, ''),
     geodeticDatum: str(v.geodeticDatum, ''),
     verticalDatum: typeof v.verticalDatum === 'string' ? v.verticalDatum : null,
-    refElevation: numOrNull(v.refElevation),
+    // Defaulted here and overwritten by fromDraft with the envelope's own copy,
+    // which is validated and present in every draft — including those written
+    // before the meta carried one.
+    crsDef: str(v.crsDef, ''),
     projectName: str(v.projectName, `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`),
   };
 };
@@ -469,6 +472,9 @@ export function parseDraft(text: string): LoadedDraft {
   const meta = siteMeta(raw.meta, rect);
   const crsDef = typeof raw.crsDef === 'string' && raw.crsDef ? raw.crsDef : null;
   if (!st || !meta || !crsDef || !isObj(raw.scene)) throw new AppError('err.draftCorrupt');
+  // The envelope's copy wins over anything the embedded meta carried: it is the
+  // one this loader has just validated, and the one the scene is rebuilt through.
+  meta.crsDef = crsDef;
 
   // proj4 rejects a malformed definition by throwing, and that is a corrupt file
   // rather than an unreadable one — the envelope parsed fine.

@@ -103,6 +103,13 @@ export function ControlsPanel(p: ControlsPanelProps) {
   const tune = p.form.tune;
   const setTune = (patch: Partial<Tunables>) => p.onChange({ tune: patch });
 
+  /* IGN's absolute heights fall back to a single-post probe even with terrain
+     unchecked (see siteDatumZ in lib/build/run), so its datum is not
+     conditional on the checkbox the way OSM's is — that only gets a datum at
+     all once a terrain mesh is sampled. Mirrors the rule in lib/build/run.ts
+     that actually produces SiteMeta.verticalDatum. */
+  const vDatum = ign ? 'NGF-IGN69' : p.form.terrain ? 'EGM96' : null;
+
   /* The trigger shows the label of the selected option rather than the bare
      value ("osm") only if the root is handed the whole map, so the list and the
      trigger both read their text from these. */
@@ -160,6 +167,12 @@ export function ControlsPanel(p: ControlsPanelProps) {
         value={p.form.epsg}
         onChange={(epsg) => p.onChange({ epsg })}
       />
+
+      <div className="field">
+        <label className="eyebrow block mb-1.5">{t('ctl.verticalDatum')}</label>
+        <span className="tag">{vDatum ?? t('ctl.verticalDatumNone')}</span>
+        <div className="fieldHint">{t('ctl.verticalDatumHint')}</div>
+      </div>
 
       <div className="field">
         <label className="eyebrow block mb-1.5" htmlFor="defh">

@@ -50,7 +50,8 @@ import {
   writeSlot,
 } from '@/lib/io/slots';
 import { MOVABLE_LAYERS } from '@/lib/scene/layers';
-import { type Theme, useTheme } from '@/lib/theme/context';
+import { useTheme } from '@/lib/theme/context';
+import { isOutsideFrance } from '@/lib/sources/ign';
 import type { Place } from '@/lib/sources/nominatim';
 import type {
   BuildOptions,
@@ -113,9 +114,7 @@ export function IfcSite() {
   const compassRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const mapRef = useRef<MapController | null>(null);
-  /** So the map, which arrives asynchronously, can read the theme on arrival. */
-  const themeRef = useRef<Theme>('light');
-  /** And the site-size ceiling, for the same reason. */
+  /** So the map, which arrives asynchronously, can read the ceiling on arrival. */
   const siteMaxRef = useRef(DEFAULT_TUNABLES.siteMax);
   /** Guards the save effect below so mounting with the defaults does not write
    *  them over what is already stored, a beat before the load effect reads it. */
@@ -246,13 +245,19 @@ export function IfcSite() {
       },
       onStatus: (key, params) => setStatus({ kind: 'msg', key, params }),
       onDirty: () => emitterRef.current?.markDirty(),
-      // The emitter holds this same meta object, so writing the offset into it
-      // is all the export needs — the onDirty the viewer already fires re-serialises.
+      // The emitter holds this same meta object, so writing the offset into it is
+      // all the *content* the export needs — but it still has to be told to write
+      // the file again, and it cannot rely on the viewer's own onDirty for that:
+      // the origin also moves on paths that deliberately do not dirty (setScene,
+      // restoreOrigin). Marking dirty here makes "the origin moved, so the file
+      // must be rewritten" true however it moved. Debounced, so the repeats a
+      // build produces cost nothing, and flush() closes the window on download.
       onOrigin: (off) => {
         const m = metaRef.current;
         if (!m) return;
         m.exportOffset = off;
         setOriginLabel(originLabelOf(m));
+        emitterRef.current?.markDirty();
       },
       onMode: setGizmoMode,
       onCount: setBuildings,
@@ -279,9 +284,19 @@ export function IfcSite() {
     if (!mapHostRef.current) return;
     let disposed = false;
     MapController.create(mapHostRef.current, {
-      onSite: (r) => {
+      onSite: (r, live) => {
         setRect(r);
         setSiteDirty(true);
+        // Only once the gesture finishes — not on every drag frame — so the
+        // panel doesn't pop open mid-drag and the source doesn't flicker.
+        if (r && !live) {
+          setForm((f) =>
+            f.provider === 'ign' && isOutsideFrance(r)
+              ? { ...f, provider: 'osm', veg: false, water: false, parcels: false }
+              : f,
+          );
+          setFlyout('options', true);
+        }
       },
       onArmed: setArmed,
       onStatus: (key, params) => setStatus({ kind: 'msg', key, params }),
@@ -289,12 +304,10 @@ export function IfcSite() {
       if (disposed) return m.dispose();
       mapRef.current = m;
       // Leaflet is imported dynamically, so this lands some frames after the
-      // theme was resolved and the effect below has already run against a null
-      // ref. Read the theme off the ref rather than closing over it: this effect
-      // is mount-only, and a captured value would be the boot default for ever.
-      m.setTheme(themeRef.current);
-      // Same handoff for the site-size ceiling, which is restored from storage
-      // in an effect that has already run by the time Leaflet lands.
+      // site-size ceiling was restored from storage and the effect owning it has
+      // already run against a null ref. Read it off the ref rather than closing
+      // over it: this effect is mount-only, and a captured value would be the
+      // boot default for ever.
       m.setSiteLimits(siteMaxRef.current);
       // Drawing is the first thing anyone does here, so it is live on arrival
       // rather than waiting behind a button. Pan is one click (or Esc) away.
@@ -310,25 +323,24 @@ export function IfcSite() {
   /* ---- orientation widget ----------------------------------------------
      The widget is drawn into the viewer's own canvas, so it is not on the
      overlay grid and nothing lays it out — it has to be told what is docked in
-     the corner it wants. The element editor is 296 px plus the grid's 12 px
+     the corner it wants. The element editor is 320 px plus the grid's 12 px
      gap, and it is on screen exactly when there is a selection. Below 860 px
      the editor spans the width instead (see globals.css), so the inset would
      push the widget off the left edge; hold it at the plain margin there and
      let the editor cover it. */
   useEffect(() => {
-    viewerRef.current?.setRightInset(selection && window.innerWidth > 860 ? 308 : 12);
+    viewerRef.current?.setRightInset(selection && window.innerWidth > 860 ? 332 : 12);
   }, [selection]);
 
   /* ---- theme ------------------------------------------------------------
-     Both viewers own a backdrop that CSS cannot reach — a shader dome and a tile
-     URL — so the class on <html> is not enough for either. Pushed down the same
-     way every other viewer command is, and idempotent at both ends: each setter
-     returns early when the theme has not moved, so the run on first mount costs
-     nothing. */
+     The 3D viewer owns a backdrop CSS cannot reach — a shader dome — so the
+     class on <html> is not enough on its own; it's pushed down the same way
+     every other viewer command is, idempotent at the setter end so the run on
+     first mount costs nothing. The 2D map has no such backdrop: its dark look
+     is a CSS invert filter over the tile pane (globals.css), driven directly
+     by html.dark, so it needs no push here. */
   useEffect(() => {
-    themeRef.current = theme;
     viewerRef.current?.setTheme(theme);
-    mapRef.current?.setTheme(theme);
   }, [theme]);
 
   /* ---- advanced settings ------------------------------------------------
@@ -1113,6 +1125,12 @@ export function IfcSite() {
     [uniform],
   );
 
+  /* Read once for the render: metaRef is a ref, so nothing below reacts to it
+     changing on its own, but the origin drag and the placement edit both flow
+     through a real setState (setOriginLabel, setProjectBase/Angle) first — so
+     by the time this runs again, the mutation it's reading has already landed. */
+  const m = metaRef.current;
+
   /* The tab is on the root as a class as well as on the Stage: the two viewers
      put different furniture at the foot of the window — the map draws Leaflet's
      attribution along the very bottom — and the overlay has to know which one is
@@ -1240,6 +1258,7 @@ export function IfcSite() {
           onDelete={() => viewerRef.current?.deleteSelected()}
           onReset={() => viewerRef.current?.resetElement()}
           onResetOrigin={() => viewerRef.current?.resetOrigin()}
+          siteMeta={m}
           projectBase={projectBase}
           projectAngle={projectAngle}
           onProjectBase={onProjectBase}
@@ -1279,6 +1298,15 @@ export function IfcSite() {
           buildings={buildings}
           stats={stats}
           originLabel={originLabel}
+          datum={
+            m
+              ? {
+                  verticalDatum: m.verticalDatum,
+                  refElevation:
+                    m.verticalDatum === null ? null : m.exportOffset[2] - m.projectBase[2],
+                }
+              : null
+          }
         />
       </div>
 

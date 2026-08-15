@@ -5,10 +5,10 @@ import type { SplitPolygon } from '@/lib/geo/boolean';
 import { resolveCRS } from '@/lib/geo/crs';
 import { ACCURACY_CELL } from '@/lib/geo/grid';
 import {
-  FR_BOUNDS,
   IGN_LAYERS,
   LAYER_IFC_NAME,
   fetchThemeLayer,
+  isOutsideFrance,
   parseIGN,
   rgeAltiGrid,
   siteDatumZ,
@@ -83,14 +83,7 @@ export async function runBuild(
     if (opts.parcels) themes.push('parcel');
   }
 
-  // A rectangle can straddle the border, so every corner has to be inside.
-  if (
-    ign &&
-    (rect.minLat < FR_BOUNDS.minLat ||
-      rect.maxLat > FR_BOUNDS.maxLat ||
-      rect.minLon < FR_BOUNDS.minLon ||
-      rect.maxLon > FR_BOUNDS.maxLon)
-  ) {
+  if (ign && isOutsideFrance(rect)) {
     return { ok: false, error: new AppError('err.ignOutsideFrance') };
   }
 
@@ -171,8 +164,15 @@ export async function runBuild(
   const meta: SiteMeta = {
     origin,
     // The origin marker and its placement fields write these after the build; a
-    // fresh one starts centred, on model zero, square to the grid.
-    exportOffset: [0, 0, 0],
+    // fresh one starts centred, resting on the ground, square to the grid.
+    //
+    // The ground height is settled here rather than left for the viewer to fill
+    // in, because the emitter serialises the moment it is handed this object —
+    // before the viewer has drawn anything. Defaulted to zero and corrected
+    // afterwards, that first file would be written with nothing to subtract and
+    // every element would carry its absolute altitude. Viewer.setScene puts the
+    // marker on this same number, so the two never disagree.
+    exportOffset: [0, 0, scene.datumZ ?? 0],
     projectBase: [0, 0, 0],
     projectAngle: 0,
     lat,
@@ -182,12 +182,14 @@ export async function runBuild(
     geodeticDatum: crs.datum,
     // The vertical datum belongs to whatever produced the heights, not to the
     // horizontal grid — a projected CRS is two-dimensional and names none. So it
-    // follows the DEM, and follows RefElevation's rule directly below it: with no
-    // altimetry there is no datum to declare, and naming one would be a claim
-    // nothing in the file supports. EGM96 is the datum of Terrarium's dominant
-    // source; the tiles are a mosaic, so read it as accurate to about a metre.
+    // follows the DEM: with no altimetry there is no datum to declare, and
+    // naming one would be a claim nothing in the file supports. EGM96 is the
+    // datum of Terrarium's dominant source; the tiles are a mosaic, so read it
+    // as accurate to about a metre. This is also RefElevation's null rule — see
+    // ContextModel in lib/ifc/writer, which derives the actual number from
+    // wherever the origin marker sits rather than from anything here.
     verticalDatum: scene.datumZ === null ? null : ign ? 'NGF-IGN69' : 'EGM96',
-    refElevation: scene.datumZ,
+    crsDef: crs.def,
     projectName: `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
   };
 

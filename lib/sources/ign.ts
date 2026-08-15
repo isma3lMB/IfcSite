@@ -37,6 +37,16 @@ const GEOPF_ALTI = 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevat
 // degree at the top puts London inside the box.
 export const FR_BOUNDS = { minLat: 41.3, maxLat: 51.15, minLon: -5.2, maxLon: 9.6 };
 
+// A rectangle can straddle the border, so every corner has to be inside.
+export function isOutsideFrance(rect: SiteRect): boolean {
+  return (
+    rect.minLat < FR_BOUNDS.minLat ||
+    rect.maxLat > FR_BOUNDS.maxLat ||
+    rect.minLon < FR_BOUNDS.minLon ||
+    rect.maxLon > FR_BOUNDS.maxLon
+  );
+}
+
 export type IgnLayer = {
   type: string;
   geom: string;

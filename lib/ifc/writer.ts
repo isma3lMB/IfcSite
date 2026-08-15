@@ -1,3 +1,4 @@
+import proj4 from 'proj4';
 import { xfAxes } from '@/lib/geo/euler';
 import { treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
@@ -6,7 +7,12 @@ import { defaultColors } from '@/lib/scene/xf';
 import type { Building, PropBag, SiteMeta, Tree, Vec2, Vec3 } from '@/lib/types';
 
 /* =====================================================================
-   ifc-writer — dependency-free IFC4 SPF serialiser
+   ifc-writer — IFC4 SPF serialiser
+
+   Framework-free: no renderer, no DOM, nothing that needs a browser — the whole
+   emit path runs under plain Node. proj4 is here for one job, inverting the
+   origin marker's projected position back to WGS84 for IfcSite's RefLatitude
+   and RefLongitude, and is pure arithmetic like the rest.
    ===================================================================== */
 
 type Real = { __t: 'real'; v: number };
@@ -39,6 +45,32 @@ export const E = (v: string): EnumV => ({ __t: 'enum', v });
 export const S = (v: string): StrV => ({ __t: 'str', v });
 export const DERIVED: DerivedV = { __t: 'derived' };
 export const TYPED = (t: string, i: Attr): TypedV => ({ __t: 'typed', type: t, inner: i });
+
+/**
+ * Decimal degrees as an IfcCompoundPlaneAngleMeasure — LIST[3:4] OF INTEGER,
+ * being degrees, minutes, seconds and millionths of a second.
+ *
+ * Every component carries the angle's own sign, which is what the schema asks
+ * for and what readers expect: a western longitude is (-2,-21,-7,-920000), not
+ * a negative degree followed by three positive parts. Split on the absolute
+ * value and signed at the end, so that falls out rather than being special-cased.
+ *
+ * The carry matters. Rounding the millionths can land exactly on 1e6, and a
+ * naive split then emits 60 seconds — legal integers that no reader accepts as
+ * an angle. Each overflow is carried up in turn.
+ */
+export function dms(deg: number): Attr[] {
+  const sign = deg < 0 ? -1 : 1;
+  const a = Math.abs(deg);
+  let d = Math.floor(a);
+  let m = Math.floor((a - d) * 60);
+  let s = Math.floor(((a - d) * 60 - m) * 60);
+  let us = Math.round((((a - d) * 60 - m) * 60 - s) * 1e6);
+  if (us >= 1e6) (us -= 1e6), s++;
+  if (s >= 60) (s -= 60), m++;
+  if (m >= 60) (m -= 60), d++;
+  return [I(sign * d), I(sign * m), I(sign * s), I(sign * us)];
+}
 
 const GC = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
 
@@ -250,6 +282,10 @@ export class ContextModel {
     const sin = Math.sin(th);
     const basedOut = base[0] !== 0 || base[1] !== 0 || base[2] !== 0;
     const placed = basedOut || th !== 0;
+    // OrthogonalHeight: the elevation, above the vertical datum, of the point the
+    // origin marker sits at — which is model z = 0. The vertical half of the
+    // georeferencing, and the only place the file states a height in the datum.
+    const zHeight = off[2] - base[2];
 
     const metre = f.add('IfcSIUnit', [DERIVED, E('LENGTHUNIT'), null, E('METRE')]);
     const units = f.add('IfcUnitAssignment', [
@@ -316,6 +352,27 @@ export class ContextModel {
           ])
         : this.world,
     ]);
+    /* Where the origin marker is on Earth, for RefLatitude/RefLongitude below.
+       Site coordinates are metres east/north of the projected site origin, so
+       the marker's map position is just that plus the offset — projectBase and
+       projectAngle play no part, since they rename coordinates rather than move
+       the point. Inverted here at write time rather than stored anywhere: the
+       marker moves, and a saved copy of its position is a copy to keep in step.
+       A hand-edited draft can carry a definition proj4 rejects, and a bad
+       informational attribute must not cost the whole export — so that falls
+       back to the site centre, which is where the marker starts anyway. */
+    let originLon = o.lon;
+    let originLat = o.lat;
+    try {
+      const g = proj4(o.crsDef, 'EPSG:4326', [
+        this.origin[0] + off[0],
+        this.origin[1] + off[1],
+      ]) as Vec2;
+      if (Number.isFinite(g[0]) && Number.isFinite(g[1])) [originLon, originLat] = g;
+    } catch {
+      /* keep the site centre */
+    }
+
     this.site = f.add('IfcSite', [
       S(ifcGuid()),
       null,
@@ -326,12 +383,19 @@ export class ContextModel {
       null,
       null,
       E('ELEMENT'),
-      null,
-      null,
-      // RefElevation: the site's ground level above the vertical datum named on
-      // the IfcProjectedCRS. Only set when the build established a datum — a flat
-      // scene has no altitude to declare, and declaring zero would claim one.
-      o.refElevation === null ? null : R(o.refElevation),
+      // RefLatitude/RefLongitude/RefElevation all describe the same point — the
+      // origin marker — and are informational: the authoritative placement is
+      // the IfcMapConversion below, and these are what a properties panel shows
+      // when someone asks where in the world this model is.
+      //
+      // RefElevation is off[2], the marker's own height above the vertical
+      // datum. Deliberately not OrthogonalHeight, which is off[2] - base[2] and
+      // answers a different question — the elevation of model (0,0,0). The two
+      // part company as soon as the project is based off zero vertically, and
+      // IfcSite sits on the marker, not on model zero.
+      dms(originLat),
+      dms(originLon),
+      R(off[2]),
       null,
       null,
     ]);
@@ -362,7 +426,7 @@ export class ContextModel {
       // vertical datum's own altitude, so there is nothing to add back. Raising the
       // origin, or basing the project above zero, takes that much off every
       // exported height, and this is what puts it back.
-      R(off[2] - base[2]),
+      R(zHeight),
       // XAxisAbscissa/XAxisOrdinate: the model's +X direction in map coordinates.
       // The angle is defined as exactly that — counter-clockwise from grid east —
       // so the pair reads straight off it. Scale stays 1: the projected CRS is
@@ -378,17 +442,24 @@ export class ContextModel {
   // reused, which keeps unedited files as small as they were before.
   //
   // The chosen origin is subtracted here, so every element is placed relative to
-  // it and the file's (0,0,0) is the point the user picked. This is also right
-  // for addSurface, whose geometry is absolute site coordinates in a point list:
-  // it passes loc null, which becomes -off, and its points resolve against that.
-  // The cost of re-basing here rather than on the site is that elements which
-  // used to share the world placement now each need a point of their own.
-  private placement(loc: Vec3 | null, axis?: Vec3 | null, refDir?: Vec3 | null): Ref {
+  // it and the file's (0,0,0) is the point the user picked. The cost of re-basing
+  // here rather than on the site is that elements which used to share the world
+  // placement now each need a point of their own.
+  //
+  // `rebase` is false for a caller that has already put its own geometry into
+  // model coordinates — addSurface, which re-bases its vertex list — so `loc`
+  // is written through untouched rather than being shifted a second time.
+  private placement(
+    loc: Vec3 | null,
+    axis?: Vec3 | null,
+    refDir?: Vec3 | null,
+    rebase = true,
+  ): Ref {
     const f = this.f;
     const [lx, ly, lz] = loc || [0, 0, 0];
-    const x = lx - this.off[0];
-    const y = ly - this.off[1];
-    const z = lz - this.off[2];
+    const x = rebase ? lx - this.off[0] : lx;
+    const y = rebase ? ly - this.off[1] : ly;
+    const z = rebase ? lz - this.off[2] : lz;
     const moved = Math.abs(x) > 1e-9 || Math.abs(y) > 1e-9 || Math.abs(z) > 1e-9;
     const turned = !!(axis && refDir);
     let ax = this.world;
@@ -578,12 +649,22 @@ export class ContextModel {
    * One tessellated context element — terrain, the merged roadway, a draped
    * layer polygon.
    *
-   * `offset` is the layer offset from the model tree. The geometry stays in
-   * absolute site coordinates and the placement carries the move instead, which
-   * is what keeps the file's numbers the same numbers the preview drew: the
-   * viewer applies exactly this vector as its layer group's transform. Note
-   * that a moved layer no longer satisfies the IfcMapConversion promise for its
-   * own geometry — that is inherent to moving it, and the UI says so.
+   * The vertex list arrives in absolute site coordinates — that is what the
+   * builder drapes and what the viewer draws — and is re-based onto the model
+   * origin here, so the numbers written to the file are local ones. Doing it in
+   * the coordinates rather than in the placement matters: left absolute with a
+   * compensating placement, the file resolved to the right spot but every
+   * terrain, road and draped-layer vertex still read as the site's altitude
+   * above the vertical datum, which is exactly what the model origin exists to
+   * take out. Buildings and trees never had this problem — their geometry is
+   * local already and only the placement locates them.
+   *
+   * `offset` is the layer offset from the model tree, and stays on the
+   * placement: the viewer applies exactly this vector as its layer group's
+   * transform, so keeping it separate is what lets the file agree with the
+   * preview. Note that a moved layer no longer satisfies the IfcMapConversion
+   * promise for its own geometry — that is inherent to moving it, and the UI
+   * says so.
    */
   addSurface(
     verts: Vec3[],
@@ -597,8 +678,9 @@ export class ContextModel {
   ): Ref | null {
     const f = this.f;
     if (!verts.length || !faces.length) return null;
+    const [ox, oy, oz] = this.off;
     const coords = f.add('IfcCartesianPointList3D', [
-      verts.map((v) => [R(v[0]), R(v[1]), R(v[2])]),
+      verts.map((v) => [R(v[0] - ox), R(v[1] - oy), R(v[2] - oz)]),
       null,
     ]);
     const fr = faces.map((t) => f.add('IfcIndexedPolygonalFace', [t.map((i) => I(i + 1))]));
@@ -617,7 +699,9 @@ export class ContextModel {
       S(name),
       null,
       pre === 'USERDEFINED' && type ? S(type) : null,
-      this.placement(offset ?? null),
+      // rebase: false — the vertex list above is already in model coordinates,
+      // so this carries the layer offset alone.
+      this.placement(offset ?? null, null, null, false),
       pds,
       null,
       E(pre),

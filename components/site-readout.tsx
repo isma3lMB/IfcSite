@@ -9,6 +9,7 @@ export type SiteReadoutProps = {
   buildings: number | null;
   stats: IfcStats | null;
   originLabel: string | null;
+  datum: { verticalDatum: string | null; refElevation: number | null } | null;
 };
 
 /**
@@ -52,12 +53,19 @@ export function SiteReadout(p: SiteReadoutProps) {
 
   // Nothing to say before a site is drawn, and an empty line would still take
   // the row's height off the map.
-  if (!m && p.buildings === null && !p.stats && !p.originLabel) return null;
+  if (!m && p.buildings === null && !p.stats && !p.originLabel && !p.datum) return null;
 
   return (
     <div className="siteReadout">
       {m && cell(t('bar.site'), `${n(Math.round(m.w))} × ${n(Math.round(m.h))} m`)}
       {p.buildings !== null && cell(t('read.buildings'), n(p.buildings))}
+      {p.datum &&
+        cell(
+          t('read.datum'),
+          p.datum.verticalDatum
+            ? `${p.datum.verticalDatum} · ${n(Math.round((p.datum.refElevation ?? 0) * 10) / 10)} m`
+            : t('read.datumFlat'),
+        )}
       {p.stats && cell(t('read.entities'), n(p.stats.entities))}
       {size && cell(t('read.file'), size)}
       {p.originLabel && (

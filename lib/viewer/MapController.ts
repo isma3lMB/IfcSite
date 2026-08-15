@@ -4,8 +4,8 @@ import type { Params, StatusKey } from '@/lib/i18n/keys';
 import type { SiteRect } from '@/lib/types';
 
 export type MapCallbacks = {
-  /** Fires on every live drag frame as well as on commit. */
-  onSite: (rect: SiteRect | null) => void;
+  /** Fires on every live drag frame as well as on commit; `live` tells them apart. */
+  onSite: (rect: SiteRect | null, live: boolean) => void;
   /**
    * Draw-mode changes. Reported separately from onSite because finishing a
    * gesture sets the rectangle before it disarms — deriving one from the other
@@ -19,29 +19,15 @@ export type MapCallbacks = {
 const DRAG_PX = 6;
 
 /**
- * The basemap per theme.
- *
- * CARTO's dark_all is the conventional dark pairing for OSM data and is free to
- * use at this scale; it is still OpenStreetMap underneath, which is why the
- * credit stays and CARTO's is added rather than substituted. Attribution is part
- * of the tuple and not a constant for exactly that reason — swapping the URL
- * without swapping the credit would be a licence breach, not a styling bug.
+ * The basemap. Both themes share this one tile source — dark mode is a CSS
+ * invert filter over the tile pane (see .leaflet-tile-pane in globals.css),
+ * not a different provider — so the map keeps the same labels and style in
+ * either theme instead of drifting to a second cartography style.
  */
-const BASEMAPS: Record<
-  'light' | 'dark',
-  { url: string; attribution: string }
-> = {
-  light: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  },
-  dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
-      '© <a href="https://carto.com/attributions">CARTO</a>',
-  },
+const BASEMAP = {
+  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution:
+    '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 };
 
 /**
@@ -59,11 +45,9 @@ export class MapController {
   private readonly cb: MapCallbacks;
   private readonly resizeObserver: ResizeObserver;
 
-  private readonly tiles: L.TileLayer;
-  private theme: 'light' | 'dark' = 'light';
   /** The live ceiling from the options panel's Advanced group, which arrives
    *  after construction and can change again — hence a field rather than an
-   *  argument, like `theme` above. */
+   *  argument. */
   private siteMax = SITE_MAX;
 
   private siteRect: SiteRect | null = null;
@@ -86,10 +70,10 @@ export class MapController {
     // shift-drag is ours now
     this.map = leaflet.map(host, { boxZoom: false, zoomControl: false });
     leaflet.control.zoom({ position: 'topright' }).addTo(this.map);
-    this.tiles = leaflet
-      .tileLayer(BASEMAPS.light.url, {
+    leaflet
+      .tileLayer(BASEMAP.url, {
         maxZoom: 19,
-        attribution: BASEMAPS.light.attribution,
+        attribution: BASEMAP.attribution,
       })
       .addTo(this.map);
     this.map.setView([48.8539, 2.3407], 5);
@@ -123,25 +107,6 @@ export class MapController {
   }
 
   /**
-   * Swap the basemap with the app's theme.
-   *
-   * setUrl() on the existing layer rather than remove/add: the layer holds the
-   * tile cache and the pane it draws into, and replacing it would blank the map
-   * for a beat and drop it below the site rectangle in the pane order. The
-   * attribution has to be moved by hand — Leaflet reads that option once, when
-   * the layer is added to the map.
-   */
-  setTheme(theme: 'light' | 'dark'): void {
-    const was = this.theme;
-    if (theme === was) return;
-    this.theme = theme;
-
-    this.map.attributionControl.removeAttribution(BASEMAPS[was].attribution);
-    this.map.attributionControl.addAttribution(BASEMAPS[theme].attribution);
-    this.tiles.setUrl(BASEMAPS[theme].url);
-  }
-
-  /**
    * The longest side a drawn rectangle may have, in metres.
    *
    * Binds the next gesture, not the current rectangle: lowering the ceiling
@@ -169,7 +134,7 @@ export class MapController {
     const { rect, clamped } = clampRect(r, anchor, this.siteMax);
     this.siteRect = rect;
     this.syncSiteLayers();
-    this.cb.onSite(rect);
+    this.cb.onSite(rect, live);
     // Reports the live ceiling, not the shipped one, so the toast cannot name a
     // limit the drag was not actually held to.
     if (clamped && !live)
@@ -194,7 +159,7 @@ export class MapController {
   private clearSite(): void {
     this.siteRect = null;
     this.clearSiteLayers();
-    this.cb.onSite(null);
+    this.cb.onSite(null, false);
   }
 
   private syncSiteLayers(): void {
@@ -244,6 +209,7 @@ export class MapController {
           this.dragAnchor = null;
           this.syncSiteLayers();
           this.reportSite();
+          this.cb.onSite(this.siteRect, false);
         });
         this.handles[i] = mk;
       } else if (i !== this.dragIdx) {
@@ -396,6 +362,7 @@ export class MapController {
       this.map.dragging.enable();
       this.L.DomUtil.enableTextSelection();
       this.reportSite();
+      this.cb.onSite(this.siteRect, false);
     };
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);

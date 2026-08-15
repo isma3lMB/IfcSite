@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider';
 import { useT } from '@/lib/i18n/context';
 import type { StringKey } from '@/lib/i18n/context';
 import { rnd } from '@/lib/scene/xf';
-import type { Vec3 } from '@/lib/types';
+import type { SiteMeta, Vec3 } from '@/lib/types';
 import type { Selection } from '@/lib/viewer/Viewer';
 
 export type AxisKey = 'pos' | 'rot' | 'scale';
@@ -128,6 +128,11 @@ export type ElementEditorProps = {
   onReset: () => void;
   onResetOrigin: () => void;
   onDeselect: () => void;
+  /* Lets the origin's position row show the marker's absolute projected
+     position (site CRS easting/northing) instead of its raw local offset from
+     the site centre — see ed.originPosition. Null before a scene exists, which
+     is also when the origin can't be selected. */
+  siteMeta: SiteMeta | null;
   /* The local project coordinate system. Export metadata rather than a scene
      edit, so it lives outside the selection and outside the undo stack — see
      ed.projectHint. */
@@ -217,11 +222,15 @@ export function ElementEditor(p: ElementEditorProps) {
       {isOrigin && (
         <div>
           <div className="field">
-            <span className="eyebrow block mb-1.5">{t('ed.originPosition')}</span>
-            {xfRow(
+            <span className="eyebrow block mb-1.5">
+              {t('ed.originPosition', { epsg: p.siteMeta?.epsg ?? '' })}
+            </span>
+            {axisRow(
               'pos',
-              xf.pos.map((v) => rnd(v, 2)),
+              xf.pos.map((v, i) => rnd(i < 2 && p.siteMeta ? v + p.siteMeta.origin[i] : v, 2)),
               0.5,
+              (i, v, commit) =>
+                p.onAxis('pos', i, i < 2 && p.siteMeta ? v - p.siteMeta.origin[i] : v, commit),
             )}
           </div>
 

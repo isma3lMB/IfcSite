@@ -94,6 +94,10 @@ export const en = {
   'ctl.crsError': 'CRS index unavailable — automatic UTM still works.',
   'ctl.crsNone': 'No match.',
   'ctl.crsValidHere': '{n} valid at this site',
+  'ctl.verticalDatum': 'Vertical datum',
+  'ctl.verticalDatumNone': 'None — flat',
+  'ctl.verticalDatumHint':
+    'IGN sites use NGF-IGN69; OSM sites use EGM96 once terrain is included — without it the model has no vertical reference.',
   'ctl.defaultHeight': 'Height when untagged',
   'ctl.dataSource': 'Data source',
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — worldwide',
@@ -166,6 +170,8 @@ export const en = {
      and layer counts are gone: the only signal they carried — a layer came back
      empty — is already the closing clause of the build summary. ---- */
   'read.buildings': 'Buildings',
+  'read.datum': 'Datum',
+  'read.datumFlat': 'None — flat',
   'read.entities': 'Entities',
   'read.file': 'File',
   'unit.kb': 'kB',
@@ -198,7 +204,7 @@ export const en = {
   'ed.redo': 'Redo (Ctrl+Shift+Z)',
   'ed.close': 'Deselect (Esc)',
   'ed.originName': 'Model origin',
-  'ed.originPosition': 'Offset from site centre (m)',
+  'ed.originPosition': 'Global position — {epsg} (m)',
   'ed.resetOrigin': 'Recentre origin',
   'ed.originHint':
     'The point the exported IFC calls (0, 0, 0). Moving it re-bases the file without moving anything on the ground.',

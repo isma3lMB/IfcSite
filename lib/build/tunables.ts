@@ -41,7 +41,7 @@ export type Tunables = {
 export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
   buildingCap: 4000,
   treeCap: 1500,
-  siteMax: 2000,
+  siteMax: 1000,
   overpassTimeoutMs: 45000,
   maxGridN: 211,
   conformStep: 8,
@@ -69,7 +69,7 @@ export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
 export const TUNE_RANGE: Record<keyof Tunables, [number, number]> = {
   buildingCap: [200, 4000],
   treeCap: [100, 5000],
-  siteMax: [500, 3000],
+  siteMax: [500, 2000],
   overpassTimeoutMs: [10000, 180000],
   maxGridN: [16, 211],
   conformStep: [2, 40],

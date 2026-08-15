@@ -1231,16 +1231,18 @@ export class Viewer {
     // hidden in the one it replaces.
     this.hidden.clear();
     Viewer.disposeGroup(this.contentGroup);
-    // A rebuild re-derives the site, so an offset measured against the old one
-    // means nothing — the origin goes back to the centre with it.
-    this.setOrigin([0, 0, 0], false);
 
-    const { halfX, halfY } = site;
     // Where the ground is. Everything the builder produced is in absolute model z
     // once the scene has a vertical datum, so the reference plane has to rise to
     // meet it — left at zero it reads as the ground and puts the whole site
     // apparently in mid-air. Null datum means a flat scene, and zero is right.
     const z0 = scene.datumZ ?? 0;
+    // A rebuild re-derives the site, so an offset measured against the old one
+    // means nothing — the origin goes back to the centre with it, resting on the
+    // ground rather than floating at elevation zero.
+    this.setOrigin([0, 0, z0], false);
+
+    const { halfX, halfY } = site;
 
     // The rectangle drawn on the map, so the site boundary is readable in 3D too.
     const outline = new THREE.BufferGeometry().setFromPoints([
@@ -2207,11 +2209,14 @@ export class Viewer {
     this.setOrigin(off, false);
   }
 
-  /** Put the model origin back at the site centre, as one undoable step. */
+  /** Put the model origin back at the site centre, resting on the ground, as
+   *  one undoable step. */
   resetOrigin(): void {
-    if (this.originOffset.lengthSq() === 0) return;
+    const z0 = this.scene?.datumZ ?? 0;
+    if (this.originOffset.x === 0 && this.originOffset.y === 0 && this.originOffset.z === z0)
+      return;
     this.beginEdit();
-    this.setOrigin([0, 0, 0]);
+    this.setOrigin([0, 0, z0]);
     this.commitEdit('edit.originReset');
   }
 
