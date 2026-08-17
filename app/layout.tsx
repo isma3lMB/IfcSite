@@ -21,7 +21,7 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: 'IFC Site — contexte de site vers IFC',
   description:
-    'Tracez un rectangle sur une carte et obtenez un fichier IFC4 géoréférencé des bâtiments, voiries et terrain qu’il contient — entièrement dans le navigateur.',
+    'Tracez un rectangle sur une carte et obtenez un fichier IFC géoréférencé des bâtiments, voiries et terrain qu’il contient — entièrement dans le navigateur.',
 };
 
 /**

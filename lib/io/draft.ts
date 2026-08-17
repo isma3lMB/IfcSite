@@ -3,6 +3,7 @@ import { DEFAULT_FORM } from '@/lib/build/defaults';
 import { sanitizeTunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import { gridFrom } from '@/lib/geo/grid';
+import { isIfcSchema } from '@/lib/ifc/writer';
 import { LAYER_IDS, newLayerState } from '@/lib/types';
 import type {
   Building,
@@ -344,6 +345,7 @@ const buildOptions = (v: unknown): BuildOptions => {
   const d = DEFAULT_FORM;
   return {
     epsg: str(s.epsg, d.epsg),
+    ifcSchema: isIfcSchema(s.ifcSchema) ? s.ifcSchema : d.ifcSchema,
     defaultHeight: Math.min(200, Math.max(1, num(s.defaultHeight, d.defaultHeight))),
     provider: s.provider === 'osm' || s.provider === 'ign' ? s.provider : d.provider,
     buildings: bool(s.buildings, d.buildings),
@@ -385,6 +387,9 @@ const siteMeta = (v: unknown, rect: SiteRect): SiteMeta | null => {
     // before the meta carried one.
     crsDef: str(v.crsDef, ''),
     projectName: str(v.projectName, `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`),
+    // A draft written before there was a choice was written as IFC4, so the
+    // default is not a guess — it is what that file actually says.
+    schema: isIfcSchema(v.schema) ? v.schema : 'IFC4',
   };
 };
 

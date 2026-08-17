@@ -1,5 +1,8 @@
 import type { Tunables } from '@/lib/build/tunables';
 import type { LayerKey, Params, StatusKey } from '@/lib/i18n/keys';
+import type { IfcSchema } from '@/lib/ifc/writer';
+
+export type { IfcSchema };
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -297,6 +300,16 @@ export type SiteMeta = {
    */
   crsDef: string;
   projectName: string;
+  /**
+   * Which IFC schema the file is written against.
+   *
+   * Here rather than only on BuildOptions because SiteMeta is the writer's whole
+   * input, and because nothing about the schema is a build input: no source is
+   * re-queried and no coordinate moves, so switching it re-serialises the scene
+   * already on screen. The options panel writes it into the live meta and marks
+   * the emitter dirty, the same path the origin marker's own fields take.
+   */
+  schema: IfcSchema;
 };
 
 export type Provider = 'osm' | 'ign';
@@ -312,6 +325,13 @@ export type TerrainAccuracy = 'coarse' | 'standard' | 'fine' | 'max';
 
 export type BuildOptions = {
   epsg: string;
+  /**
+   * Which IFC schema Download writes. Sits here, with the settings a session
+   * keeps, so it is remembered and travels in a draft — but it is not an input
+   * to runBuild the way the CRS is: nothing is re-fetched when it changes, and
+   * the scene on screen does not go stale. See SiteMeta.schema.
+   */
+  ifcSchema: IfcSchema;
   defaultHeight: number;
   provider: Provider;
   buildings: boolean;

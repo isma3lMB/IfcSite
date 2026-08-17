@@ -12,13 +12,13 @@ export const fr: Dict = {
   /* ---- chrome ---- */
   'app.title': 'IFC Site — contexte de site vers IFC',
   'app.description':
-    'Tracez un rectangle sur une carte et obtenez un fichier IFC4 géoréférencé des bâtiments, voiries et terrain qu’il contient — entièrement dans le navigateur.',
+    'Tracez un rectangle sur une carte et obtenez un fichier IFC géoréférencé des bâtiments, voiries et terrain qu’il contient — entièrement dans le navigateur.',
   'app.wordmark': 'IFC Site',
   'app.tag': 'Sans serveur · s’exécute dans cet onglet',
   'app.h1a': 'IFC',
   'app.h1b': 'Site',
   'app.sub':
-    'Tracez un rectangle sur la carte. Il récupère les bâtiments et les voiries qu’il contient, les extrude et écrit un fichier IFC4 géoréférencé — entièrement dans le navigateur.',
+    'Tracez un rectangle sur la carte. Il récupère les bâtiments et les voiries qu’il contient, les extrude et écrit un fichier IFC géoréférencé — entièrement dans le navigateur.',
   'app.badge': 'Volumétrie LOD1\nIfcBuildingElementProxy\nLoGeoRef 50',
   'app.langLabel': 'Langue',
 
@@ -96,6 +96,12 @@ export const fr: Dict = {
   'ctl.crsError': 'Index des SCR indisponible — l’UTM automatique reste utilisable.',
   'ctl.crsNone': 'Aucun résultat.',
   'ctl.crsValidHere': '{n} valables sur ce site',
+  'ctl.ifcSchema': 'Schéma IFC',
+  'ctl.ifcSchema2x3': 'IFC2X3 — logiciels plus anciens',
+  'ctl.ifcSchema4': 'IFC4 — par défaut',
+  'ctl.ifcSchema4x3': 'IFC4X3 — infrastructure',
+  'ctl.ifcSchemaBrepHint':
+    'IFC2X3 ne connaît pas la tessellation : le terrain, les voiries et les arbres sont exportés en représentation par frontières — le même modèle, dans un fichier plusieurs fois plus lourd.',
   'ctl.verticalDatum': 'Référence verticale',
   'ctl.verticalDatumNone': 'Aucun — plat',
   'ctl.verticalDatumHint':
@@ -351,6 +357,12 @@ export const fr: Dict = {
   'err.crsUnknown': '{epsg} ne figure pas dans l’index des SCR.',
   'err.crsIndexUnavailable':
     'L’index des SCR n’a pas pu être chargé. Choisissez la zone UTM automatique, ou rechargez la page.',
+  'err.draftUnreadable': 'Ce fichier n’est pas une ébauche IFC Site.',
+  'err.draftVersion':
+    'Cette ébauche a été écrite par une version plus récente d’IFC Site (format {version}). Actualisez la page et réessayez.',
+  'err.draftCorrupt': 'L’ébauche est incomplète et ne peut pas être ouverte.',
+  'err.slotsUnavailable':
+    'Ce navigateur n’enregistrera pas d’ébauches — navigation privée, très probablement. Exportez plutôt un fichier d’ébauche.',
 
   /* ---- notes ---- */
   notes: [

@@ -191,6 +191,10 @@ export async function runBuild(
     verticalDatum: scene.datumZ === null ? null : ign ? 'NGF-IGN69' : 'EGM96',
     crsDef: crs.def,
     projectName: `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+    // Seeded from the form, then owned by the meta: the options panel writes
+    // later changes straight in here rather than through a rebuild, since the
+    // schema decides how the scene is written and not what is in it.
+    schema: opts.ifcSchema,
   };
 
   let tagged = 0;

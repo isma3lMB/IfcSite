@@ -714,6 +714,18 @@ export function IfcSite() {
     // rectangle you may draw next and says nothing about a scene already built.
     if (patch.tune && Object.keys(patch.tune).some((k) => SCENE_TUNABLES.has(k as keyof Tunables)))
       setSiteDirty((d) => d || hasScene);
+    // The schema is an export parameter, not a build input — nothing has to be
+    // re-fetched and no coordinate moves — so it reaches an open model the way
+    // the origin marker's own fields do: straight into the live SiteMeta, then
+    // re-serialise. Deliberately not one of the siteDirty conditions above: the
+    // scene on screen is still exactly what the next build would produce.
+    if (patch.ifcSchema) {
+      const m = metaRef.current;
+      if (m) {
+        m.schema = patch.ifcSchema;
+        emitterRef.current?.markDirty();
+      }
+    }
     setForm((f) => {
       // `tune` is re-spread after the shallow merge: the panel sends one field
       // at a time, so {...f, ...patch} alone would put a one-key object where

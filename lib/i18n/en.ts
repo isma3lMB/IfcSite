@@ -8,13 +8,13 @@ export const en = {
   /* ---- chrome ---- */
   'app.title': 'IFC Site — site context to IFC',
   'app.description':
-    'Draw a rectangle on a map and get a georeferenced IFC4 file of the buildings, roads and terrain inside it — entirely in the browser.',
+    'Draw a rectangle on a map and get a georeferenced IFC file of the buildings, roads and terrain inside it — entirely in the browser.',
   'app.wordmark': 'IFC Site',
   'app.tag': 'No server · runs in this tab',
   'app.h1a': 'IFC',
   'app.h1b': 'Site',
   'app.sub':
-    'Draw a rectangle on the map. It pulls the buildings and roads inside it, extrudes them, and writes a georeferenced IFC4 file — entirely in the browser.',
+    'Draw a rectangle on the map. It pulls the buildings and roads inside it, extrudes them, and writes a georeferenced IFC file — entirely in the browser.',
   'app.badge': 'LOD1 massing\nIfcBuildingElementProxy\nLoGeoRef 50',
   'app.langLabel': 'Language',
 
@@ -94,6 +94,12 @@ export const en = {
   'ctl.crsError': 'CRS index unavailable — automatic UTM still works.',
   'ctl.crsNone': 'No match.',
   'ctl.crsValidHere': '{n} valid at this site',
+  'ctl.ifcSchema': 'IFC schema',
+  'ctl.ifcSchema2x3': 'IFC2X3 — older readers',
+  'ctl.ifcSchema4': 'IFC4 — default',
+  'ctl.ifcSchema4x3': 'IFC4X3 — infrastructure',
+  'ctl.ifcSchemaBrepHint':
+    'IFC2X3 has no tessellation, so terrain, roads and trees export as boundary representation — the same model, in a file several times the size.',
   'ctl.verticalDatum': 'Vertical datum',
   'ctl.verticalDatumNone': 'None — flat',
   'ctl.verticalDatumHint':

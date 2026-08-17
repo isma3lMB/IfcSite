@@ -1,7 +1,8 @@
 # IFC Site — Technical Overview
 
 **IFC Site** is a browser-only tool that turns a rectangle drawn on a map into a
-georeferenced **IFC4** file of the buildings, roads, terrain and context layers inside it.
+georeferenced **IFC** file of the buildings, roads, terrain and context layers inside it,
+in IFC2X3, IFC4 or IFC4X3.
 
 There is no backend. `next build` emits a static site (`output: 'export'`), and every
 request — Overpass, IGN Géoplateforme, Nominatim, Terrarium DEM — goes straight from the
@@ -23,7 +24,7 @@ browser to a service that sends `Access-Control-Allow-Origin: *`. The whole pipe
 | 3D | three.js 0.160 — `OrbitControls`, `TransformControls`, `InstancedMesh`, a custom sky shader |
 | 2D map | Leaflet 1.9 over OSM raster tiles |
 | Projection | proj4 |
-| IFC | hand-written IFC4 / ISO-10303-21 serialiser — no IFC library |
+| IFC | hand-written ISO-10303-21 serialiser, IFC2X3 / IFC4 / IFC4X3 — no IFC library |
 | Types | TypeScript 7 in `strict` mode; type checking routed through the TS CLI (`experimental.useTypeScriptCli`) |
 
 Scripts (`package.json`):
@@ -49,7 +50,7 @@ lib/
   build/             the fetch-and-build orchestration + IFC emitter lifecycle
   geo/               pure geometry: CRS, rings, meshes, rectangles, Euler decomposition
   i18n/              FR/EN dictionaries, key vocabulary, React context
-  ifc/               IFC4 SPF serialiser and the scene → IFC pass
+  ifc/               SPF serialiser (three schemas) and the scene → IFC pass
   scene/             scene-record construction and the per-element transform type
   sources/           network adapters: Overpass, IGN, Nominatim, Terrarium
   viewer/            imperative three.js Viewer and Leaflet MapController
@@ -584,12 +585,43 @@ site, and the flat loop's `O(cells × vertices)` turned a 180 ms build into 45 s
 
 ## 11. IFC output (`lib/ifc/`)
 
-### [writer.ts](lib/ifc/writer.ts) — dependency-free IFC4 SPF serialiser (444 lines)
+### [writer.ts](lib/ifc/writer.ts) — dependency-free IFC SPF serialiser
 
-A small typed-value layer (`R`, `I`, `E`, `S`, `TYPED`, `DERIVED`) formats attributes
+A small typed-value layer (`R`, `I`, `E`, `S`, `B`, `TYPED`, `DERIVED`) formats attributes
 correctly — reals always carry a decimal point, enums get dots, `*` for derived, `$` for
 null — and `IfcFile` assigns `#n` ids and wraps the whole thing in the ISO-10303-21
-header/footer with `FILE_SCHEMA(('IFC4'))`.
+header/footer.
+
+**Three schemas out of one emitter.** `SCHEMA_CAPS` is the entire difference between them,
+as capabilities rather than version tests, so each emitter asks for the thing it needs and a
+fourth schema would be a row rather than a sweep:
+
+| | IFC2X3 | IFC4 | IFC4X3 |
+| --- | --- | --- | --- |
+| Meshes | `IfcFacetedBrep` / `IfcShellBasedSurfaceModel` | `IfcPolygonalFaceSet` | `IfcPolygonalFaceSet` |
+| Context layers | `IfcBuildingElementProxy` | `IfcGeographicElement` | `IfcGeographicElement` |
+| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on `IfcSite` | `IfcMapConversion` + `IfcProjectedCRS` | same, +`ScaleY`/`ScaleZ` (10 attributes, not 8) |
+| `OwnerHistory` | mandatory — one shared instance | omitted (optional) | omitted (optional) |
+| Styles | `IfcPresentationStyleAssignment` wrapper | `IfcSurfaceStyle` directly | `IfcSurfaceStyle` directly |
+| Vegetation | `USERDEFINED` + `ObjectType` | `USERDEFINED` + `ObjectType` | **`.VEGETATION.`** |
+
+The IFC4 column is what this wrote before any of it existed, so an IFC4 export is
+entity-for-entity what it always was — the regression check when touching this file.
+
+IFC2X3 is the one that costs something. Tessellation arrived with IFC4, so `mesh()` has to
+fall back to boundary representation: three entities per face instead of one, roughly 3×
+the file. Vertices are still emitted once each and shared between the loops that touch
+them, which is what keeps it at 3× rather than 9×. `closed` picks the honest reading — a
+tree proxy is a sealed volume and goes out as `IfcFacetedBrep`; terrain, roads and the
+draped layers are open sheets (and the road skirt is not provably watertight after the fan
+triangulation in `emit.ts`), so they are `IfcShellBasedSurfaceModel` and promise only what
+they are.
+
+The schema is a `BuildOptions` field so it is remembered and travels in a draft, but it is
+**not** a build input: nothing is re-fetched and no coordinate moves, so the options panel
+writes it straight into the live `SiteMeta` and marks the emitter dirty — the same path the
+origin marker's own fields take. Switching schemas re-serialises the scene already on
+screen rather than rebuilding it.
 
 `esc()` matters more than it looks: SPF string literals are ASCII, and IGN attribute values
 are full of accents ("Forêt fermée de conifères"). Every non-ASCII run is emitted as an
@@ -607,6 +639,13 @@ IfcProject ──IfcRelAggregates──> IfcSite ──IfcRelContainedInSpatialS
 
 That combination is **LoGeoRef 50** — the model sits at a local origin and the projected
 easting/northing of that origin travels in `IfcMapConversion`.
+
+IFC2X3 has neither entity, so the same six numbers go onto `IfcSite` as `ePset_MapConversion`
+and `ePset_ProjectedCRS` — the convention the buildingSMART georeferencing guidance defines
+for exactly this. A reader that knows it recovers the full placement; one that does not
+still has `IfcSite.RefLatitude`/`RefLongitude`/`RefElevation` below, which is **LoGeoRef 30**
+and is written identically on all three schemas. The arithmetic is computed once and shared
+by both branches, so they cannot disagree.
 
 `VerticalDatum` follows the **elevation source**, not the horizontal grid: NGF-IGN69 for
 RGE ALTI, EGM96 for Terrarium (the datum of its dominant source — the tiles are a mosaic,
@@ -641,10 +680,10 @@ Element mapping:
 | Scene item | IFC |
 | --- | --- |
 | Building | `IfcBuildingElementProxy` + `IfcExtrudedAreaSolid` over an `IfcArbitraryClosedProfileDef` |
-| Terrain, roads, draped layers, trees | `IfcGeographicElement` + `IfcPolygonalFaceSet` (`TERRAIN` / `USERDEFINED` / `WATER` / `VEGETATION`) |
-| Vegetation volumes | `IfcGeographicElement` + swept solid, so a canopy reads as vegetation rather than a building proxy. A `Volume` therefore carries its geometry twice: the draped `verts`/`faces` the viewer renders, and the flat `ring`/`baseZ`/`h` profile the sweep needs. `baseZ` is the *lowest* point of the drape — a flat solid resting in the hillside beats one hovering over it |
+| Terrain, roads, draped layers | `IfcGeographicElement` + `IfcPolygonalFaceSet`, `PredefinedType` clamped to what the schema actually defines — anything outside it is demoted to `USERDEFINED` and says what it meant in `ObjectType` |
+| Tree | `IfcBuildingElementProxy` + `IfcPolygonalFaceSet`, one element per tree from `treeProxy` — the same shape the viewer draws |
 | Source attributes | `Pset_SiteContext` via `IfcPropertySet` / `IfcRelDefinesByProperties` |
-| Colour | `IfcStyledItem` → `IfcSurfaceStyle` directly (IFC4 allows it; the deprecated `IfcPresentationStyleAssignment` wrapper is skipped). The `IfcSurfaceStyleRendering` is written as explicit matte — `.MATT.`, `DiffuseColour` reusing the surface colour, `SpecularColour` a shared black `IfcColourRgb`, `IfcSpecularExponent` 1 — rather than left `.NOTDEFINED.` with null rendering attributes. Left undefined, every viewer substitutes a Phong default with a white specular highlight, and the flat draped layers (water, vegetation, roads) face straight up and bounce it into the camera. Said in colours rather than the tidier `IfcNormalisedRatioMeasure` factors, and with the exponent rather than `IfcSpecularRoughness`, because those are the branches of each select that Revit and ArchiCAD emit and viewers are therefore known to read. Don't simplify it back. Colours then pass through `toneForExport` — a highlight knee (`EXPORT_KNEE`/`EXPORT_CEILING`) applied on the way out only, because the palette is tuned against the preview's own hemisphere fill and a BIM viewer with more ambient gain clips the near-whites to paper. It is not a second palette: `lib/scene/stack` still holds one value per thing, and this is a rendering allowance on top of it. Those two constants are the knobs if an export reads too bright or too dark |
+| Colour | `IfcStyledItem` → `IfcSurfaceStyle` directly (IFC4 allows it; the wrapper it deprecated goes back in only under IFC2X3, whose `Styles` holds nothing else). The `IfcSurfaceStyleRendering` is written as explicit matte — `.MATT.`, `DiffuseColour` reusing the surface colour, `SpecularColour` a shared black `IfcColourRgb`, `IfcSpecularExponent` 1 — rather than left `.NOTDEFINED.` with null rendering attributes. Left undefined, every viewer substitutes a Phong default with a white specular highlight, and the flat draped layers (water, vegetation, roads) face straight up and bounce it into the camera. Said in colours rather than the tidier `IfcNormalisedRatioMeasure` factors, and with the exponent rather than `IfcSpecularRoughness`, because those are the branches of each select that Revit and ArchiCAD emit and viewers are therefore known to read. Don't simplify it back. Colours then pass through `toneForExport` — a highlight knee (`EXPORT_KNEE`/`EXPORT_CEILING`) applied on the way out only, because the palette is tuned against the preview's own hemisphere fill and a BIM viewer with more ambient gain clips the near-whites to paper. It is not a second palette: `lib/scene/stack` still holds one value per thing, and this is a rendering allowance on top of it. Those two constants are the knobs if an export reads too bright or too dark |
 
 `addBuilding` bakes the edit exactly the way the preview shows it: **X/Y scale into the
 profile, Z scale into the extrusion depth, position and rotation onto the placement** —
@@ -653,9 +692,8 @@ unedited files stay as small as they were before the editor existed.
 
 ### [emit.ts](lib/ifc/emit.ts) — `emitIFC(scene, meta)`
 Re-runnable, which is what lets post-build edits reach the download. Walks the scene in
-order (terrain, buildings, roads, surfaces, volumes, trees), reconstructs the road surface
-mesh from the stored quads, merges *all* trees into a single faceset (1200 separate
-elements would cost more than the buildings), and returns the text plus `IfcStats` as data
+order (terrain, buildings, roads, railways, surfaces, trees), reconstructs the road and
+railway surface meshes from the stored quads, and returns the text plus `IfcStats` as data
 for React to render.
 
 ---

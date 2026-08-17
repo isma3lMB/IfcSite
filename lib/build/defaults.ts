@@ -13,6 +13,10 @@ import type { BuildOptions } from '@/lib/types';
  */
 export const DEFAULT_FORM: BuildOptions = {
   epsg: '2154',
+  // IFC4 is what this wrote before it could write anything else, and the one
+  // most readers do best with. IFC2X3 is there for the older ones, IFC4X3 for
+  // infrastructure work.
+  ifcSchema: 'IFC4',
   defaultHeight: 9,
   provider: 'ign',
   buildings: true,
