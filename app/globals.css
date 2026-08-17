@@ -1180,6 +1180,32 @@ html.dark {
     margin-top: 16px;
   }
 
+  /* ---- a layer's glyph -----------------------------------------------
+     Shared by the two panels that list layers: the Include group above, where
+     you tick what to fetch, and the model tree below, where you see what came
+     back. Named for its subject rather than for either panel, because the whole
+     point is that a layer looks the same in both — tick "water" and find the
+     same mark on the row it builds.
+
+     Boxed to the same 18×22 in both, which in the tree is the width of .treeEye
+     beside it, so the glyphs line up in a column down the panel. */
+  .layerIcon {
+    flex: none;
+    width: 18px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    color: var(--color-ink-soft);
+  }
+  /* On an Include row there is no eye column to match, so the glyph takes the
+     checkbox's own 16px — at 22 every row in the group grows six pixels to hold
+     whitespace, and there are eight of them. The negative margin closes it up
+     against the label: the glyph belongs to the name, not to the tick. */
+  .check > .layerIcon {
+    height: 16px;
+    margin-right: -2px;
+  }
+
   /* ---- model tree ----------------------------------------------------
      The layer names come out of the dictionary as lowercase noun phrases,
      because their other two uses are mid-sentence ("Fetching IGN vegetation…").
@@ -1232,8 +1258,13 @@ html.dark {
   .treeEye[aria-pressed='false'] {
     opacity: 0.45;
   }
+  /* The glyph is .layerIcon, defined above and shared with the Include group.
+     Muted there for the same reason the eye is muted here: the swatch at the end
+     of the row is what carries the layer's colour, and a second coloured mark
+     competes with it — pale defaults like terrain would vanish besides. */
   .treeRow.off .treeName,
-  .treeRow.off .treeCount {
+  .treeRow.off .treeCount,
+  .treeRow.off .layerIcon {
     opacity: 0.5;
   }
   .treeName {

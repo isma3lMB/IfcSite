@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ColourField } from '@/components/colour-field';
-import { IconEye, IconEyeOff } from '@/components/icons';
+import { LAYER_ICON, IconEye, IconEyeOff } from '@/components/icons';
 import { useT } from '@/lib/i18n/context';
 import type { StringKey } from '@/lib/i18n/context';
 import type { LayerId } from '@/lib/types';
@@ -182,6 +182,7 @@ export function ModelTree(p: ModelTreeProps) {
           const expandable = n.items.length > 0;
           const isOpen = expandable && open.has(n.id);
           const selected = p.selectedId === layerSelId(n.id);
+          const Icon = LAYER_ICON[n.id];
 
           return (
             <div className="treeNode" key={n.id} role="treeitem" aria-expanded={isOpen}>
@@ -220,6 +221,13 @@ export function ModelTree(p: ModelTreeProps) {
                 >
                   {n.visible ? <IconEye /> : <IconEyeOff />}
                 </button>
+
+                {/* What kind of thing this layer is. Decoration, not a control:
+                    the row's name is on the button beside it, and the svg is
+                    aria-hidden — so a span, and nothing to translate. */}
+                <span className="layerIcon">
+                  <Icon />
+                </span>
 
                 <button
                   type="button"

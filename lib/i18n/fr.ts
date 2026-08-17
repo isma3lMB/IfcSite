@@ -96,7 +96,7 @@ export const fr: Dict = {
   'ctl.crsError': 'Index des SCR indisponible — l’UTM automatique reste utilisable.',
   'ctl.crsNone': 'Aucun résultat.',
   'ctl.crsValidHere': '{n} valables sur ce site',
-  'ctl.verticalDatum': 'Datum vertical',
+  'ctl.verticalDatum': 'Référence verticale',
   'ctl.verticalDatumNone': 'Aucun — plat',
   'ctl.verticalDatumHint':
     'Les sites IGN utilisent NGF-IGN69 ; les sites OSM utilisent EGM96 dès lors que le terrain est inclus — sans lui, le modèle n’a aucune référence verticale.',

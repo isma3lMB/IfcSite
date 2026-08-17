@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { CrsField } from '@/components/crs-field';
+import { LAYER_ICON } from '@/components/icons';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
@@ -15,7 +16,14 @@ import { ACCURACY_CELL, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
 import { useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
-import type { BuildOptions, FormPatch, Provider, SiteRect, TerrainAccuracy } from '@/lib/types';
+import type {
+  BuildOptions,
+  FormPatch,
+  LayerId,
+  Provider,
+  SiteRect,
+  TerrainAccuracy,
+} from '@/lib/types';
 
 /*
  * Provider labels are longer than the 330px dock, so the closed
@@ -30,6 +38,26 @@ const SELECT_TRIGGER =
 const SELECT_CONTENT = 'w-auto min-w-(--anchor-width) max-w-[min(92vw,26rem)]';
 /* Wraps only once a label is too long for the cap above — a phone, in practice. */
 const SELECT_ITEM = 'font-mono text-[13px] **:whitespace-normal';
+
+/**
+ * The layer's glyph, on an Include row.
+ *
+ * Same mark the model tree puts on the row this checkbox builds, so what you
+ * tick here and what you find there are recognisably the same thing. Decoration
+ * either way: the label is the text beside it, and the svg is aria-hidden.
+ *
+ * Takes a LayerId rather than the BuildOptions field name, because the two do
+ * not quite line up — the form says `veg` and `parcels` where the scene says
+ * `vegetation` and `parcel`, and hedges have no checkbox of their own at all.
+ */
+const Glyph = ({ id }: { id: LayerId }) => {
+  const Icon = LAYER_ICON[id];
+  return (
+    <span className="layerIcon">
+      <Icon />
+    </span>
+  );
+};
 
 export type ControlsPanelProps = {
   form: BuildOptions;
@@ -222,6 +250,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
             checked={p.form.buildings}
             onCheckedChange={(v) => p.onChange({ buildings: v === true })}
           />
+          <Glyph id="buildings" />
           {t('ctl.buildings')}
         </label>
 
@@ -230,6 +259,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
             checked={p.form.roads}
             onCheckedChange={(v) => p.onChange({ roads: v === true })}
           />
+          <Glyph id="roads" />
           {t('ctl.roads')}
         </label>
 
@@ -238,6 +268,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
             checked={p.form.railways}
             onCheckedChange={(v) => p.onChange({ railways: v === true })}
           />
+          <Glyph id="railways" />
           {t('ctl.railways')}
         </label>
 
@@ -246,6 +277,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
             checked={p.form.terrain}
             onCheckedChange={(v) => p.onChange({ terrain: v === true })}
           />
+          <Glyph id="terrain" />
           {t('ctl.terrain')}
           <span className="src">{ign ? t('ctl.terrainSrcIgn') : t('ctl.terrainSrcOsm')}</span>
         </label>
@@ -255,6 +287,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
             checked={p.form.trees}
             onCheckedChange={(v) => p.onChange({ trees: v === true })}
           />
+          <Glyph id="trees" />
           {t('ctl.trees')}
           <span className="src">OSM</span>
         </label>
@@ -267,6 +300,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
               disabled={!ign}
               onCheckedChange={(v) => p.onChange({ veg: v === true })}
             />
+            <Glyph id="vegetation" />
             {t('ctl.veg')}
             <span className="src">IGN</span>
           </label>
@@ -276,6 +310,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
               disabled={!ign}
               onCheckedChange={(v) => p.onChange({ water: v === true })}
             />
+            <Glyph id="water" />
             {t('ctl.water')}
             <span className="src">IGN</span>
           </label>
@@ -285,6 +320,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
               disabled={!ign}
               onCheckedChange={(v) => p.onChange({ parcels: v === true })}
             />
+            <Glyph id="parcel" />
             {t('ctl.parcels')}
             <span className="src">IGN</span>
           </label>

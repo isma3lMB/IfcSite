@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
+import type { LayerId } from '@/lib/types';
 
 /**
  * The icon set, drawn rather than imported.
@@ -123,11 +124,16 @@ export const IconPolygon = () => (
   </Svg>
 );
 
+/* Shared with the trees *layer* glyph below, which is the same canopy without the
+   click dot. One string rather than two so the two cannot drift apart at the pixel
+   level — the same reason IconRedo mirrors IconUndo instead of redrawing it. */
+const TREE_CANOPY = 'M8 2 11.6 7.6 9.4 7.6 12 11.6H4L6.6 7.6H4.4Z';
+
 /* A faceted canopy over a trunk, and the solid dot every other draw tool here
    uses to mark where a click lands — this one takes just the one. */
 export const IconTree = () => (
   <Svg>
-    <path d="M8 2 11.6 7.6 9.4 7.6 12 11.6H4L6.6 7.6H4.4Z" />
+    <path d={TREE_CANOPY} />
     <path d="M8 11.6V13.2" />
     <circle cx="8" cy="14" r="1.4" fill="currentColor" stroke="none" />
   </Svg>
@@ -295,3 +301,142 @@ export const IconRename = () => (
     <path d="M11 2.5 13.5 5 5.5 13H3v-2.5z" />
   </Svg>
 );
+
+/* =====================================================================
+   The layer glyphs.
+
+   One per LayerId, for the model tree's rows. Everything above is a verb — a
+   thing the rail or a panel does — and these are the only nouns in the set:
+   they name what a row *is*, so that scanning nine layers is recognising nine
+   marks rather than reading nine words that the panel is too narrow to finish.
+
+   They are drawn as the layer looks in plan or in section, not as a symbol of
+   it — a road is two kerbs and a centre line, a hedge is a clipped run. The
+   whole set is decoration beside a label that already says the name, so the
+   bar they have to clear is being told apart from each other at 16 px, and
+   nothing finer than that survives a 1.3 stroke anyway. Three pairs are the
+   ones that actually collide, and each is separated by silhouette rather than
+   by detail: terrain's angular peaks against water's waves, the three green
+   layers by mass (one tall, several small, one long), and parcel against the
+   dashed IconDrawSite it would otherwise be a copy of.
+   ===================================================================== */
+
+/* Two peaks closed onto a ground line. Angular on purpose — the contour-line
+   reading of terrain is three stacked curves, which is water with an extra
+   stroke. */
+export const IconLayerTerrain = () => (
+  <Svg>
+    <path d="M1.5 12.5 5.5 5 8.5 9.5 10.8 6.8 14.5 12.5Z" />
+  </Svg>
+);
+
+/* Two blocks of unequal height sharing a party wall, open at the bottom where
+   the ground line closes them — the massing the layer actually builds. */
+export const IconLayerBuildings = () => (
+  <Svg>
+    <path d="M2.5 13.5V5.5h5.5v8" />
+    <path d="M8 13.5V8.5h5.5v5" />
+    <path d="M1.5 13.5h13" />
+  </Svg>
+);
+
+/* A carriageway in plan: two kerbs, splayed just enough to read as running away
+   from you, and the dashed centre line that makes it a road rather than a pair
+   of lines.
+
+   The gap is wider than the dash in the array and narrower than it on screen —
+   the set's square caps add half a stroke to each end of every dash, so 1.4/2.3
+   paints as roughly 2.7 on, 1.0 off. Which is what a centre line looks like,
+   but it has to be worked backwards from the cap to get there. */
+export const IconLayerRoads = () => (
+  <Svg>
+    <path d="M4.4 1.5 2.5 14.5" />
+    <path d="M11.6 1.5 13.5 14.5" />
+    <path d="M8 2.5v11" strokeDasharray="1.4 2.3" />
+  </Svg>
+);
+
+/* The map-maker's ladder: two rails and the sleepers running past them. Kept
+   parallel where the road splays, which is most of what tells the two apart at
+   a glance. */
+export const IconLayerRailways = () => (
+  <Svg>
+    <path d="M5.5 1.5v13M10.5 1.5v13" />
+    <path d="M3.4 4.2h9.2M3.4 8h9.2M3.4 11.8h9.2" />
+  </Svg>
+);
+
+/* IconTree's canopy on a full trunk. The draw tool's dot is gone: it marks
+   where a click lands, and a row is not a click target in that sense. */
+export const IconLayerTrees = () => (
+  <Svg>
+    <path d={TREE_CANOPY} />
+    <path d="M8 11.6v2.9" />
+  </Svg>
+);
+
+/* Two sprigs on a ground line — scrub, at the scale below a tree and above
+   nothing. Small and repeated, against the single tall mass of trees and the
+   single long one of hedge. */
+export const IconLayerVegetation = () => (
+  <Svg>
+    <path d="M1.5 13.5h13" />
+    <path d="M4.3 13.5V9.2M4.3 11.2 2.4 9.3M4.3 11.2 6.2 9.3" />
+    <path d="M10.6 13.5V7.6M10.6 9.8 8.7 7.9M10.6 9.8 12.5 7.9" />
+  </Svg>
+);
+
+/* A clipped run: one low mass the width of the frame, scalloped along the top.
+   The scallops are what keep it from reading as a fence — a flat-topped bar
+   with uprights is exactly that, and the site has no fence layer to confuse it
+   with, which is precisely why it must not look like one. */
+export const IconLayerHedge = () => (
+  <Svg>
+    <path d="M1.5 13.5h13" />
+    <path d="M2.2 13.5V9.6a1.9 1.9 0 0 1 3.8 0 1.9 1.9 0 0 1 3.8 0 1.9 1.9 0 0 1 3.8 0v3.9" />
+  </Svg>
+);
+
+/* Two waves. Curved where terrain is angular, and that is the entire
+   distinction — so they are drawn shallow and long, with no peak sharp enough
+   to be mistaken for a summit. */
+export const IconLayerWater = () => (
+  <Svg>
+    <path d="M2 6.2q3-2.4 6 0t6 0" />
+    <path d="M2 10.6q3-2.4 6 0t6 0" />
+  </Svg>
+);
+
+/* A plot and the line that splits it in two. Slanted because a cadastral
+   boundary never is axis-aligned, and solid because the dashed rectangle is
+   already taken by IconDrawSite — the tool that draws the site, not the layer
+   that comes back from the register. */
+export const IconLayerParcel = () => (
+  <Svg>
+    <path d="M2.2 5 9 2.2 13.8 6 7 13.8Z" />
+    <path d="M5.6 3.6 10.4 9.9" />
+  </Svg>
+);
+
+/**
+ * Layer to glyph.
+ *
+ * Here rather than beside LAYER_LABEL in lib/scene/layers, which is the file
+ * this belongs with by subject: that module is read by the viewer and the IFC
+ * emitter, neither of which is React, and neither of which should have to grow
+ * a JSX build step to answer what a layer is called.
+ *
+ * Exhaustive by type, so a tenth entry in LAYER_IDS fails the typecheck rather
+ * than rendering a row with a hole in it.
+ */
+export const LAYER_ICON: Record<LayerId, () => ReactElement> = {
+  terrain: IconLayerTerrain,
+  buildings: IconLayerBuildings,
+  roads: IconLayerRoads,
+  railways: IconLayerRailways,
+  trees: IconLayerTrees,
+  vegetation: IconLayerVegetation,
+  hedge: IconLayerHedge,
+  water: IconLayerWater,
+  parcel: IconLayerParcel,
+};
