@@ -243,7 +243,14 @@ export const en = {
   /* The full instruction is status.drawPrompt, which fires the moment the map
      arms — which is on load. This one only has to say the app is up. */
   'status.ready': 'Ready — draw a site rectangle on the map.',
+  'status.resolvingCrs': 'Resolving the coordinate system…',
   'status.queryingOverpass': 'Querying Overpass…',
+  /* Named, because the failover spends the full timeout on each mirror in turn
+     and a line that never changes for three minutes reads as a hang. */
+  'status.overpassMirror': 'Querying Overpass — trying {host}…',
+  'status.parsingBuildings': 'Reading building footprints…',
+  'status.buildingRoads': 'Merging roads and conforming them to the ground…',
+  'status.assembling': 'Assembling the model and building the 3D view…',
   'status.queryingTrees': 'Querying OSM trees…',
   'status.fetchingIgnBuildings': 'Fetching IGN BD TOPO buildings…',
   'status.fetchingIgnRoads': 'Fetching IGN BD TOPO roads…',
@@ -252,6 +259,8 @@ export const en = {
   'status.samplingAlti': 'Sampling IGN RGE ALTI…',
   'status.samplingAltiChunk': 'Sampling IGN RGE ALTI — batch {done} of {total}…',
   'status.readingTerrainTile': 'Reading elevation tiles…',
+  'status.readingTerrainTiles': 'Reading elevation tiles — {done} of {total}…',
+  'status.buildingTerrain': 'Building the terrain mesh…',
   'status.terrainUnavailable':
     'Terrain unavailable ({detail}) — continuing on a flat datum.',
   'status.datumUnavailable':
@@ -270,6 +279,8 @@ export const en = {
   'status.redone': 'Redone: {label} — {name}.',
   'status.searchUnavailable': 'Place search unavailable ({detail}) — pan the map instead.',
   'status.draftSaved': 'Saved “{name}”.',
+  'status.draftReading': 'Reading “{name}”…',
+  'status.draftChecking': 'Checking the draft…',
   'status.draftOpening': 'Opening “{name}”…',
   'status.draftOpened': 'Opened “{name}” — {buildings} buildings.',
   'status.draftExported': 'Draft written to {file}.',

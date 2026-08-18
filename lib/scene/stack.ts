@@ -123,9 +123,11 @@ export const layerOpacity = (layer?: string): number => LAYER_OPACITY[layer ?? '
 /** The ground, in the preview and in the export. Here for the same reason as
  *  the opacities: one value, read by both, so they cannot drift.
  *
- *  A base colour, not a screen colour — the hemisphere fill in lib/viewer/Viewer
- *  lands a flat ground at about ×1.11, which is where the near-white the scene
- *  reads as comes from. */
+ *  This exact number is what the IFC carries — the writer states the palette
+ *  verbatim. On screen it is also lifted by the hemisphere fill in
+ *  lib/viewer/Viewer, about ×1.11 on a flat ground, which is where the
+ *  near-white the preview reads as comes from; that lift is the light's doing
+ *  and stays in the viewer. */
 export const TERRAIN_COLOR = 0xe8e7e4;
 
 /** Trees, for the same reason again: the preview draws its own low-poly

@@ -206,27 +206,35 @@ export function skirtInto(verts: Vec3[], faces: number[][], depth: number, cap =
   return start;
 }
 
+/** One buildable piece of geometry: its own vertices, and faces indexing them. */
+export type MeshPart = { verts: Vec3[]; faces: number[][] };
+
 /**
- * A tree's trunk and canopy, appended into shared arrays at the LOCAL
- * origin — not at the tree's x/y/z. The IFC writer places each tree
- * individually (see addTree in lib/ifc/writer), the same way a building's
- * profile is local to its own centre; the live viewer builds the identical
- * shapes from the same lib/geo/treeShape helpers, so the exported tree always
- * matches the one on screen.
+ * A tree's trunk and canopy at the LOCAL origin — not at the tree's x/y/z. The
+ * IFC writer places each tree individually (see addTree in lib/ifc/writer), the
+ * same way a building's profile is local to its own centre; the live viewer
+ * builds the identical shapes from the same lib/geo/treeShape helpers, so the
+ * exported tree always matches the one on screen.
+ *
+ * The two parts come back separately rather than appended into one pair of
+ * arrays because they are two colours — the viewer draws a brown trunk under a
+ * green canopy, and an IfcStyledItem attaches to a whole geometric item, so the
+ * file can only say the same thing if it has two items to say it about. Each is
+ * a sealed volume on its own, which is what lets the writer state both as
+ * solids.
  */
-export function treeProxy(
-  t: Pick<Tree, 'h' | 'cr' | 'tr'>,
-  verts: Vec3[],
-  faces: number[][],
-): void {
+export function treeProxy(t: Pick<Tree, 'h' | 'cr' | 'tr'>): { trunk: MeshPart; canopy: MeshPart } {
   const trunkH = treeTrunkHeight(t.h);
   const canopyH = Math.max(t.h - trunkH, 0.1);
   const m = new THREE.Matrix4();
-  appendGeometry(treeTrunkGeometry(), m.makeScale(t.tr, t.tr, trunkH), verts, faces);
+  const trunk: MeshPart = { verts: [], faces: [] };
+  const canopy: MeshPart = { verts: [], faces: [] };
+  appendGeometry(treeTrunkGeometry(), m.makeScale(t.tr, t.tr, trunkH), trunk.verts, trunk.faces);
   appendGeometry(
     treeCanopyGeometry(),
     m.makeScale(t.cr, t.cr, canopyH / 2).setPosition(0, 0, trunkH + canopyH / 2),
-    verts,
-    faces,
+    canopy.verts,
+    canopy.faces,
   );
+  return { trunk, canopy };
 }

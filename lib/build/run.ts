@@ -18,6 +18,7 @@ import { osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
 import { terrariumGrid } from '@/lib/sources/terrain';
 import { finishRailways, finishRoads } from '@/lib/scene/push';
 import { emptyScene } from '@/lib/types';
+import { paint } from '@/lib/ui/yield';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
   BuildOptions,
@@ -95,6 +96,9 @@ export async function runBuild(
   // awaits this and has no catch of its own.
   let crs;
   try {
+    // Anything outside the curated four fetches a megabyte of generated index
+    // before a single tile is asked for, so this is worth naming.
+    onStatus('status.resolvingCrs');
     crs = await resolveCRS(opts.epsg, lat, lon);
   } catch (e) {
     return { ok: false, error: e instanceof AppError ? e : new AppError('err.crsIndexUnavailable') };
@@ -223,7 +227,11 @@ export async function runBuild(
       railwayRibbons = r.railwayRibbons;
     } else {
       onStatus('status.queryingOverpass');
-      const data = await overpass(site, opts.buildings, opts.roads, opts.railways, tune);
+      const data = await overpass(site, opts.buildings, opts.roads, opts.railways, tune, onStatus);
+      // Thousands of ways turned into footprints, all of it synchronous: without
+      // the yield this line is set and replaced without ever reaching the screen.
+      onStatus('status.parsingBuildings');
+      await paint();
       const r = parseOSM(
         scene,
         data,
@@ -259,7 +267,12 @@ export async function runBuild(
   }
 
   // Merges every road's own ribbon where they cross, then conforms the result
-  // to the terrain and hangs a skirt under it.
+  // to the terrain and hangs a skirt under it. Polygon booleans over a few
+  // hundred ribbons is the longest synchronous stretch in this file.
+  if (roadRibbons.length || railwayRibbons.length) {
+    onStatus('status.buildingRoads');
+    await paint();
+  }
   finishRoads(scene, roadRibbons, toGeo, sampleZ, tune);
   finishRailways(scene, railwayRibbons, toGeo, sampleZ, tune);
 

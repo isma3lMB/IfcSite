@@ -2,6 +2,7 @@ import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import { MAX_GRID_N, gridFrom, gridLattice, gridSize } from '@/lib/geo/grid';
 import type { Grid, Site, SiteRect, StatusFn, ToLocal } from '@/lib/types';
+import { paint } from '@/lib/ui/yield';
 
 /* =====================================================================
    Terrain — AWS Terrarium tiles, elevation packed into RGB
@@ -78,7 +79,7 @@ export async function terrariumGrid(
   site: Site,
   toLocal: ToLocal,
   cell: number,
-  _onStatus: StatusFn,
+  onStatus: StatusFn,
   tune: Tunables,
 ): Promise<Grid> {
   const z = pickZoom(site, site.lat, cell);
@@ -90,11 +91,28 @@ export async function terrariumGrid(
   // The original read a single tile and clamped to its 256px edge, which left a
   // site straddling a tile boundary with a flat strip along it. Stitching the
   // tiles the rectangle actually covers is what removes that seam.
+  //
+  // They load in parallel, so the count is the order they land in rather than
+  // the order they were asked for — which is what makes it a progress reading
+  // and not a queue position. One tile has nothing to count, and the caller has
+  // already said what is happening; the same guard rgeAltiGrid uses on chunks.
+  const total = nx * ny;
+  let done = 0;
   const tiles = await Promise.all(
-    Array.from({ length: nx * ny }, (_, k) =>
-      loadTile(z, tl.x + (k % nx), tl.y + Math.floor(k / nx)),
+    Array.from({ length: total }, (_, k) =>
+      loadTile(z, tl.x + (k % nx), tl.y + Math.floor(k / nx)).then((img) => {
+        done++;
+        if (total > 1) onStatus('status.readingTerrainTiles', { done, total });
+        return img;
+      }),
     ),
   );
+
+  // Stitching a 768² mosaic, reading it back out of the canvas and sampling a
+  // lattice over it is all synchronous — the line above would otherwise be the
+  // last thing painted before the page stops responding.
+  onStatus('status.buildingTerrain');
+  await paint();
 
   const W = nx * 256;
   const H = ny * 256;

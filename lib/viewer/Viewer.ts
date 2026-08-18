@@ -26,7 +26,16 @@ import {
   TREE_CANOPY_COLOR,
   TREE_TRUNK_COLOR,
 } from '@/lib/scene/stack';
-import { MIN_SCALE, cloneXf, defaultColors, newXf, roofZ, sameXf } from '@/lib/scene/xf';
+import {
+  MIN_SCALE,
+  buildingColors,
+  cloneXf,
+  defaultColors,
+  lighten,
+  newXf,
+  roofZ,
+  sameXf,
+} from '@/lib/scene/xf';
 import { type FootprintDraft, createFootprintDraft } from '@/lib/viewer/footprintDraft';
 import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/originMarker';
 import { SKY, SKY_THEMES, applySky, createSkyDome } from '@/lib/viewer/sky';
@@ -46,9 +55,6 @@ import {
   type Vec3,
   type Xf,
 } from '@/lib/types';
-
-const lighten = (hex: number, t: number): number =>
-  new THREE.Color(hex).lerp(new THREE.Color(0xffffff), t).getHex();
 
 /** The scene's own vertex/face pairs — terrain, context surfaces, draped
  * vegetation — all arrive in the same shape, so they all build the same way. */
@@ -1637,10 +1643,7 @@ export class Viewer {
   }
 
   private paintMesh(mesh: THREE.Mesh, b: Building): void {
-    const c =
-      b.xf.color === null
-        ? defaultColors(b)
-        : { wall: b.xf.color, cap: lighten(b.xf.color, 0.35) };
+    const c = buildingColors(b);
     // ExtrudeGeometry group 0 is the caps (roof + floor), group 1 the side walls.
     const mats = mesh.material as THREE.MeshLambertMaterial[];
     mats[0].color.setHex(c.cap);

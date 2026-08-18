@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import type { Building, Xf } from '@/lib/types';
 
 /** No mirroring: a negative scale would flip ring winding. */
@@ -60,3 +61,28 @@ export const defaultColors = (b: Building): { wall: number; cap: number } =>
   b.src === 'user'
     ? { wall: 0x4aa8d8, cap: 0x86c4e0 }
     : { wall: 0xf4f1ec, cap: 0xf4f1ec };
+
+/** A colour lerped toward white by `t`. THREE.Color rather than a byte lerp on
+ *  purpose: it interpolates in the renderer's working (linear) colour space, so
+ *  this is the number the preview actually draws — and the IFC writer needs the
+ *  same one, not one that merely rounds to it. */
+export const lighten = (hex: number, t: number): number =>
+  new THREE.Color(hex).lerp(new THREE.Color(0xffffff), t).getHex();
+
+/**
+ * A building's two colours: the sides, and the roof/floor caps.
+ *
+ * Read by the preview (paintMesh in lib/viewer/Viewer, which puts them on the
+ * two ExtrudeGeometry material groups) and by the export (addBuilding in
+ * lib/ifc/writer, which stacks two solids when they differ) — one expression, so
+ * the file and the screen cannot disagree about which face is which colour.
+ *
+ * A user-picked colour is the wall, and the cap is derived from it, because that
+ * is the direction the light works in: the preview lifts an up-facing surface
+ * anyway, so a lightened roof reads as the same material catching more sky
+ * rather than as a second colour choice the user did not make.
+ */
+export const buildingColors = (b: Building): { wall: number; cap: number } =>
+  b.xf.color === null
+    ? defaultColors(b)
+    : { wall: b.xf.color, cap: lighten(b.xf.color, 0.35) };

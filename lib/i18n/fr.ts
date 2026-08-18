@@ -239,7 +239,14 @@ export const fr: Dict = {
   /* L’instruction complète est status.drawPrompt, émis dès que la carte s’arme
      — c’est-à-dire au chargement. Celui-ci dit seulement que l’outil est prêt. */
   'status.ready': 'Prêt — tracez un rectangle de site sur la carte.',
+  'status.resolvingCrs': 'Résolution du système de coordonnées…',
   'status.queryingOverpass': 'Interrogation d’Overpass…',
+  /* Nommé, car le basculement épuise le délai complet sur chaque miroir l’un
+     après l’autre : une ligne figée trois minutes se lit comme un blocage. */
+  'status.overpassMirror': 'Interrogation d’Overpass — essai de {host}…',
+  'status.parsingBuildings': 'Lecture des emprises de bâtiments…',
+  'status.buildingRoads': 'Fusion des voiries et calage sur le terrain…',
+  'status.assembling': 'Assemblage du modèle et construction de la vue 3D…',
   'status.queryingTrees': 'Interrogation des arbres OSM…',
   'status.fetchingIgnBuildings': 'Récupération des bâtiments IGN BD TOPO…',
   'status.fetchingIgnRoads': 'Récupération des voiries IGN BD TOPO…',
@@ -248,6 +255,8 @@ export const fr: Dict = {
   'status.samplingAlti': 'Échantillonnage du RGE ALTI de l’IGN…',
   'status.samplingAltiChunk': 'Échantillonnage du RGE ALTI de l’IGN — lot {done} sur {total}…',
   'status.readingTerrainTile': 'Lecture des tuiles d’altitude…',
+  'status.readingTerrainTiles': 'Lecture des tuiles d’altitude — {done} sur {total}…',
+  'status.buildingTerrain': 'Construction du maillage du terrain…',
   'status.terrainUnavailable':
     'Terrain indisponible ({detail}) — poursuite sur un plan horizontal.',
   'status.datumUnavailable':
@@ -268,6 +277,8 @@ export const fr: Dict = {
   'status.searchUnavailable':
     'Recherche de lieu indisponible ({detail}) — déplacez la carte à la place.',
   'status.draftSaved': '« {name} » enregistré.',
+  'status.draftReading': 'Lecture de « {name} »…',
+  'status.draftChecking': 'Vérification de l’ébauche…',
   'status.draftOpening': 'Ouverture de « {name} »…',
   'status.draftOpened': '« {name} » ouvert — {buildings} bâtiments.',
   'status.draftExported': 'Ébauche écrite dans {file}.',

@@ -11,6 +11,7 @@ import type {
   SceneData,
   Site,
   SiteRect,
+  StatusFn,
   ToLocal,
   Tree,
   Vec2,
@@ -55,10 +56,18 @@ type OverpassElement = {
 };
 type OverpassResponse = { elements: OverpassElement[] };
 
-async function overpassQuery(q: string, tune: Tunables): Promise<OverpassResponse> {
+async function overpassQuery(
+  q: string,
+  tune: Tunables,
+  onStatus?: StatusFn,
+): Promise<OverpassResponse> {
   let lastErr: AppError | undefined;
   for (const url of ENDPOINTS) {
     const host = url.split('/')[2];
+    // Each mirror is given the full timeout before the next is tried, so a bad
+    // day here is three of them end to end under one unchanging sentence. Naming
+    // the host is what separates "still going" from "hung".
+    onStatus?.('status.overpassMirror', { host });
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -90,6 +99,7 @@ export async function overpass(
   wantRoads: boolean,
   wantRailways: boolean,
   tune: Tunables,
+  onStatus?: StatusFn,
 ): Promise<OverpassResponse> {
   const bb = overpassBox(box);
   return overpassQuery(
@@ -100,6 +110,7 @@ export async function overpass(
     ${wantRailways ? `way["railway"~"^(${RAILWAYS})$"](${bb});` : ''}
   );out geom;`,
     tune,
+    onStatus,
   );
 }
 

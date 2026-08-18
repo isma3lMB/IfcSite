@@ -66,6 +66,7 @@ import type {
   Vec3,
   ViewTab,
 } from '@/lib/types';
+import { paint } from '@/lib/ui/yield';
 import { MapController } from '@/lib/viewer/MapController';
 import {
   type DrawTool,
@@ -173,6 +174,12 @@ export function IfcSite() {
   const [armed, setArmed] = useState(false);
   const [view, setView] = useState<ViewTab>('map');
   const [busy, setBusy] = useState(false);
+  /* Opening a saved draft, from a slot or a file. Deliberately not `busy`: that
+     drives the step ladder to 'Building…', and this is not a build. What the two
+     share is that the toast has to stay up for the whole of them — a few
+     megabytes of JSON out of IndexedDB, parsed, then a terrain lattice and every
+     mesh rebuilt, is easily long enough to outlive a transient message. */
+  const [opening, setOpening] = useState(false);
   const [status, setStatus] = useState<StatusState>({ kind: 'msg', key: 'status.ready' });
   const [stats, setStats] = useState<IfcStats | null>(null);
   const [buildings, setBuildings] = useState<number | null>(null);
@@ -814,6 +821,13 @@ export function IfcSite() {
     // following it afterwards would overwrite a height typed into the draw HUD.
     setDrawHeight(form.defaultHeight);
 
+    // The last stretch of a build and the longest one that is not network:
+    // setSource serialises the whole IFC and setScene constructs every mesh in
+    // the scene, both on this thread. It runs under `busy`, so the toast holds
+    // this line rather than fading out over a viewer that cannot repaint.
+    setStatus({ kind: 'msg', key: 'status.assembling' });
+    await paint();
+
     emitterRef.current?.setSource(res.scene, res.meta);
     viewerRef.current?.setScene(res.scene, res.site);
     setHasScene(true);
@@ -876,64 +890,88 @@ export function IfcSite() {
    * The tail of runBuildNow, in the same order, with the restores interleaved —
    * the two paths end at the same place because a draft *is* a build result that
    * came off a disk instead of the network. It does not set `busy`: that drives
-   * the step ladder to 'Building…', which this is not.
+   * the step ladder to 'Building…', which this is not. It sets `opening`
+   * instead, which says the same thing to the toast and nothing to the ladder.
+   *
+   * The flag is raised here rather than only in the callers because the confirm
+   * card is also a caller — answering "replace it" re-enters at this point, with
+   * whatever the reader set long since cleared.
    */
   const openDraftNow = useCallback(
     async (d: LoadedDraft) => {
+      setOpening(true);
       setStatus({ kind: 'msg', key: 'status.draftOpening', params: { name: d.name } });
       // Rebuilding a lattice and a few hundred meshes is real synchronous work;
       // yield once so the line above paints before the page locks up for it.
-      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      await paint();
 
-      // Inputs first, so a Rebuild after an Open re-fetches what the draft was
-      // built from rather than whatever the panel happened to be holding.
-      setForm(d.form);
-      epsgPickedRef.current = d.epsgPicked;
-      // Note this does not dirty the site: only MapController's onSite does that,
-      // and nothing has moved — the scene still describes this rectangle.
-      setRect(d.rect);
-      crsDefRef.current = d.crsDef;
+      /* The restore is guarded as a whole, and the flag is what makes that
+         necessary. A draft that gets as far as here has already parsed, so this
+         throwing means a mesh it describes could not be built — rare, but it
+         used to cost only a stuck sentence that faded on its own. Now the toast
+         holds until told otherwise, so an escape here would pin a half-open
+         scene under a message that never leaves. */
+      try {
+        // Inputs first, so a Rebuild after an Open re-fetches what the draft was
+        // built from rather than whatever the panel happened to be holding.
+        setForm(d.form);
+        epsgPickedRef.current = d.epsgPicked;
+        // Note this does not dirty the site: only MapController's onSite does that,
+        // and nothing has moved — the scene still describes this rectangle.
+        setRect(d.rect);
+        crsDefRef.current = d.crsDef;
 
-      // Read before metaRef points at it. setScene puts the origin back at the
-      // site centre, which fires onOrigin, which writes [0,0,0] straight into
-      // metaRef.current.exportOffset — i.e. into this very object. Taken
-      // afterwards, the marker would always come back to the middle and the
-      // saved offset would be silently lost.
-      const exportOffset = d.meta.exportOffset;
+        // Read before metaRef points at it. setScene puts the origin back at the
+        // site centre, which fires onOrigin, which writes [0,0,0] straight into
+        // metaRef.current.exportOffset — i.e. into this very object. Taken
+        // afterwards, the marker would always come back to the middle and the
+        // saved offset would be silently lost.
+        const exportOffset = d.meta.exportOffset;
 
-      metaRef.current = d.meta;
-      sceneRef.current = d.scene;
-      siteRef.current = d.site;
-      setBuildings(d.scene.buildings.length);
-      setOriginLabel(originLabelOf(d.meta));
-      // From the draft, not zeroed. A build zeroes these because it re-derives the
-      // site underneath them; an open is restoring the site they were measured
-      // against, so they still mean what they meant.
-      setProjectBase(d.meta.projectBase);
-      setProjectAngle(d.meta.projectAngle);
-      setDrawHeight(d.form.defaultHeight);
+        metaRef.current = d.meta;
+        sceneRef.current = d.scene;
+        siteRef.current = d.site;
+        setBuildings(d.scene.buildings.length);
+        setOriginLabel(originLabelOf(d.meta));
+        // From the draft, not zeroed. A build zeroes these because it re-derives the
+        // site underneath them; an open is restoring the site they were measured
+        // against, so they still mean what they meant.
+        setProjectBase(d.meta.projectBase);
+        setProjectAngle(d.meta.projectAngle);
+        setDrawHeight(d.form.defaultHeight);
 
-      // The same scene object reaches both, exactly as a build's does — that
-      // shared reference is how a later gizmo drag reaches the download.
-      emitterRef.current?.setSource(d.scene, d.meta);
-      viewerRef.current?.setScene(d.scene, d.site);
+        // The same scene object reaches both, exactly as a build's does — that
+        // shared reference is how a later gizmo drag reaches the download.
+        emitterRef.current?.setSource(d.scene, d.meta);
+        viewerRef.current?.setScene(d.scene, d.site);
 
-      // setScene resets the origin to the site centre and clears layer
-      // visibility, both of which are right for a rebuild and wrong here.
-      viewerRef.current?.restoreOrigin(exportOffset);
-      viewerRef.current?.setMarkerVisible(showOrigin);
-      viewerRef.current?.setProjection(ortho);
+        // setScene resets the origin to the site centre and clears layer
+        // visibility, both of which are right for a rebuild and wrong here.
+        viewerRef.current?.restoreOrigin(exportOffset);
+        viewerRef.current?.setMarkerVisible(showOrigin);
+        viewerRef.current?.setProjection(ortho);
 
-      setHasScene(true);
-      setSiteDirty(false);
-      setView('3d');
+        setHasScene(true);
+        setSiteDirty(false);
+        setView('3d');
 
-      // The map is behind the 3D tab and cannot be measured yet, so the rectangle
-      // goes back now and the framing waits until the tab is actually visited.
-      mapRef.current?.showSite(d.rect);
-      laterOnMap((m) => m.fitBounds(d.rect));
+        // The map is behind the 3D tab and cannot be measured yet, so the rectangle
+        // goes back now and the framing waits until the tab is actually visited.
+        mapRef.current?.showSite(d.rect);
+        laterOnMap((m) => m.fitBounds(d.rect));
 
-      draftNameRef.current = d.name;
+        draftNameRef.current = d.name;
+      } catch (e) {
+        setOpening(false);
+        setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) });
+        return;
+      }
+
+      // Cleared alongside the closing line, not before it: dropping the flag in
+      // its own update would let the toast start fading the message it is about
+      // to be handed. Batched together, the closing line gets its five seconds
+      // from here — the same handover a build makes into its summary.
+      setOpening(false);
       setStatus({
         kind: 'msg',
         key: 'status.draftOpened',
@@ -946,17 +984,28 @@ export function IfcSite() {
   /** Validate first, ask second: a bad file must report itself rather than
    *  offering to destroy hand-drawn work for nothing. */
   const openDraftText = useCallback(
-    (text: string) => {
+    async (text: string) => {
       let d: LoadedDraft;
+      // A saved site is megabytes of JSON, and JSON.parse over that does not
+      // yield — same treatment as the other synchronous steps, or the line the
+      // reader left up is the last thing painted before the page goes still.
+      setStatus({ kind: 'msg', key: 'status.draftChecking' });
+      await paint();
       try {
         d = parseDraft(text);
       } catch (e) {
+        setOpening(false);
         setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) });
         return;
       }
       const drawn = viewerRef.current?.drawnCount() ?? 0;
-      if (drawn > 0) return openConfirm({ kind: 'open', drawn, draft: d });
-      void openDraftNow(d);
+      if (drawn > 0) {
+        // The card waits on a person, and waiting on a person is not progress.
+        // openDraftNow raises the flag again if they say yes.
+        setOpening(false);
+        return openConfirm({ kind: 'open', drawn, draft: d });
+      }
+      await openDraftNow(d);
     },
     [openConfirm, openDraftNow],
   );
@@ -973,9 +1022,12 @@ export function IfcSite() {
 
   const onOpenFile = useCallback(
     (f: File) => {
-      readDraftFile(f).then(openDraftText, (e) =>
-        setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) }),
-      );
+      setOpening(true);
+      setStatus({ kind: 'msg', key: 'status.draftReading', params: { name: f.name } });
+      readDraftFile(f).then(openDraftText, (e) => {
+        setOpening(false);
+        setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) });
+      });
     },
     [openDraftText],
   );
@@ -1044,7 +1096,14 @@ export function IfcSite() {
 
   const onOpenSlot = useCallback(
     (name: string) => {
-      readSlot(name).then(openDraftText, failStatus);
+      // The read itself is the first silent stretch: a large site comes back out
+      // of IndexedDB as one multi-megabyte string, and until now nothing said so.
+      setOpening(true);
+      setStatus({ kind: 'msg', key: 'status.draftReading', params: { name } });
+      readSlot(name).then(openDraftText, (e) => {
+        setOpening(false);
+        failStatus(e);
+      });
     },
     [failStatus, openDraftText],
   );
@@ -1286,6 +1345,7 @@ export function IfcSite() {
         <StatusToast
           rect={rect}
           busy={busy}
+          working={busy || opening}
           hasScene={hasScene}
           siteDirty={siteDirty}
           status={status}

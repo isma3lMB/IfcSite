@@ -9,7 +9,14 @@ import type { DrawTool } from '@/lib/viewer/Viewer';
 
 export type StatusToastProps = {
   rect: SiteRect | null;
+  /** A build specifically — this is the step ladder's input, not the toast's. */
   busy: boolean;
+  /**
+   * Any long operation, build or otherwise. Separate from `busy` because that
+   * one drives the ladder to 'Building…', which opening a saved draft is not —
+   * but both need the toast to stay put for the duration.
+   */
+  working: boolean;
   hasScene: boolean;
   siteDirty: boolean;
   status: StatusState;
@@ -35,11 +42,21 @@ export type StatusToastProps = {
  * Errors are the exception inside the transient half: they do not fade. A
  * failure that erases itself before it is read is worse than one that lingers,
  * so they wait to be superseded or dismissed.
+ *
+ * A running operation is the second exception, and for the opposite reason. Its
+ * progress lines are transient in kind but the *operation* is a condition, so
+ * while `working` they hold: a step that outlasts five seconds — the Overpass
+ * failover walking three mirrors, a paged WFS, the mesh build, a few megabytes
+ * of draft coming back out of the browser — used to empty the toast and leave a
+ * locked-up viewer with nothing on screen explaining it.
  */
 
 /** How long a message stays up, or null for "until something replaces it". */
-function holdFor(s: StatusState): number | null {
+function holdFor(s: StatusState, working: boolean): number | null {
   if (s.kind === 'error') return null;
+  // Progress, and something is still running: the operation ends the message,
+  // not a clock. The fade starts when working drops — see the effect below.
+  if (working && s.kind === 'msg') return null;
   if (s.kind === 'msg') return s.tone === 'err' ? null : 5000;
   // The closing summary is six clauses long and is the report on a twenty-second
   // build — it gets read, so it gets nearly twice as long.
@@ -84,19 +101,27 @@ export function StatusToast(p: StatusToastProps) {
       return;
     }
     setShown(true);
-    const ms = holdFor(p.status);
+    const ms = holdFor(p.status, p.working);
     if (ms === null) return;
     const id = window.setTimeout(() => setShown(false), ms);
     return () => window.clearTimeout(id);
     // Keyed on the status object, not on its contents: setStatus always builds a
     // fresh literal, so the same message twice still restarts the timer — which
     // is what keeps the toast up across a build's run of progress lines.
-  }, [p.status, echoesTheSite]);
+    //
+    // working is in here so the closing line gets its five seconds from the
+    // moment the operation ends rather than from whenever it happened to be set.
+  }, [p.status, p.working, echoesTheSite]);
 
-  const pinned = drawHint ?? (stale ? t('bar.stale') : null);
+  // A running operation outranks both conditions. The draw hint used to
+  // short-circuit this branch entirely, so a status raised with a tool still
+  // armed was invisible — and the stale warning is about a scene that is at this
+  // moment being replaced.
+  const pinned = p.working ? null : (drawHint ?? (stale ? t('bar.stale') : null));
   // Only the kinds that do not fade are worth a dismiss control; everything else
-  // is already leaving.
-  const dismissible = !pinned && shown && holdFor(p.status) === null;
+  // is already leaving. Progress is excluded on top of that: it holds because
+  // work is running, and closing it would not stop the work.
+  const dismissible = !pinned && !p.working && shown && holdFor(p.status, p.working) === null;
 
   /* The live region is mounted for the life of the app and emptied rather than
      unmounted. A role="status" element that appears at the same moment as its
@@ -111,7 +136,7 @@ export function StatusToast(p: StatusToastProps) {
           </div>
         </div>
       ) : (
-        <div className={`toastBody${shown ? '' : ' out'}`}>
+        <div className={`toastBody${shown ? '' : ' out'}${p.working ? ' busy' : ''}`}>
           <StatusLine status={p.status} variant="bar" />
           {dismissible && (
             <button

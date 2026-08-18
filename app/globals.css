@@ -692,6 +692,34 @@ html.dark {
     opacity: 0;
     transform: translateY(4px);
   }
+  /* A build's steps can hold one sentence for half a minute, and a line that
+     does not change is indistinguishable from a line that is stuck. This is the
+     only thing on the page that says "still working" without claiming to know
+     how far along it is — the build has no total to count towards, so a
+     determinate bar would be a lie. */
+  .statusToast .toastBody.busy {
+    position: relative;
+    overflow: hidden;
+  }
+  .statusToast .toastBody.busy::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 40%;
+    height: 2px;
+    background: var(--color-ink);
+    animation: toastRun 1.6s ease-in-out infinite;
+  }
+  /* Still a state, just not a moving one: the stripe stays, spanning the whole
+     edge, so "working" survives with the motion removed. */
+  @media (prefers-reduced-motion: reduce) {
+    .statusToast .toastBody.busy::after {
+      width: 100%;
+      animation: none;
+      opacity: 0.45;
+    }
+  }
   /* Full ink, not the soft grey .statusline defaults to. That grey is for text
      standing quietly next to a control; this is the only place the app says
      what just happened, and it is over a viewer that is white in one theme and
@@ -1473,6 +1501,25 @@ html.dark {
     background: var(--color-code);
     padding: 1px 5px;
     border-radius: 3px;
+  }
+}
+
+/* Outside the layer: an animation name is resolved against the whole document,
+   and there is nothing to cascade here anyway.
+
+   Edge to edge and back. The segment is 40% of the toast, so it has 60% to
+   cross — which is 150% of its own width, the unit translateX uses on a
+   transform. Overshooting that would run it off the end, and overflow:hidden
+   would eat it at the turn. */
+@keyframes toastRun {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(150%);
+  }
+  100% {
+    transform: translateX(0);
   }
 }
 

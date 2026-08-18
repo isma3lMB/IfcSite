@@ -2,8 +2,8 @@ import proj4 from 'proj4';
 import { xfAxes } from '@/lib/geo/euler';
 import { treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
-import { TREE_CANOPY_COLOR } from '@/lib/scene/stack';
-import { defaultColors } from '@/lib/scene/xf';
+import { TREE_CANOPY_COLOR, TREE_TRUNK_COLOR } from '@/lib/scene/stack';
+import { buildingColors } from '@/lib/scene/xf';
 import type { Building, PropBag, SiteMeta, Tree, Vec2, Vec3 } from '@/lib/types';
 
 /* =====================================================================
@@ -282,59 +282,25 @@ export class IfcFile {
 }
 
 /**
- * The highlight knee for exported colours, on a 0..255 channel. Nothing below
- * EXPORT_KNEE moves; everything above it is compressed into the headroom up to
- * EXPORT_CEILING.
+ * A colour as the 0..1 components IfcColourRgb wants.
  *
- * The two knobs for "the export comes out too bright". Raise the ceiling toward
- * 255 to get closer to what the preview draws, lower it if a viewer still blows
- * out; the knee decides how much of the palette is left alone on the way.
+ * Verbatim, on purpose: lib/scene/stack and lib/scene/xf hold one value per
+ * thing and the file carries exactly that, so the preview and the deliverable
+ * cannot disagree about what colour something is.
  *
- * This exists because the preview and a BIM viewer light a scene differently and
- * there is no way to state a lighting rig in IFC. The palette is tuned against
- * the preview's hemisphere fill, which lands a flat surface at about ×1.11;
- * point the same near-white at a viewer with more ambient gain and it clips to
- * paper. Terrain at 0xe8e7e4 and massing at 0xf4f1ec sit within 5% of white, so
- * they have nowhere to go — and they are also the two largest areas on screen,
- * which is why the whole model reads washed out rather than just a hot spot.
- *
- * A knee rather than a flat multiplier because the complaint is highlights
- * clipping, not everything being too light: scaling every colour equally would
- * drag the saturated layers — trees, hedges, water — down with the whites they
- * are supposed to read against. A knee rather than a hard clamp because a clamp
- * is not monotonic once it bites. Terrain and roofs both sit above any useful
- * ceiling, so a clamp lands them on the same value and the roofs disappear into
- * the ground in the flat-lit plan view this is meant to fix. Compressing keeps
- * them apart, just closer together.
+ * There used to be an export-only highlight knee here, on the theory that a BIM
+ * viewer with more ambient gain than the preview's hemisphere fill would clip
+ * the near-whites to paper. It cost more than the clipping it insured against:
+ * terrain left as 0xc3c3c0 and massing as 0xc8c6c2 in every viewer, several
+ * shades under the palette they claim, and those are the two largest areas on
+ * screen. If an export ever does read blown out, the fix belongs in the palette
+ * — where the preview would show it too — not in a second export-only transform.
  */
-const EXPORT_KNEE = 170;
-const EXPORT_CEILING = 205;
-
-/**
- * Put a colour through that knee, as 0..1 components ready for IfcColourRgb.
- *
- * The knee is computed on the brightest channel and the whole triple moves by
- * that one factor, so hue and saturation are untouched — a pale warm grey stays
- * a pale warm grey, it just stops being nearly white.
- *
- * Export-only, and on purpose: lib/scene/stack keeps one colour per thing so the
- * preview and the file cannot drift, and that still holds — this is not a second
- * palette but one rendering allowance applied to the single palette on its way
- * out. Every colour in the file passes through style(), including one the user
- * picked in the editor, so nothing escapes it and the model stays internally
- * consistent.
- */
-function toneForExport(hex: number): [number, number, number] {
-  const r = (hex >> 16) & 255;
-  const g = (hex >> 8) & 255;
-  const b = hex & 255;
-  const peak = Math.max(r, g, b);
-  if (peak <= EXPORT_KNEE) return [r / 255, g / 255, b / 255];
-  const squeezed =
-    EXPORT_KNEE + ((peak - EXPORT_KNEE) * (EXPORT_CEILING - EXPORT_KNEE)) / (255 - EXPORT_KNEE);
-  const k = squeezed / peak;
-  return [(r * k) / 255, (g * k) / 255, (b * k) / 255];
-}
+const rgb01 = (hex: number): [number, number, number] => [
+  ((hex >> 16) & 255) / 255,
+  ((hex >> 8) & 255) / 255,
+  (hex & 255) / 255,
+];
 
 export class ContextModel {
   readonly f: IfcFile;
@@ -658,7 +624,7 @@ export class ContextModel {
   // the tail of this method.
   private style(item: Ref, hex: number, transparency?: number): void {
     const f = this.f;
-    const [cr, cg, cb] = toneForExport(hex);
+    const [cr, cg, cb] = rgb01(hex);
     const c = f.add('IfcColourRgb', [null, R(cr), R(cg), R(cb)]);
     // Every rendering attribute is spelled out, because .NOTDEFINED. with the
     // rest left null hands the material to the viewer and they all reach for a
@@ -790,13 +756,40 @@ export class ContextModel {
     const r = ensureCCW(dedupe(b.ring.map((p): Vec2 => [p[0] * sx, p[1] * sy])));
     if (r.length < 3) return null;
     const prof = f.add('IfcArbitraryClosedProfileDef', [E('AREA'), null, this.poly2d(r)]);
-    const solid = f.add('IfcExtrudedAreaSolid', [
-      prof,
-      this.world,
-      this.dz,
-      R(Math.max(b.h * sz, 0.1)),
+    const depth = Math.max(b.h * sz, 0.1);
+    const { wall, cap } = buildingColors(b);
+    // One solid when the two colours agree — every sourced building at its
+    // default, where the preview's roof/wall separation is the light's doing
+    // rather than the palette's, so there is nothing for a split to carry.
+    //
+    // When they differ (hand-drawn, or recoloured in the editor) the roof has to
+    // be its own geometric item, since an IfcStyledItem attaches to a whole item
+    // and cannot pick out the cap face of an extrusion. Two stacked extrusions
+    // over the SAME profile rather than a split brep: both stay SweptSolid, the
+    // parametric profile that makes these import cleanly survives, the total
+    // height is unchanged, and the two never share a plane so there is nothing
+    // to z-fight. A brep would have cost all of that on the most numerous
+    // element in the file, to say one colour.
+    const capD = wall === cap ? 0 : Math.min(0.3, depth * 0.1);
+    const solid = f.add('IfcExtrudedAreaSolid', [prof, this.world, this.dz, R(depth - capD)]);
+    const capSolid = capD
+      ? f.add('IfcExtrudedAreaSolid', [
+          prof,
+          f.add('IfcAxis2Placement3D', [
+            f.add('IfcCartesianPoint', [[R(0), R(0), R(depth - capD)]]),
+            null,
+            null,
+          ]),
+          this.dz,
+          R(capD),
+        ])
+      : null;
+    const shp = f.add('IfcShapeRepresentation', [
+      this.body,
+      S('Body'),
+      S('SweptSolid'),
+      capSolid ? [solid, capSolid] : [solid],
     ]);
-    const shp = f.add('IfcShapeRepresentation', [this.body, S('Body'), S('SweptSolid'), [solid]]);
     const pds = f.add('IfcProductDefinitionShape', [null, null, [shp]]);
     const ax = xfAxes(xf.rot);
     const el = f.add('IfcBuildingElementProxy', [
@@ -820,11 +813,9 @@ export class ContextModel {
     // as a grey one while the preview beside it was right. Transparency still
     // only appears on a ghosted building; style() takes a null for the rest.
     const transparency = 1 - xf.opacity;
-    this.style(
-      solid,
-      xf.color ?? defaultColors(b).wall,
-      transparency > 0 ? transparency : undefined,
-    );
+    const alpha = transparency > 0 ? transparency : undefined;
+    this.style(solid, wall, alpha);
+    if (capSolid) this.style(capSolid, cap, alpha);
     this.pset(el, 'Pset_SiteContext', b.props);
     this.elements.push(el);
     return el;
@@ -842,18 +833,26 @@ export class ContextModel {
     const f = this.f;
     const xf = t.xf;
     const [sx, sy, sz] = xf.scale;
-    const verts: Vec3[] = [];
-    const faces: number[][] = [];
-    treeProxy(
-      { h: Math.max(t.h * sz, 0.1), cr: Math.max(t.cr * sx, 0.05), tr: Math.max(t.tr * sy, 0.02) },
-      verts,
-      faces,
-    );
-    if (!verts.length || !faces.length) return null;
-    // closed: true — treeProxy builds a sealed volume, so a schema without
-    // tessellation can state it as a solid rather than as a bare surface.
-    const { item: fs, repType } = this.mesh(verts, faces, true);
-    const shp = f.add('IfcShapeRepresentation', [this.body, S('Body'), S(repType), [fs]]);
+    const { trunk, canopy } = treeProxy({
+      h: Math.max(t.h * sz, 0.1),
+      cr: Math.max(t.cr * sx, 0.05),
+      tr: Math.max(t.tr * sy, 0.02),
+    });
+    if (!trunk.faces.length || !canopy.faces.length) return null;
+    // closed: true — each part is a sealed volume on its own, so a schema
+    // without tessellation can state them as solids rather than bare surfaces.
+    // Two items rather than one merged mesh because they are two colours: the
+    // style below attaches per geometric item, which is the only place the file
+    // can say what the preview shows. Both come back with the same repType, so
+    // they share the one representation.
+    const { item: trunkFs, repType } = this.mesh(trunk.verts, trunk.faces, true);
+    const { item: canopyFs } = this.mesh(canopy.verts, canopy.faces, true);
+    const shp = f.add('IfcShapeRepresentation', [
+      this.body,
+      S('Body'),
+      S(repType),
+      [trunkFs, canopyFs],
+    ]);
     const pds = f.add('IfcProductDefinitionShape', [null, null, [shp]]);
     const ax = xfAxes(xf.rot);
     const el = f.add('IfcBuildingElementProxy', [
@@ -872,7 +871,13 @@ export class ContextModel {
       E('ELEMENT'),
     ]);
     const transparency = 1 - xf.opacity;
-    this.style(fs, xf.color ?? TREE_CANOPY_COLOR, transparency > 0 ? transparency : undefined);
+    const alpha = transparency > 0 ? transparency : undefined;
+    // A per-tree colour override recolours the canopy alone — the trunk is
+    // always TREE_TRUNK_COLOR. Same asymmetry as the preview (see paintTree in
+    // lib/viewer/Viewer): the override is there to pick a species' foliage, not
+    // to paint the whole proxy one colour.
+    this.style(trunkFs, TREE_TRUNK_COLOR, alpha);
+    this.style(canopyFs, xf.color ?? TREE_CANOPY_COLOR, alpha);
     this.pset(el, 'Pset_SiteContext', t.props);
     this.elements.push(el);
     return el;
