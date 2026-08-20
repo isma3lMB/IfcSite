@@ -74,9 +74,19 @@ export function StatusToast(p: StatusToastProps) {
       ? t('bar.drawHintRect')
       : p.drawTool === 'tree'
         ? t('bar.drawHintTree')
-        : p.drawPoints > 0
-          ? t('bar.drawHintPoints', { n: p.drawPoints })
-          : t('bar.drawHintPoly');
+        : p.drawTool === 'measure'
+          ? // Points here is the leg in progress, not corners placed: one means
+            // the second click is the one that completes a distance.
+            p.drawPoints > 0
+            ? t('bar.measureHintEnd')
+            : t('bar.measureHintStart')
+          : p.drawTool === 'measureArea'
+            ? p.drawPoints > 0
+              ? t('bar.areaHintPoints', { n: p.drawPoints })
+              : t('bar.areaHintStart')
+            : p.drawPoints > 0
+              ? t('bar.drawHintPoints', { n: p.drawPoints })
+              : t('bar.drawHintPoly');
 
   // The scene on screen no longer matches the rectangle: say so rather than
   // letting Download quietly export the old one.

@@ -333,17 +333,24 @@ html.dark {
   }
   /* Deliberately not a scroller. A scroll container clips both axes — set
      overflow-y and `overflow-x: visible` computes to auto — which would cut
-     every hover label off at the rail's right edge. The tallest the rail ever
-     gets is the 3D set at ~355 px, which fits any window over ~490 px, so the
-     scroll is switched on by height further down instead: below that the
-     labels clip, but the buttons are at least reachable. */
+     every hover label off at the rail's right edge.
+
+     So instead of clipping, the rail gives: the gap closes first and then the
+     buttons shrink towards their icon, which is what .railBtn's flex-shrink
+     below is for. That degrades on its own however many buttons the rail grows,
+     which a height threshold does not — the one that used to live here was
+     written for a rail several buttons shorter and had been quietly wrong for a
+     while before anyone saw it spill. The scroller further down is now only the
+     last resort, for windows too short for even the squeezed rail. */
   .rail {
     width: 40px;
     padding: 4px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    /* Closes before the buttons start giving, so the first thing lost is air
+       rather than target size. */
+    gap: clamp(1px, 0.6vh, 4px);
     max-height: 100%;
     /* .floating's backdrop-filter makes this its own stacking context, so the
        tip below can only out-rank siblings within it — an open flyout, whose
@@ -356,7 +363,13 @@ html.dark {
   .railBtn {
     width: 32px;
     height: 32px;
-    flex: none;
+    /* Shrinkable, down to a floor that still clears the 16 px icon with a pixel
+       either side. A short window therefore gets slightly flatter buttons rather
+       than a clipped scroller or, as it did until now, a Drafts button hanging
+       out of the bottom of its own border. Width never gives, so the column
+       stays the same object to aim at. */
+    flex: 0 1 32px;
+    min-height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1399,6 +1412,10 @@ html.dark {
      window is the frame now. Both viewers observe their host and re-measure on
      their own, so nothing here needs a resize hook. */
   .viewport {
+    /* The measurement readouts are DOM rather than geometry — three has no text
+       — so they hang off the host, and the host has to be their containing
+       block. */
+    position: relative;
     width: 100%;
     height: 100%;
     display: block;
@@ -1409,6 +1426,46 @@ html.dark {
     display: block;
     width: 100%;
     height: 100%;
+  }
+
+  /* ---- measurement readouts ----
+     One label per measurement, placed each frame from the viewer's own
+     projection of the anchor point. Deliberately not inside .overlay: these
+     belong to the scene rather than to the chrome, and the map — which is a
+     sibling of .viewport with a z-index — has to cover them on a tab switch,
+     which it does for free from here. */
+  .measureLayer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .measureLabel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* Positioned by transform rather than by top/left so that moving one is a
+       composite rather than a layout — sixty times a second while orbiting. */
+    will-change: transform;
+    padding: 3px 6px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-ink);
+    box-shadow: 0 2px 10px var(--color-shadow-soft);
+    color: var(--color-ink);
+    font: 600 11px/1.35 var(--font-mono);
+    white-space: nowrap;
+    text-align: center;
+    user-select: none;
+  }
+  /* The one being drawn: same box, brighter edge, so the live number is the one
+     the eye lands on among the ones already taken. */
+  .measureLabel.live {
+    border-color: #1f8ac0;
+  }
+  .measureLabel .delta {
+    color: var(--color-ink-soft);
+    font-weight: 400;
+    font-size: 10px;
   }
 
   /* The map lies over the 3D canvas rather than replacing it: tearing either
@@ -1568,10 +1625,11 @@ html.dark {
     display: none;
   }
 }
-/* Short enough that the 3D rail no longer fits between the chips and the bar.
-   Reachable beats readable here: the rail scrolls, and its hover labels clip
-   with it. See the comment on .rail. */
-@media (max-height: 560px) {
+/* Shorter than even the squeezed rail can fold into — 14 buttons at their 20 px
+   floor with 1 px gaps is about 300, and the overlay's own chrome wants another
+   ~140 on top. Past that, reachable beats readable: the rail scrolls, and its
+   hover labels clip with it. See the comment on .rail. */
+@media (max-height: 440px) {
   .rail {
     overflow-y: auto;
     overscroll-behavior: contain;

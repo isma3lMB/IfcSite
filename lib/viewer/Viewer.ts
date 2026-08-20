@@ -37,8 +37,16 @@ import {
   sameXf,
 } from '@/lib/scene/xf';
 import { type FootprintDraft, createFootprintDraft } from '@/lib/viewer/footprintDraft';
+import {
+  type Measure,
+  type MeasureFormat,
+  type MeasureKind,
+  type MeasureLayer,
+  createMeasureLayer,
+} from '@/lib/viewer/measureLayer';
 import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/originMarker';
 import { SKY, SKY_THEMES, applySky, createSkyDome } from '@/lib/viewer/sky';
+import { type Snap, resolveSnap, toScreen } from '@/lib/viewer/snap';
 import { type ViewAxis, type ViewTriad, axisEye, createViewTriad } from '@/lib/viewer/viewTriad';
 import type { EditLabelKey, Params, StatusKey } from '@/lib/i18n/keys';
 import {
@@ -150,9 +158,23 @@ export type LayerNode = {
   items: { id: string; name: string }[];
 };
 
-/** Which footprint tool the ground clicks are feeding, if any. 'tree' is a
- *  single click rather than a footprint — no drag, no ring. */
-export type DrawTool = 'rect' | 'polygon' | 'tree';
+/**
+ * Which tool the clicks are feeding, if any. 'tree' is a single click rather
+ * than a footprint — no drag, no ring.
+ *
+ * The two measure members read the scene instead of adding to it, and they are
+ * in this union rather than beside it on purpose: everything a tool needs
+ * already hangs off it — the pressed state on the rail, the pinned hint in the
+ * toast, the Escape ladder in React, Enter closing a ring — and a parallel union
+ * would mean a second copy of all four. The handful of places that assume a
+ * footprint guard on measureKindOf instead.
+ */
+export type DrawTool = 'rect' | 'polygon' | 'tree' | 'measure' | 'measureArea';
+
+/** Which kind of measurement a tool makes, or null when it makes none. Doubles
+ *  as the "is this a measure tool" test, so there is only one list of them. */
+const measureKindOf = (tool: DrawTool | null): MeasureKind | null =>
+  tool === 'measure' ? 'dist' : tool === 'measureArea' ? 'area' : null;
 
 /** The two backdrops. Named here rather than imported from lib/theme so nothing
  *  under lib/viewer depends on a React context. */
@@ -209,6 +231,9 @@ export type ViewerCallbacks = {
    * assuming the mode it last asked for is still live.
    */
   onDraw: (tool: DrawTool | null, points: number) => void;
+  /** How many measurements are on screen, across both kinds. Deliberately not
+   *  onCount, which means buildings and feeds the site readout. */
+  onMeasure: (n: number) => void;
 };
 
 /**
@@ -288,6 +313,10 @@ const ORIGIN_NAME = 'ed.originName';
  *  smaller than the gizmo they sit beside. */
 const ORIGIN_PX = 54;
 const PIVOT_PX = 38;
+
+/** Diameter of the snap cursor, in CSS pixels. Sized to sit just outside the
+ *  10 px the snap itself searches, so the ring reads as the catchment. */
+const SNAP_CURSOR_PX = 22;
 
 /**
  * The perspective vertical field of view, and the frustum height it spans per
@@ -447,6 +476,35 @@ export class Viewer {
    * pin the next gesture to a roof the user has moved on from.
    */
   private drawPlaneZ: number | null = null;
+
+  /* ---- measuring ----
+     Session state only: measurements are never written to the scene, the draft
+     or the IFC file, and setScene drops them because their points are world
+     coordinates against geometry that is being replaced. */
+  private readonly measure: MeasureLayer;
+  /**
+   * Points placed in the measurement being made. One list serves both tools —
+   * a distance completes at two, a ring closes on demand — and it is separate
+   * from drawPts because commitFootprint owns that one.
+   */
+  private measurePts: THREE.Vector3[] = [];
+  private measures: Measure[] = [];
+  private measureSeq = 0;
+  private measureFmt: MeasureFormat = {
+    length: (m) => `${m.toFixed(2)} m`,
+    area: (a) => `${a.toFixed(2)} m²`,
+  };
+  /**
+   * The last pointer position a measure tool has yet to resolve.
+   *
+   * Measuring is the first tool that has to raycast the scene before a gesture
+   * is live — the snap has to answer while the pointer is merely hovering — and
+   * the note on the pointermove handler explains why that is the cost worth
+   * avoiding. So the move handler only records where the pointer is and the
+   * frame does the work: however fast the pointer travels, the scene is cast at
+   * most once per frame.
+   */
+  private hoverEvent: PointerEvent | null = null;
 
   private firstFrame = true;
   /** frameCamera's inputs, kept because a projection swap has to re-derive the
@@ -630,7 +688,12 @@ export class Viewer {
     // The draft sits on the scene beside the markers, for the same reason: it
     // has to survive the disposeGroup that clears contentGroup on a rebuild.
     this.draft = createFootprintDraft();
-    this.sceneGL.add(this.originMarker, this.pivotGhost, this.draft.group);
+    // And the measure layer beside it, for the same reason. Its labels are DOM
+    // rather than geometry, so they go on the host under the canvas overlay
+    // instead — see .measureLayer in globals.css for where that sits.
+    this.measure = createMeasureLayer();
+    host.appendChild(this.measure.dom);
+    this.sceneGL.add(this.originMarker, this.pivotGhost, this.draft.group, this.measure.group);
 
     // Same reason again — and it is drawn round contentGroup's children, so
     // being one of them would make it enclose itself.
@@ -731,6 +794,44 @@ export class Viewer {
     }
   }
 
+  /**
+   * Resolve the pointer the move handler parked, then hold the readouts and the
+   * snap cursor where the camera puts them.
+   *
+   * Done here rather than on pointermove so that a fast sweep across a large
+   * terrain costs one raycast per frame instead of one per event, and so that
+   * the labels follow an orbit — which moves them without the pointer moving at
+   * all.
+   */
+  private updateMeasure(): void {
+    const kind = measureKindOf(this.drawTool);
+    // Nothing measured and no tool in hand is the overwhelmingly common case, and
+    // it has to cost nothing: sync reads the canvas rect, which forces layout.
+    if (!kind && !this.measures.length) return;
+
+    const e = this.hoverEvent;
+    this.hoverEvent = null;
+    if (kind && e) {
+      const s = this.pickMeasure(e);
+      if (s) this.measure.setLive(kind, [...this.measurePts, s.p], s.kind);
+    }
+
+    const cur = this.measure.snapCursor;
+    if (cur.visible) {
+      this.scaleToScreen(cur, SNAP_CURSOR_PX);
+      // A flat ring in a Z-up scene lies on the ground and vanishes edge-on the
+      // moment the camera drops towards the horizon. Facing it at the camera is
+      // what keeps it a ring from every angle.
+      cur.quaternion.copy(this.camera.quaternion);
+    }
+
+    this.measure.sync(
+      this.camera,
+      this.renderer.domElement.getBoundingClientRect(),
+      this.measureFmt,
+    );
+  }
+
   private animate = (now = 0): void => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.animate);
@@ -745,6 +846,7 @@ export class Viewer {
     if (this.ortho) this.syncSkyDome();
     this.updateCompass();
     this.updateMarkers();
+    this.updateMeasure();
     this.renderer.render(this.sceneGL, this.camera);
     this.triad.render(this.renderer, this.camera, this.rightInset);
   };
@@ -1218,6 +1320,10 @@ export class Viewer {
 
   setScene(scene: SceneData, site: Site): void {
     this.scene = scene;
+    // Measurements are world points taken against geometry that is about to be
+    // replaced. Left alone they would float over the new scene reading numbers
+    // about the old one, which is worse than losing them.
+    this.resetMeasures();
     // A restored draft brings its hand-drawn elements back with the ids they were
     // saved under, so the counters have to resume past them: left at zero, the
     // next footprint drawn would be handed an id a building in the scene already
@@ -1965,6 +2071,50 @@ export class Viewer {
   }
 
   /**
+   * Where a pointer meets the model, for measuring — the point actually struck,
+   * pulled onto the nearest feature of the triangle it struck.
+   *
+   * Cast against the layer groups rather than against buildingMeshes, which is
+   * what picks up the terrain, the roads, the railways and the water in one go
+   * and puts every layer's own offset into the answer through matrixWorld. The
+   * shown() guard is the same one the selection pick uses, and for the same
+   * reason: three ignores .visible when raycasting, so a hidden layer would go
+   * on catching clicks meant for what is now behind it.
+   *
+   * Trees are left out. A canopy is a decorative blob whose vertices mean
+   * nothing, and it is the one recursive cast in the scene expensive enough to
+   * be worth not doing sixty times a second.
+   *
+   * The result is filtered to meshes carrying a face, which drops the
+   * LineSegments outline that hangs off every building — the selection pick
+   * avoids it by being non-recursive, and this one cannot be.
+   */
+  private pickMeasure(e: PointerEvent | MouseEvent): Snap | null {
+    this.setRay(e);
+    const groups: THREE.Object3D[] = [];
+    for (const [id, g] of this.layerGroups) if (id !== 'trees' && this.shown(id)) groups.push(g);
+
+    const hit = this.raycaster
+      .intersectObjects(groups, true)
+      .find((h) => h.face && h.object instanceof THREE.Mesh);
+
+    if (hit) {
+      // The terrain is a regular grid, so its vertices are the sampling, not
+      // features of anything. Snapping to them would fight the pointer on every
+      // slope for a corner that is not there.
+      if (hit.object === this.groundMesh) return { p: hit.point.clone(), kind: 'free' };
+      const r = this.renderer.domElement.getBoundingClientRect();
+      return resolveSnap(hit, this.camera, r, { x: e.clientX - r.left, y: e.clientY - r.top });
+    }
+
+    // Nothing under the pointer but sky: fall back to the datum, the same way a
+    // drawn corner does, so a distance can still be taken across bare ground.
+    this.groundPlane.constant = -(this.scene?.datumZ ?? 0);
+    const p = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(this.groundPlane, p) ? { p, kind: 'free' } : null;
+  }
+
+  /**
    * Where a pointer meets the ground for every corner after the one that opened
    * the gesture.
    *
@@ -2014,6 +2164,16 @@ export class Viewer {
     });
 
     dom.addEventListener('pointermove', (e) => {
+      // Measuring is the exception to the note below: its snap has to answer
+      // while the pointer is only hovering, before any point is placed. So it
+      // parks the event and updateMeasure resolves it once on the next frame,
+      // which is the same guard by another route — one cast per frame rather
+      // than one per event.
+      if (measureKindOf(this.drawTool)) {
+        this.hoverEvent = e;
+        return;
+      }
+
       // Nothing to rubber-band from until a gesture is under way. Checked before
       // the pick, because that pick raycasts the terrain mesh and this fires on
       // every move the pointer makes while a tool is armed. (On a roof it is
@@ -2070,6 +2230,34 @@ export class Viewer {
         return;
       }
 
+      const kind = measureKindOf(this.drawTool);
+      if (kind) {
+        if (e.button !== 0) return this.cancelDraw();
+        const s = this.pickMeasure(e);
+        if (!s) return;
+
+        // A ring closes on its own first corner, the same twelve-pixel target
+        // the polygon tool uses — the gesture every map editor has.
+        if (
+          kind === 'area' &&
+          this.measurePts.length >= 3 &&
+          this.screenDist(this.measurePts[0], e) < 12
+        )
+          return this.finishDraw();
+
+        this.measurePts.push(s.p);
+        // A distance is two points and no more. Committing re-arms with the
+        // point just placed, so a route can be walked leg by leg without
+        // clicking the same corner twice; Esc breaks the chain.
+        if (kind === 'dist' && this.measurePts.length === 2) {
+          this.commitMeasure('dist', this.measurePts);
+          this.measurePts = [s.p];
+        }
+        this.measure.setLive(kind, this.measurePts, s.kind);
+        this.cb.onDraw(this.drawTool, this.measurePts.length);
+        return;
+      }
+
       if (this.drawTool === 'tree') {
         if (e.button !== 0) return this.cancelDraw();
         // One click is the whole gesture, so there is no plane to lock: the
@@ -2108,6 +2296,10 @@ export class Viewer {
     // Closing on a double-click means the second click has already been taken
     // as a corner, so it is dropped before the ring is committed.
     dom.addEventListener('dblclick', () => {
+      if (this.drawTool === 'measureArea' && this.measurePts.length >= 4) {
+        this.measurePts.pop();
+        return this.finishDraw();
+      }
       if (this.drawTool !== 'polygon' || this.drawPts.length < 4) return;
       this.drawPts.pop();
       this.finishDraw();
@@ -2124,11 +2316,10 @@ export class Viewer {
   /** Screen-space distance from a world point to a pointer, in CSS pixels. */
   private screenDist(world: THREE.Vector3, e: PointerEvent | MouseEvent): number {
     const r = this.renderer.domElement.getBoundingClientRect();
-    const p = world.clone().project(this.camera);
-    return Math.hypot(
-      ((p.x + 1) / 2) * r.width + r.left - e.clientX,
-      ((1 - p.y) / 2) * r.height + r.top - e.clientY,
-    );
+    // Shared with the measure snap, which compares nine candidates per hover
+    // against the same tolerance — two copies of this projection would drift.
+    const p = toScreen(world, this.camera, r);
+    return Math.hypot(p.x + r.left - e.clientX, p.y + r.top - e.clientY);
   }
 
   /** The four corners of an axis-aligned rectangle through two opposite ones,
@@ -2721,6 +2912,9 @@ export class Viewer {
     this.clearDrawPlane();
     this.controls.enabled = true;
     this.draft.clear();
+    // The gesture goes, the results stay — including when switching between the
+    // two measure tools. Clearing them is clearMeasures, and nothing else.
+    this.dropMeasureGesture();
     if (tool) this.selectTarget(null);
     this.cb.onDraw(tool, 0);
   }
@@ -2747,13 +2941,79 @@ export class Viewer {
     this.clearDrawPlane();
     this.controls.enabled = true;
     this.draft.clear();
+    // For a measure tool this is what breaks a chain of distances or abandons a
+    // half-drawn ring; the measurements already taken are untouched.
+    this.dropMeasureGesture();
     this.cb.onDraw(this.drawTool, 0);
   }
 
-  /** Close the polygon being drawn and extrude it. */
+  /** Close the ring being drawn: extrude it into a building, or commit it as an
+   *  area measurement. */
   finishDraw(): void {
+    if (this.drawTool === 'measureArea') {
+      // Under three corners there is no region, so there is nothing to record —
+      // and a degenerate one would sit on screen reading 0 m².
+      if (this.measurePts.length >= 3) this.commitMeasure('area', this.measurePts);
+      this.measurePts = [];
+      this.measure.setLive('area', [], 'free');
+      this.cb.onDraw(this.drawTool, 0);
+      return;
+    }
     if (this.drawTool !== 'polygon') return;
     this.commitFootprint(this.drawPts);
+  }
+
+  /* ---- measurements ---- */
+
+  /** Record the points as a measurement and put it on screen. The caller owns
+   *  what happens to the gesture afterwards — a distance chains, a ring does
+   *  not — so this deliberately does not touch measurePts. */
+  private commitMeasure(kind: MeasureKind, pts: THREE.Vector3[]): void {
+    const m: Measure = { id: ++this.measureSeq, kind, pts: pts.map((p) => p.clone()) };
+    this.measures.push(m);
+    this.measure.add(m);
+    this.cb.onMeasure(this.measures.length);
+  }
+
+  /** Forget the measurement in progress, keeping the ones already taken. */
+  private dropMeasureGesture(): void {
+    this.measurePts = [];
+    this.hoverEvent = null;
+    this.measure.setLive('dist', [], 'free');
+  }
+
+  /** Drop everything measured, silently. Called on a rebuild, where the points
+   *  are world coordinates against geometry that is being replaced — and where
+   *  the build's own closing summary is the message that belongs on screen. */
+  private resetMeasures(): void {
+    if (!this.measures.length && !this.measurePts.length) return;
+    this.measures = [];
+    this.measurePts = [];
+    this.measure.clear();
+    this.cb.onMeasure(0);
+  }
+
+  clearMeasures(): void {
+    if (!this.measures.length) return;
+    this.resetMeasures();
+    this.cb.onStatus('status.measureCleared');
+  }
+
+  /** Drop the newest measurement — what Delete does while a measure tool is
+   *  armed. Deliberately outside the undo stack: measurements are not part of
+   *  the model, and mixing them in would make Ctrl-Z alternate between undoing
+   *  an edit and undoing a reading. */
+  undoMeasure(): void {
+    const m = this.measures.pop();
+    if (!m) return;
+    this.measure.remove(m.id);
+    this.cb.onMeasure(this.measures.length);
+  }
+
+  /** How a measurement's numbers are written. Comes from React, for the same
+   *  reason a drawn building's name does: nothing here may compose text. */
+  setMeasureOptions(fmt: MeasureFormat): void {
+    this.measureFmt = fmt;
   }
 
   /** How many hand-drawn buildings and trees the scene holds — what a
@@ -2901,6 +3161,9 @@ export class Viewer {
     Viewer.disposeGroup(this.originMarker);
     Viewer.disposeGroup(this.pivotGhost);
     this.draft.dispose();
+    // Frees its geometry and takes its label layer off the host, which is
+    // React's div and outlives the viewer — see listeners.abort above.
+    this.measure.dispose();
     // The dome is parented to the camera, so disposeGroup never sees it.
     this.skyDome.geometry.dispose();
     (this.skyDome.material as THREE.Material).dispose();

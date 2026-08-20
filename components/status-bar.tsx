@@ -14,6 +14,10 @@ export type StatusBarProps = {
   drawTool: DrawTool | null;
   drawHeight: number;
   onDrawHeight: (h: number) => void;
+  /** How many measurements are on screen. Only ever shown while a measure tool
+   *  is armed — the bar is for the tool in hand, not a running tally. */
+  measureCount: number;
+  onClearMeasures: () => void;
   onBuild: () => void;
   onDownload: () => void;
 };
@@ -32,20 +36,32 @@ export function StatusBar(p: StatusBarProps) {
   const { t } = useT();
 
   const step: Step = buildStep(p);
+  // The measure tools take no options and add nothing to the scene, so the
+  // height field is not theirs — it would offer to set the height of a building
+  // that is never going to be drawn.
+  const measuring = p.drawTool === 'measure' || p.drawTool === 'measureArea';
+  const clearable = measuring && p.measureCount > 0;
 
   // 'draw' with no tool armed leaves nothing to draw: the next thing to do is a
   // rail button beside the map it acts on. Returning null rather than an empty
   // element matters now that the bar is shrink-wrapped — a bordered .floating
   // box with no content in it would sit at the bottom of the window as a stray
-  // chip.
+  // chip. The measure tools cannot reach that branch — the rail only offers them
+  // once there is a scene, which is past 'draw'.
   if (step === 'draw' && !p.drawTool) return null;
 
   return (
     <div className="statusbar floating">
+      {clearable && (
+        <button type="button" className="btn-ghost" onClick={p.onClearMeasures}>
+          {t('bar.measureClear', { n: p.measureCount })}
+        </button>
+      )}
+
       {/* Not information, and the only thing here that is not an action — but
           the field is short-lived, existing only while a tool is armed, and this
           is the surface the tool's buttons are already on. */}
-      {p.drawTool && (
+      {p.drawTool && !measuring && (
         <label
           className="barHeight"
           title={t(p.drawTool === 'tree' ? 'bar.newTreeHeightTitle' : 'bar.newHeightTitle')}

@@ -40,6 +40,8 @@ export const en = {
   'rail.drawBox': 'Draw a box footprint',
   'rail.drawPoly': 'Draw a polygon footprint',
   'rail.drawTree': 'Plant a tree',
+  'rail.measure': 'Measure a distance',
+  'rail.measureArea': 'Measure an area',
   'rail.model': 'Model tree',
   'rail.file': 'Drafts',
 
@@ -80,6 +82,14 @@ export const en = {
     'Click each corner on the ground — no crossing edges. Enter or the first corner closes it, Esc cancels.',
   'bar.drawHintPoints': '{n} corners — Enter closes, Esc cancels.',
   'bar.drawHintTree': 'Click on the ground to plant a tree. Esc cancels.',
+  /* The measure tools read the scene rather than adding to it, so their hints
+     have to say what stays behind: a taken measurement survives Esc, and only
+     Clear removes it. */
+  'bar.measureHintStart': 'Click a point — corners and edges snap. Esc leaves the tool.',
+  'bar.measureHintEnd': 'Click the second point. Measuring carries on from it; Esc stops.',
+  'bar.areaHintStart': 'Click the corners of an area — corners and edges snap. Esc leaves the tool.',
+  'bar.areaHintPoints': '{n} corners — the first corner or Enter closes, Esc cancels.',
+  'bar.measureClear': 'Clear ({n})',
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Find a place',
@@ -274,6 +284,7 @@ export const en = {
   'status.noSiteYet': 'No site yet — click two opposite corners on the map.',
   'status.drawTooSmall': 'Too small — a footprint needs at least 1 m².',
   'status.drawFull': 'Building limit reached ({cap}) — delete something first.',
+  'status.measureCleared': 'Measurements cleared.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z to undo.',
   'status.undone': 'Undone: {label} — {name}.',
   'status.redone': 'Redone: {label} — {name}.',

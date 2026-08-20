@@ -6,6 +6,8 @@ import {
   IconDrafts,
   IconDrawSite,
   IconLayers,
+  IconMeasure,
+  IconMeasureArea,
   IconMove,
   IconOptions,
   IconPan,
@@ -112,6 +114,26 @@ export function ToolRail(p: ToolRailProps) {
             tip: t('rail.drawTree'),
             on: p.drawTool === 'tree',
             onClick: () => p.onDrawTool('tree'),
+          },
+          // In the draw group rather than in one of their own, even though these
+          // two read the scene instead of adding to it. A separator is nine
+          // pixels the rail cannot afford — see the height arithmetic on .rail —
+          // and they are tools armed and disarmed exactly like the four above,
+          // Select included, so the group still means one thing: what the next
+          // click on the ground does.
+          {
+            key: 'measure',
+            icon: <IconMeasure />,
+            tip: t('rail.measure'),
+            on: p.drawTool === 'measure',
+            onClick: () => p.onDrawTool('measure'),
+          },
+          {
+            key: 'measureArea',
+            icon: <IconMeasureArea />,
+            tip: t('rail.measureArea'),
+            on: p.drawTool === 'measureArea',
+            onClick: () => p.onDrawTool('measureArea'),
           },
         ],
         [

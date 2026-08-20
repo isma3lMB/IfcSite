@@ -37,6 +37,7 @@ export type StatusKey =
   | 'status.noSiteYet'
   | 'status.drawTooSmall'
   | 'status.drawFull'
+  | 'status.measureCleared'
   | 'status.editCommitted'
   | 'status.undone'
   | 'status.redone'

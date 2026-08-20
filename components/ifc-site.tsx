@@ -103,7 +103,7 @@ type Pending =
   | { kind: 'deleteSlot'; name: string };
 
 export function IfcSite() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const { theme } = useTheme();
 
   /* ---- imperative state, deliberately outside React ------------------
@@ -226,6 +226,10 @@ export function IfcSite() {
   const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
   const [drawPoints, setDrawPoints] = useState(0);
   const [drawHeight, setDrawHeight] = useState(DEFAULT_FORM.defaultHeight);
+  /** How many measurements the viewer is holding. Reported the same way the
+      corner count is, and for the same reason: the viewer drops them on a
+      rebuild without being asked. */
+  const [measureCount, setMeasureCount] = useState(0);
   /** The question the confirm card is currently asking, or null when it is down.
       Everything it needs to act on is captured here when it opens, so the card
       cannot disagree with what it is about to do — the drawn count cannot drift,
@@ -275,6 +279,7 @@ export function IfcSite() {
         setDrawTool(tool);
         setDrawPoints(points);
       },
+      onMeasure: setMeasureCount,
     });
     viewerRef.current = v;
     v.setCompassElement(compassRef.current);
@@ -389,6 +394,24 @@ export function IfcSite() {
     });
   }, [drawHeight, t]);
 
+  /* ---- measuring -------------------------------------------------------
+     Same rule as the drawn name above: the viewer may not compose text, so how
+     a length and an area are written comes from here. Two fixed decimals rather
+     than the shared `n` — a dimension that reads 12 m one moment and 12.35 m
+     the next is a dimension you have to re-read to compare. */
+  useEffect(() => {
+    const nf = new Intl.NumberFormat(lang, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    viewerRef.current?.setMeasureOptions({
+      length: (m) => `${nf.format(m)} m`,
+      area: (a) => `${nf.format(a)} m²`,
+    });
+  }, [lang]);
+
+  const onClearMeasures = useCallback(() => viewerRef.current?.clearMeasures(), []);
+
   /* ---- view tab -------------------------------------------------------- */
   useEffect(() => {
     viewerRef.current?.setActive(view === '3d');
@@ -484,10 +507,19 @@ export function IfcSite() {
           if (drawPointsRef.current > 0) viewerRef.current?.cancelDraw();
           else viewerRef.current?.setDrawMode(null);
         } else viewerRef.current?.select(null);
-      } else if (e.key === 'Enter' && drawToolRef.current === 'polygon') {
+      } else if (
+        e.key === 'Enter' &&
+        (drawToolRef.current === 'polygon' || drawToolRef.current === 'measureArea')
+      ) {
         viewerRef.current?.finishDraw();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        viewerRef.current?.deleteSelected();
+        // A measure tool clears the selection when it is armed, so there is
+        // nothing else for Delete to mean while one is in hand. Measurements are
+        // deliberately outside the undo stack — see undoMeasure — so this is the
+        // only way back from one.
+        const tool = drawToolRef.current;
+        if (tool === 'measure' || tool === 'measureArea') viewerRef.current?.undoMeasure();
+        else viewerRef.current?.deleteSelected();
       } else if (e.key === 'g' || e.key === 'G') applyMode('translate');
       else if (e.key === 'r' || e.key === 'R') applyMode('rotate');
       else if (e.key === 's' || e.key === 'S') applyMode('scale');
@@ -1361,6 +1393,8 @@ export function IfcSite() {
           drawTool={drawTool}
           drawHeight={drawHeight}
           onDrawHeight={setDrawHeight}
+          measureCount={measureCount}
+          onClearMeasures={onClearMeasures}
           onBuild={onBuild}
           onDownload={onDownload}
         />

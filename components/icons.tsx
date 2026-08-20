@@ -139,6 +139,29 @@ export const IconTree = () => (
   </Svg>
 );
 
+/* A dimension line: the run, its two end ticks, and the solid dots the draw
+   tools use to mark where a click lands. Diagonal rather than horizontal so it
+   cannot be read as a divider at 16 px. */
+export const IconMeasure = () => (
+  <Svg>
+    <path d="M2.6 13.4 13.4 2.6" />
+    <path d="M1.4 11.2 4.8 14.6M11.2 1.4 14.6 4.8" />
+    <circle cx="3.1" cy="12.9" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="12.9" cy="3.1" r="1.4" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/* The same language one dimension up: a closed region rather than a run, hatched
+   so the enclosed part is what reads first. Deliberately a different silhouette
+   from IconMeasure — the two sit side by side, and a rule beside a rule with a
+   tick on it would be two of the same glyph. */
+export const IconMeasureArea = () => (
+  <Svg>
+    <path d="M2.6 5.2 8 2.2l5.4 3V10.8L8 13.8 2.6 10.8Z" />
+    <path d="M4.6 7.4 8 5.5M4.6 9.9 11.4 6.1M7.4 11.5l4-2.2" opacity="0.55" />
+  </Svg>
+);
+
 /* An axis gizmo, not the four-arrow cross — that one is Pan, and the two sit
    four buttons apart on the same rail. */
 export const IconMove = () => (

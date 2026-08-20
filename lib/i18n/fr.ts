@@ -40,6 +40,8 @@ export const fr: Dict = {
   'rail.drawBox': 'Tracer une emprise rectangulaire',
   'rail.drawPoly': 'Tracer une emprise polygonale',
   'rail.drawTree': 'Planter un arbre',
+  'rail.measure': 'Mesurer une distance',
+  'rail.measureArea': 'Mesurer une surface',
   'rail.model': 'Arborescence du modèle',
   'rail.file': 'Ébauches',
 
@@ -82,6 +84,16 @@ export const fr: Dict = {
     'Cliquez chaque sommet sur le sol — sans arêtes croisées. Entrée ou le premier sommet ferme le contour, Échap annule.',
   'bar.drawHintPoints': '{n} sommets — Entrée ferme, Échap annule.',
   'bar.drawHintTree': 'Cliquez sur le sol pour planter un arbre. Échap annule.',
+  /* Les outils de mesure lisent la scène au lieu d’y ajouter : leurs libellés
+     doivent dire ce qui subsiste — une mesure prise survit à Échap, seul Effacer
+     la retire. */
+  'bar.measureHintStart':
+    'Cliquez un point — sommets et arêtes sont magnétiques. Échap quitte l’outil.',
+  'bar.measureHintEnd': 'Cliquez le second point. La mesure repart de là ; Échap arrête.',
+  'bar.areaHintStart':
+    'Cliquez les sommets d’une surface — sommets et arêtes sont magnétiques. Échap quitte l’outil.',
+  'bar.areaHintPoints': '{n} sommets — le premier sommet ou Entrée ferme, Échap annule.',
+  'bar.measureClear': 'Effacer ({n})',
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Rechercher un lieu',
@@ -271,6 +283,7 @@ export const fr: Dict = {
   'status.noSiteYet': 'Aucun site — cliquez deux coins opposés sur la carte.',
   'status.drawTooSmall': 'Trop petit — une emprise doit faire au moins 1 m².',
   'status.drawFull': 'Limite de bâtiments atteinte ({cap}) — supprimez-en un d’abord.',
+  'status.measureCleared': 'Mesures effacées.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z pour annuler.',
   'status.undone': 'Annulé : {label} — {name}.',
   'status.redone': 'Rétabli : {label} — {name}.',
