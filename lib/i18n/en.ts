@@ -25,6 +25,7 @@ export const en = {
   'ui.options': 'Options',
   'ui.originMarker': 'Show the model origin',
   'ui.projection': 'Orthographic view',
+  'ui.presentation': 'Presentation mode',
   /* The button is labelled with what pressing it does, not with the state it is
      in — an icon button has no room to say both, and the action is the useful
      half. */
@@ -74,6 +75,7 @@ export const en = {
   'bar.origin': 'Origin',
   'bar.rebuild': 'Rebuild sheet',
   'bar.stale': 'Site moved since the last build — rebuild before exporting.',
+  'bar.presenting': 'Presentation — press Esc to exit.',
   'bar.drawHeight': 'H (m)',
   'bar.newHeightTitle': 'Height of the next drawn building (m)',
   'bar.newTreeHeightTitle': 'Height of the next planted tree (m)',

@@ -221,6 +221,23 @@ export const IconOrigin = () => (
   </Svg>
 );
 
+/* An orbit seen edge-on, with the thing it goes round solid at the centre — the
+   planetary reading, which is what the mode does and is legible at 16 px where a
+   film clapper or a play triangle would only say "video".
+
+   The ellipse is drawn as two arcs split at the sides so the near half can carry
+   the chevron and the far half stays a plain line: an unbroken ring reads as
+   static, and the arrowhead is the only part of this that says it keeps going.
+   The chevron sits on the near sweep, where the direction is unambiguous. */
+export const IconPresentation = () => (
+  <Svg>
+    <path d="M1.3 8a6.7 3.6 0 0 1 13.4 0" />
+    <path d="M14.7 8a6.7 3.6 0 0 1-7.5 3.57" />
+    <path d="M9.07 12.73 7.2 11.57 9.2 10.67" />
+    <rect x="6.7" y="6.7" width="2.6" height="2.6" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 /* Stacked plates rather than the usual indented-list tree: the panel's subject
    is the layers of the model, and a list glyph would read as an outline of the
    document. The filled top plate is the one you are looking at. */

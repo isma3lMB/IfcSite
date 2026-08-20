@@ -225,10 +225,36 @@ html.dark {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 12px;
     padding: 12px;
+    transition:
+      opacity 0.45s ease,
+      visibility 0.45s ease;
   }
   .overlay > * {
     pointer-events: auto;
     min-height: 0;
+  }
+
+  /* Presentation mode: the model, and nothing else.
+
+     Faded rather than unmounted. The compass lives in .utilChip and the viewer
+     is handed that element once, on mount, then writes the needle into it every
+     frame — the same constraint stated on the element itself in util-chip.tsx.
+     Taking it out of the tree here would leave the viewer holding a detached
+     node for the rest of the session.
+
+     visibility rather than pointer-events, which would do nothing here: the
+     rule above hands `auto` back to every child, and a child may take a pointer
+     through a parent that refuses one. visibility is inherited and nothing
+     below overrides it, so it takes the whole cluster out of hit-testing — and
+     it transitions the useful way round, holding visible for the length of the
+     fade out and flipping back the instant the class comes off.
+
+     Which it does on any pointer movement; see the reveal effect in
+     ifc-site.tsx, without which the button that ends the mode would be under
+     the fade it caused. */
+  .app--present .overlay {
+    opacity: 0;
+    visibility: hidden;
   }
 
   /* Floating surfaces. A flat white panel disappears into a light basemap and

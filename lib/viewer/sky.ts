@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DRAW_ORDER } from '@/lib/scene/stack';
 
 export type SkyPalette = {
   zenith: number;
@@ -98,7 +99,7 @@ export function createSkyDome(): THREE.Mesh {
 
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), mat);
   dome.frustumCulled = false;
-  dome.renderOrder = -1;
+  dome.renderOrder = DRAW_ORDER.SKY;
   return dome;
 }
 

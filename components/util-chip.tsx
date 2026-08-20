@@ -1,7 +1,14 @@
 'use client';
 
 import type { RefObject } from 'react';
-import { IconCompass, IconMoon, IconOrigin, IconProjection, IconSun } from '@/components/icons';
+import {
+  IconCompass,
+  IconMoon,
+  IconOrigin,
+  IconPresentation,
+  IconProjection,
+  IconSun,
+} from '@/components/icons';
 import { LangToggle } from '@/components/lang-toggle';
 import { useT } from '@/lib/i18n/context';
 import { useTheme } from '@/lib/theme/context';
@@ -10,10 +17,13 @@ import type { ViewTab } from '@/lib/types';
 export type UtilChipProps = {
   view: ViewTab;
   compassRef: RefObject<HTMLDivElement | null>;
+  hasScene: boolean;
   showOrigin: boolean;
   onShowOrigin: (v: boolean) => void;
   ortho: boolean;
   onOrtho: (v: boolean) => void;
+  presenting: boolean;
+  onPresent: (v: boolean) => void;
   infoOpen: boolean;
   onInfo: () => void;
 };
@@ -47,8 +57,9 @@ export function UtilChip(p: UtilChipProps) {
         <IconCompass />
       </div>
 
-      {/* Both only mean anything with the 3D view up: one toggles a marker in
-          the scene, the other the projection it is drawn with. */}
+      {/* All three only mean anything with the 3D view up: one toggles a marker
+          in the scene, one the projection it is drawn with, and the third flies
+          the camera round it. */}
       {!isMap && (
         <>
           <button
@@ -71,6 +82,22 @@ export function UtilChip(p: UtilChipProps) {
             onClick={() => p.onOrtho(!p.ortho)}
           >
             <IconProjection />
+          </button>
+
+          {/* Disabled rather than hidden without a scene: the 3D tab is
+              reachable before a build, and a button that comes and goes in a
+              fixed row of three moves the two beside it. There is nothing to
+              orbit until there is a model. */}
+          <button
+            type="button"
+            className={`iconBtn${p.presenting ? ' on' : ''}`}
+            title={t('ui.presentation')}
+            aria-label={t('ui.presentation')}
+            aria-pressed={p.presenting}
+            disabled={!p.hasScene}
+            onClick={() => p.onPresent(!p.presenting)}
+          >
+            <IconPresentation />
           </button>
         </>
       )}

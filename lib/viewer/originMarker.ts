@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DRAW_ORDER } from '@/lib/scene/stack';
 
 /**
  * Axis colours for the origin marker.
@@ -56,7 +57,7 @@ export function createOriginMarker(ghost: boolean): THREE.Group {
     o.material.depthTest = false;
     o.material.opacity = base * dim;
     o.userData.baseOpacity = base;
-    o.renderOrder = 4;
+    o.renderOrder = DRAW_ORDER.MARKER;
     g.add(o);
   };
 
@@ -74,7 +75,7 @@ export function createOriginMarker(ghost: boolean): THREE.Group {
     new THREE.MeshBasicMaterial({ color: DOT }),
   );
   paint(dot, 0.95);
-  dot.renderOrder = 5;
+  dot.renderOrder = DRAW_ORDER.MARKER_DOT;
 
   if (ghost) {
     g.traverse((o) => {

@@ -88,6 +88,15 @@ const originLabelOf = (m: SiteMeta): string =>
   ).toFixed(1)}`;
 
 /**
+ * How long the chrome stays up after the pointer stops, while presenting.
+ *
+ * Long enough to reach the button that ends the mode from anywhere on screen,
+ * short enough that a hand resting on the desk does not leave the toolbar over
+ * the model for the length of a meeting.
+ */
+const CHROME_IDLE_MS = 2500;
+
+/**
  * What the confirm card is asking about.
  *
  * The card started as one question — "a rebuild will discard your drawn work" —
@@ -167,6 +176,12 @@ export function IfcSite() {
       saved site has to work from a cold start with nothing drawn yet. */
   const fileOpenRef = useRef(false);
   const fileBtnRef = useRef<HTMLButtonElement>(null);
+  /** And for presentation, which Escape has to be able to leave — it outranks
+      every flyout above, all of which are hidden while it runs. */
+  const presentingRef = useRef(false);
+  /** Not a mirror but a throttle: pointermove fires far too often to write
+      chromeAwake on every one of them. See the reveal effect. */
+  const awakeRef = useRef(false);
 
   /* ---- React state --------------------------------------------------- */
   const [form, setForm] = useState<BuildOptions>(DEFAULT_FORM);
@@ -212,6 +227,15 @@ export function IfcSite() {
   /** Also the viewer's default. Held here rather than reported back, like the
       marker above: nothing in the viewer changes it on its own. */
   const [ortho, setOrtho] = useState(false);
+  /** The presentation orbit. Same arrangement again — and the viewer keeps the
+      mode across a rebuild rather than dropping it, precisely so this stays the
+      one copy of the answer. */
+  const [presenting, setPresenting] = useState(false);
+  /** Whether the chrome is showing while presenting. Presentation hides the
+      overlay, and the button that ends it lives in the overlay — so the chrome
+      comes back on any pointer movement and fades again once the pointer
+      settles, the way a video player's controls do. See the effect below. */
+  const [chromeAwake, setChromeAwake] = useState(false);
   /* The local project coordinate system the origin point is mapped to. Pure
      export metadata — the viewer never sees it and the scene never moves — so it
      lives here rather than in the viewer, and outside the undo stack, which
@@ -412,19 +436,73 @@ export function IfcSite() {
 
   const onClearMeasures = useCallback(() => viewerRef.current?.clearMeasures(), []);
 
+  /* ---- presentation -----------------------------------------------------
+     Declared up here among the effects rather than beside onOrtho with the rest
+     of the handlers, because the view-tab effect below has to be able to end
+     the mode. */
+
+  /* Waking the chrome on the way in is what makes the mode announce itself: the
+     toast's pinned hint is where "Esc to exit" is written, and it would
+     otherwise appear and fade in the same breath as everything around it. */
+  const onPresent = useCallback((v: boolean) => {
+    setPresenting(v);
+    presentingRef.current = v;
+    awakeRef.current = v;
+    setChromeAwake(v);
+    viewerRef.current?.setPresentation(v);
+  }, []);
+
+  /* The overlay is hidden while presenting, and the button that ends the mode
+     is in the overlay — so the pointer brings it back, and a pause of a few
+     seconds takes it away again. Escape works throughout either way; this is
+     about not having to know that.
+
+     awakeRef is not a mirror of the state, it is the throttle: pointermove
+     fires tens of times a second and every one of them would be a re-render
+     without it. Only the false -> true edge writes state. */
+  useEffect(() => {
+    if (!presenting) return;
+    let idle = 0;
+    const settle = () => {
+      window.clearTimeout(idle);
+      idle = window.setTimeout(() => {
+        awakeRef.current = false;
+        setChromeAwake(false);
+      }, CHROME_IDLE_MS);
+    };
+    const wake = () => {
+      if (!awakeRef.current) {
+        awakeRef.current = true;
+        setChromeAwake(true);
+      }
+      settle();
+    };
+    window.addEventListener('pointermove', wake);
+    // Armed on entry as well as on movement: the mode starts with the chrome up
+    // so the hint can be read, and that showing has to expire on its own.
+    settle();
+    return () => {
+      window.removeEventListener('pointermove', wake);
+      window.clearTimeout(idle);
+    };
+  }, [presenting]);
+
   /* ---- view tab -------------------------------------------------------- */
   useEffect(() => {
     viewerRef.current?.setActive(view === '3d');
     // A tool that stays armed behind the map would be waiting on clicks that
     // cannot reach it, and would surprise on the way back.
     if (view !== '3d') viewerRef.current?.setDrawMode(null);
+    // Same for the orbit: it draws nothing behind the map, and coming back to a
+    // tab that has been spinning unattended is not what leaving it meant.
+    if (view !== '3d') onPresent(false);
     if (view !== 'map') return;
     mapRef.current?.invalidateSize();
     // Anything that needed a laid-out map runs now, not when it was requested.
     const queued = pendingMapAction.current;
     pendingMapAction.current = null;
     queued?.();
-  }, [view]);
+  }, [view, onPresent]);
 
   /**
    * Leaflet measures its container, and switching tabs is a React state change
@@ -497,7 +575,11 @@ export function IfcSite() {
       // local thing: the map arms itself on load and isDrawing is true almost
       // whenever the map tab is up, so anything below it would never be reached.
       if (e.key === 'Escape') {
-        if (infoOpenRef.current) closeInfo();
+        // Presentation is above the info card, not below it: every flyout in
+        // this ladder is hidden while it runs, so anything ranked over it would
+        // unwind something the user cannot see.
+        if (presentingRef.current) onPresent(false);
+        else if (infoOpenRef.current) closeInfo();
         else if (fileOpenRef.current) closeFile();
         else if (optionsOpenRef.current) closeOptions();
         else if (searchOpenRef.current) closeSearch();
@@ -1239,7 +1321,7 @@ export function IfcSite() {
      attribution along the very bottom — and the overlay has to know which one is
      up to keep off it. */
   return (
-    <div className={`app app--${view}`}>
+    <div className={`app app--${view}${presenting && !chromeAwake ? ' app--present' : ''}`}>
       <Stage viewportRef={viewportRef} mapRef={mapHostRef} view={view} />
 
       {/* Everything below floats over the viewers on a grid, so the rail, the
@@ -1253,10 +1335,13 @@ export function IfcSite() {
         <UtilChip
           view={view}
           compassRef={compassRef}
+          hasScene={hasScene}
           showOrigin={showOrigin}
           onShowOrigin={onShowOrigin}
           ortho={ortho}
           onOrtho={onOrtho}
+          presenting={presenting}
+          onPresent={onPresent}
           infoOpen={infoOpen}
           onInfo={toggleInfo}
         />
@@ -1383,6 +1468,7 @@ export function IfcSite() {
           status={status}
           drawTool={drawTool}
           drawPoints={drawPoints}
+          presenting={presenting}
         />
 
         <StatusBar

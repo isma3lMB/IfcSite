@@ -20,6 +20,7 @@ import {
 } from '@/lib/scene/layers';
 import { BUILDING_CAP, defaultTreeDims, pushBuilding, pushTree } from '@/lib/scene/push';
 import {
+  DRAW_ORDER,
   RAILWAY_COLOR,
   ROAD_COLOR,
   TERRAIN_COLOR,
@@ -45,8 +46,19 @@ import {
   createMeasureLayer,
 } from '@/lib/viewer/measureLayer';
 import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/originMarker';
+import {
+  CYCLE_MS,
+  ENTRY_MS,
+  type OrbitPose,
+  easeInOut,
+  eyeOf,
+  lerpPose,
+  orbitPose,
+  poseOf,
+} from '@/lib/viewer/presentation';
 import { SKY, SKY_THEMES, applySky, createSkyDome } from '@/lib/viewer/sky';
 import { type Snap, resolveSnap, toScreen } from '@/lib/viewer/snap';
+import { setTranslucency } from '@/lib/viewer/translucency';
 import { type ViewAxis, type ViewTriad, axisEye, createViewTriad } from '@/lib/viewer/viewTriad';
 import type { EditLabelKey, Params, StatusKey } from '@/lib/i18n/keys';
 import {
@@ -331,6 +343,17 @@ const SNAP_CURSOR_PX = 22;
 const FOV = 45;
 const FOV_K = 2 * Math.tan((FOV * Math.PI) / 360);
 
+/**
+ * How far back the site is framed from, as a multiple of its radius.
+ *
+ * The 1.05 is margin — the rectangle is not left touching the edges — and the
+ * 2.4 is the cone: at 45° it takes ~2.4 radii to span a radius of world at the
+ * target. Named because presentation mode has to fly to exactly this distance
+ * for its wide shot; two copies of the arithmetic would drift the moment one
+ * was tuned.
+ */
+const FIT_K = 1.05 * 2.4;
+
 /** Either projection. The viewer holds one of each and swaps which is live. */
 type ViewerCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
 
@@ -432,6 +455,22 @@ export class Viewer {
    *  hold, and the clock. */
   private snap: { from: THREE.Vector3; q: THREE.Quaternion; r: number; t0: number } | null = null;
   private readonly slerpQ = new THREE.Quaternion();
+
+  /**
+   * The presentation orbit in flight: the clock, the azimuth it was entered at,
+   * and the camera it was handed — the last two so the sweep can pick up from
+   * where the user was rather than cutting to a canned pose. Null when the mode
+   * is off, which is the only thing anything else needs to test.
+   */
+  private present: {
+    t0: number;
+    az0: number;
+    from: OrbitPose;
+    fromTarget: THREE.Vector3;
+  } | null = null;
+  /** Scratch for stepPresent, which runs every frame. */
+  private readonly orbitEye = new THREE.Vector3();
+  private readonly orbitTarget = new THREE.Vector3();
 
   /** The scene's centre point: where the exported model's zero sits. */
   private readonly originMarker: THREE.Group;
@@ -838,8 +877,12 @@ export class Viewer {
     if (!this.active) return; // the map is up; nothing to draw behind it
     // A snap writes the camera position itself, so the controls have to stand
     // down for the duration or they overwrite it on the same frame. They still
-    // get the last word on orientation — see stepSnap.
+    // get the last word on orientation — see stepSnap. The presentation orbit
+    // drives the camera the same way and for the same reasons, and the two are
+    // mutually exclusive: entering the mode cancels any snap, and nothing can
+    // start one while it runs.
     if (this.snap) this.stepSnap(now);
+    else if (this.present) this.stepPresent(now);
     this.controls.update();
     // Scroll changes zoom rather than distance under a parallel projection, so
     // the dome has to follow it every frame — see syncSkyDome.
@@ -920,6 +963,128 @@ export class Viewer {
     this.snap = null;
   }
 
+  /* ---- presentation ---------------------------------------------------
+     An endless cinematic orbit about the model origin, for showing the model
+     without a hand on the mouse. It borrows the snap's handshake wholesale —
+     the camera is driven directly and handed back on exit — and adds one thing
+     the snap does not need: the controls are switched off for the duration.
+
+     A snap is over in 380 ms, so leaving the controls live merely means they
+     have nothing to say. This runs until it is stopped, and a drag against a
+     scripted path is not an orbit — every frame would overwrite it, and the
+     model would judder rather than respond. So the pointer is parked, the same
+     arbitration the gizmo makes in dragging-changed and the rectangle tool
+     makes for the length of its drag.
+     -------------------------------------------------------------------- */
+
+  /** The distance the whole site is framed from — frameCamera's own, so the
+   *  wide end of the orbit is exactly the shot a rebuild composes. */
+  private fitDistance(): number {
+    return Math.max(1, this.fitRadius * FIT_K);
+  }
+
+  /**
+   * Start or stop the presentation orbit.
+   *
+   * Idempotent at this end like every other toggle here, so React can push it
+   * on a render without having to know whether it is already in force.
+   */
+  setPresentation(on: boolean): void {
+    if (on === !!this.present) return;
+    if (!on) {
+      this.present = null;
+      // Wherever the orbit left the camera is now the view. The controls
+      // re-derive their spherical state from it on this call, so there is no
+      // moment where the two disagree.
+      this.controls.enabled = true;
+      this.controls.update();
+      return;
+    }
+    // Nothing to orbit, and fitRadius is still zero — the wide shot would be a
+    // metre from the origin. React gates the button on hasScene; this is the
+    // guard for every other caller.
+    if (!this.scene) return;
+
+    this.cancelSnap();
+    // A tool armed behind a hidden toolbar is waiting on clicks that no longer
+    // reach it, and a gizmo floating over the model is the one thing a
+    // presentation must not show.
+    this.setDrawMode(null);
+    this.select(null);
+
+    // The tail of the last drag is still in the controls' spherical delta and
+    // decays rather than stopping. Left alone it turns underneath the orbit and
+    // kicks the camera when the mode ends. One update with damping off applies
+    // it and zeroes it in the same call — see snapTo, which does this for the
+    // identical reason.
+    const damp = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = damp;
+    this.controls.enabled = false;
+
+    const from = poseOf(this.camera.position.clone().sub(this.controls.target));
+    this.present = {
+      t0: performance.now(),
+      az0: from.az,
+      from,
+      fromTarget: this.controls.target.clone(),
+    };
+
+    // Under parallel rays the eye's distance frames nothing — zoom does. Fix
+    // the frustum height at the site's framing distance here so stepPresent can
+    // carry the whole breath of the orbit in zoom alone, using the same FOV_K
+    // identity setProjection is built on.
+    if (this.camera instanceof THREE.OrthographicCamera) {
+      const h = FOV_K * this.fitDistance();
+      this.camera.top = h / 2;
+      this.camera.bottom = -h / 2;
+      this.resize(); // left/right follow the vertical extent
+    }
+  }
+
+  /** Whether the orbit is running. */
+  isPresenting(): boolean {
+    return !!this.present;
+  }
+
+  private stepPresent(now: number): void {
+    const p = this.present;
+    if (!p) return;
+    const fit = this.fitDistance();
+    const elapsed = now - p.t0;
+    // Modulo rather than a wrapped counter: the phase is a pure function of the
+    // clock, so a dropped frame costs a frame rather than desynchronising the
+    // loop from its own elevation.
+    const phase = ((elapsed / CYCLE_MS) % 1 + 1) % 1;
+    let pose = orbitPose(phase, p.az0, fit);
+
+    // The entry blend. Azimuth is already continuous — orbitPose is built from
+    // the azimuth the mode was entered at — so this is easing elevation,
+    // distance and the pivot from wherever the user was onto the path. Without
+    // it the mode opens with a cut, which is the one thing it exists to avoid.
+    const k = Math.min(1, elapsed / ENTRY_MS);
+    this.orbitTarget.set(0, 0, this.fitZ0);
+    if (k < 1) {
+      const e = easeInOut(k);
+      pose = lerpPose(p.from, pose, e);
+      this.orbitTarget.lerpVectors(p.fromTarget, this.orbitTarget, e);
+    }
+
+    this.controls.target.copy(this.orbitTarget);
+    this.camera.position.copy(eyeOf(pose, this.orbitTarget, this.orbitEye));
+
+    if (this.camera instanceof THREE.OrthographicCamera) {
+      // The framing a perspective camera would show from pose.dist, expressed
+      // as zoom against the fixed frustum height set on entry.
+      this.camera.zoom = fit / Math.max(1e-3, pose.dist);
+      this.camera.updateProjectionMatrix();
+    }
+    // Perspective needs no frustum work: applyFrustum spans on fitRadius * 2.52
+    // rather than on the current distance, and the orbit never goes further out
+    // than that, so near and far are already right for every pose in the loop.
+  }
+
   /**
    * Pointer handling for the orientation widget.
    *
@@ -936,9 +1101,13 @@ export class Viewer {
     const opt = { capture: true, signal: this.listeners.signal };
     const dom = this.renderer.domElement;
     // A footprint tool owns every click on the ground; the widget must not
-    // swallow one and turn a corner into a view change.
+    // swallow one and turn a corner into a view change. The presentation orbit
+    // owns the camera outright, so a widget press during one would start a snap
+    // that fights it for the length of the tween.
     const hit = (e: PointerEvent): ViewAxis | null =>
-      this.active && !this.drawTool ? this.triad.pick(e, dom, this.rightInset) : null;
+      this.active && !this.drawTool && !this.present
+        ? this.triad.pick(e, dom, this.rightInset)
+        : null;
 
     this.host.addEventListener(
       'pointerdown',
@@ -997,7 +1166,7 @@ export class Viewer {
   private frameCamera(radius: number, z0: number): void {
     this.fitRadius = radius;
     this.fitZ0 = z0;
-    const dist = radius * 1.05 * 2.4;
+    const dist = radius * FIT_K;
     const target = new THREE.Vector3(0, 0, z0);
     if (this.firstFrame) {
       this.camera.position.set(dist * 0.55, -dist * 0.75, dist * 0.5 + z0);
@@ -1034,7 +1203,7 @@ export class Viewer {
     const dist = c.position.distanceTo(this.controls.target);
     // The site's own framing distance, not the current one: a user dollied
     // right up to a wall should not drag near/far in with them.
-    const span = Math.max(dist, this.fitRadius * 2.52, 1);
+    const span = Math.max(dist, this.fitRadius * FIT_K, 1);
     if (c instanceof THREE.OrthographicCamera) {
       // A parallel frustum is a box, not a cone. A slab starting at the eye
       // clips whatever the orbit has left behind it, and there is no depth
@@ -1126,11 +1295,19 @@ export class Viewer {
   }
 
   private static disposeGroup(g: THREE.Object3D): void {
+    // Deduped because a ghost shell shares its parent's buffer rather than
+    // cloning it (see syncShell), so the traverse reaches the same geometry
+    // twice and the second dispose would fire on a buffer already freed.
+    const seen = new Set<THREE.BufferGeometry | THREE.Material>();
+    const drop = (r: THREE.BufferGeometry | THREE.Material): void => {
+      if (seen.has(r)) return;
+      seen.add(r);
+      r.dispose();
+    };
     g.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.geometry) m.geometry.dispose();
-      if (m.material)
-        (Array.isArray(m.material) ? m.material : [m.material]).forEach((mm) => mm.dispose());
+      if (m.geometry) drop(m.geometry);
+      if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach(drop);
     });
     while (g.children.length) g.remove(g.children[0]);
   }
@@ -1233,9 +1410,7 @@ export class Viewer {
       const role = o.userData.layerRole as LayerRole | undefined;
       if (!role) continue;
       const mat = (o as THREE.Mesh).material as THREE.Material & { color: THREE.Color };
-      mat.transparent = a < 1;
-      mat.opacity = a;
-      mat.depthWrite = a >= 1;
+      setTranslucency(mat, a);
       if (role === 'fill') {
         const own = (o.userData.surface as Surface | undefined)?.color;
         mat.color.setHex(own ?? s.layers[id].color ?? fallback);
@@ -1402,7 +1577,7 @@ export class Viewer {
           polygonOffsetUnits: -1,
         }),
       );
-      roadMesh.renderOrder = 4;
+      roadMesh.renderOrder = DRAW_ORDER.ROAD;
       roadMesh.userData.layerRole = 'fill' satisfies LayerRole;
       this.layerGroup('roads').add(roadMesh);
       const roadEdges = new THREE.LineSegments(
@@ -1414,7 +1589,7 @@ export class Viewer {
           polygonOffsetUnits: -1,
         }),
       );
-      roadEdges.renderOrder = 4;
+      roadEdges.renderOrder = DRAW_ORDER.ROAD;
       roadEdges.userData.layerRole = 'edge' satisfies LayerRole;
       roadEdges.userData.edgeColor = 0xaeaeae;
       this.layerGroup('roads').add(roadEdges);
@@ -1441,7 +1616,7 @@ export class Viewer {
           polygonOffsetUnits: -1,
         }),
       );
-      wallMesh.renderOrder = 4;
+      wallMesh.renderOrder = DRAW_ORDER.ROAD;
       wallMesh.userData.layerRole = 'fill' satisfies LayerRole;
       this.layerGroup('roads').add(wallMesh);
     }
@@ -1468,7 +1643,7 @@ export class Viewer {
           polygonOffsetUnits: -1,
         }),
       );
-      railMesh.renderOrder = 5;
+      railMesh.renderOrder = DRAW_ORDER.RAILWAY;
       railMesh.userData.layerRole = 'fill' satisfies LayerRole;
       this.layerGroup('railways').add(railMesh);
       // Built off the top surface alone, for the same reason the road outline
@@ -1483,7 +1658,7 @@ export class Viewer {
           polygonOffsetUnits: -1,
         }),
       );
-      railEdges.renderOrder = 5;
+      railEdges.renderOrder = DRAW_ORDER.RAILWAY;
       railEdges.userData.layerRole = 'edge' satisfies LayerRole;
       railEdges.userData.edgeColor = 0x8d7f6e;
       this.layerGroup('railways').add(railEdges);
@@ -1505,7 +1680,7 @@ export class Viewer {
           polygonOffsetUnits: -1,
         }),
       );
-      railWallMesh.renderOrder = 5;
+      railWallMesh.renderOrder = DRAW_ORDER.RAILWAY;
       railWallMesh.userData.layerRole = 'fill' satisfies LayerRole;
       this.layerGroup('railways').add(railWallMesh);
     }
@@ -1572,9 +1747,14 @@ export class Viewer {
     // calls further down. Draw order and offset march in lockstep so a higher
     // tier always wins both the paint order and the depth test against a lower
     // one, regardless of how close their true world z happens to be.
-    const SURFACE_TIER: Record<string, number> = { parcel: 1, vegetation: 2, water: 3, hedge: 5 };
+    const SURFACE_TIER: Record<string, number> = {
+      parcel: DRAW_ORDER.PARCEL,
+      vegetation: DRAW_ORDER.VEGETATION,
+      water: DRAW_ORDER.WATER,
+      hedge: DRAW_ORDER.HEDGE,
+    };
     for (const s of scene.surfaces) {
-      const tier = SURFACE_TIER[s.layer ?? ''] ?? 1;
+      const tier = SURFACE_TIER[s.layer ?? ''] ?? DRAW_ORDER.PARCEL;
       // Opacity comes from the layer, which starts at the lib/scene/stack
       // default and is the same number the IFC exports as transparency. A layer
       // drawn below 1 must not write depth, or it hides what it is meant to be
@@ -1617,6 +1797,17 @@ export class Viewer {
 
     this.layersChanged();
     this.frameCamera(site.radius, z0);
+
+    // A rebuild under a running presentation would have frameCamera and the
+    // orbit writing the camera in the same frame, and the orbit still flying to
+    // the old site's radius. Re-seed it instead of stopping it: React holds the
+    // toggle, so ending the mode here would leave a button claiming a state the
+    // viewer had quietly left. It picks up from the camera frameCamera just
+    // composed, with the new radius and datum, and carries on.
+    if (this.present) {
+      this.present = null;
+      this.setPresentation(true);
+    }
   }
 
   /* ---- element editing ---------------------------------------------- */
@@ -1676,12 +1867,77 @@ export class Viewer {
       | undefined;
   }
 
+  /* ---- the ghost shell -------------------------------------------------
+     A solid drawn below 1 is a two-pass affair: its far faces as one draw
+     call, then its near ones. Both halves have to exist or a ghost does not
+     read as a volume.
+
+     One double-sided mesh will not do it. three sorts per OBJECT and never per
+     triangle, so a single pass blends a prism's own faces in whatever order
+     the index buffer happens to hold and the whole massing collapses to
+     whichever face was last. And front-side alone — what this used to do —
+     culls the far walls and floor cap outright, so the ghost is a single sheet
+     with nothing behind it, which is not what the transparency is for. */
+
+  private static shellOf(mesh: THREE.Mesh): THREE.Mesh | undefined {
+    return mesh.children.find((c) => c.userData.shell === true) as THREE.Mesh | undefined;
+  }
+
+  /**
+   * Bring the back-face twin of a solid in line with whether it is translucent,
+   * and hand it back so the caller can paint it alongside the front faces.
+   *
+   * A child rather than a sibling, exactly like the outline, so it inherits
+   * every transform and every layer visibility toggle for free. It shares the
+   * parent's geometry rather than cloning it — the same buffer read with the
+   * winding reversed, so a ghost costs a draw call and no memory. It is torn
+   * down again the moment the solid goes back to opaque, so a scene that is
+   * never ghosted pays nothing at all.
+   */
+  private static syncShell(mesh: THREE.Mesh, on: boolean): THREE.Mesh | null {
+    const existing = Viewer.shellOf(mesh);
+    if (!on) {
+      if (existing) {
+        existing.removeFromParent();
+        // Its geometry is the parent's — only the materials are its own.
+        const mats = existing.material;
+        (Array.isArray(mats) ? mats : [mats]).forEach((m) => m.dispose());
+      }
+      return null;
+    }
+    if (existing) {
+      // A height edit swaps the parent's buffer under it; keep them the same one.
+      existing.geometry = mesh.geometry;
+      return existing;
+    }
+
+    const front = mesh.material;
+    const mats = (Array.isArray(front) ? front : [front]).map((m) => {
+      const c = m.clone();
+      c.side = THREE.BackSide;
+      return c;
+    });
+    const shell = new THREE.Mesh(mesh.geometry, Array.isArray(front) ? mats : mats[0]);
+    shell.userData.shell = true;
+    shell.renderOrder = DRAW_ORDER.GHOST_BACK;
+    // Buildings are picked non-recursively so a child is already unreachable,
+    // but a tree is picked through its group — without this the shell would
+    // swallow the click that was meant for the trunk it is wrapped around.
+    shell.raycast = () => {};
+    mesh.add(shell);
+    return shell;
+  }
+
   /** Swap in a prism for the building's current height, keeping the material,
    *  the transform and the selection exactly as they were. */
   private rebuildGeometry(mesh: THREE.Mesh, b: Building): void {
     const geo = Viewer.buildingGeometry(b);
+    const shell = Viewer.shellOf(mesh);
     mesh.geometry.dispose();
     mesh.geometry = geo;
+    // Shares the parent's buffer, so it has to follow it to the new one or the
+    // ghost keeps wrapping the height the building no longer has.
+    if (shell) shell.geometry = geo;
     const outline = Viewer.outlineOf(mesh);
     if (outline) {
       outline.geometry.dispose();
@@ -1750,31 +2006,34 @@ export class Viewer {
 
   private paintMesh(mesh: THREE.Mesh, b: Building): void {
     const c = buildingColors(b);
-    // ExtrudeGeometry group 0 is the caps (roof + floor), group 1 the side walls.
-    const mats = mesh.material as THREE.MeshLambertMaterial[];
-    mats[0].color.setHex(c.cap);
-    mats[1].color.setHex(c.wall);
     // Selection is carried mainly by the outline, not by the emissive. Emissive
     // is additive, and against a near-white massing there is no headroom left to
     // add into — a lit roof would clip before the tint became legible. A coloured
     // silhouette reads at any brightness, so the emissive is only a faint
     // supporting wash for the faces.
     const sel = this.selected?.kind === 'building' && this.selected.obj === mesh;
-    mats[0].emissive.setHex(sel ? 0x16304a : 0x000000);
-    mats[1].emissive.setHex(sel ? 0x16304a : 0x000000);
 
     // Transparency, on the same terms as the context surfaces above: a solid
     // drawn below 1 must not write depth, or it hides what it is meant to be
     // seen through — including its own far side, which is what makes a ghosted
-    // massing readable. Translucent buildings draw last, above the trees at 6
-    // in lib/scene/stack, so they blend over a finished opaque scene.
+    // massing readable. Translucent buildings draw last, above the trees in
+    // lib/scene/stack, so they blend over a finished opaque scene.
     const a = b.xf.opacity;
-    for (const m of mats) {
-      m.transparent = a < 1;
-      m.opacity = a;
-      m.depthWrite = a >= 1;
+    const shell = Viewer.syncShell(mesh, a < 1);
+
+    // ExtrudeGeometry group 0 is the caps (roof + floor), group 1 the side
+    // walls, and the shell mirrors both — it is the same materials with the
+    // winding reversed, so it has to be painted from the same numbers or the
+    // far side of a ghost drifts a shade off the near one.
+    const mats = mesh.material as THREE.MeshLambertMaterial[];
+    for (const g of shell ? [mats, shell.material as THREE.MeshLambertMaterial[]] : [mats]) {
+      g[0].color.setHex(c.cap);
+      g[1].color.setHex(c.wall);
+      g[0].emissive.setHex(sel ? 0x16304a : 0x000000);
+      g[1].emissive.setHex(sel ? 0x16304a : 0x000000);
+      for (const m of g) setTranslucency(m, a);
     }
-    mesh.renderOrder = a < 1 ? 7 : 0;
+    mesh.renderOrder = a < 1 ? DRAW_ORDER.GHOST_FRONT : DRAW_ORDER.BUILDING;
 
     // The outline fades with the solid, or a ghost keeps hard black edges and
     // reads as a wireframe box rather than as a faint volume.
@@ -1782,9 +2041,7 @@ export class Viewer {
     if (outline) {
       const om = outline.material as THREE.LineBasicMaterial;
       om.color.setHex(sel ? 0x1f8ac0 : 0xa8adb0);
-      om.transparent = a < 1;
-      om.opacity = a;
-      om.depthWrite = a >= 1;
+      setTranslucency(om, a);
       outline.renderOrder = mesh.renderOrder;
     }
   }
@@ -1813,8 +2070,8 @@ export class Viewer {
     );
     // Opaque, so normal depth-testing is enough on its own; the render order
     // just keeps them drawn last, top of the stack, matching lib/scene/stack.
-    trunk.renderOrder = 6;
-    canopy.renderOrder = 6;
+    trunk.renderOrder = DRAW_ORDER.TREE;
+    canopy.renderOrder = DRAW_ORDER.TREE;
     const group = new THREE.Group();
     group.add(trunk, canopy);
     Viewer.sizeTreeGroup(group, t);
@@ -1907,25 +2164,26 @@ export class Viewer {
 
   private paintTreeMesh(group: THREE.Group, t: Tree): void {
     const [trunk, canopy] = group.children as THREE.Mesh[];
-    const trunkMat = trunk.material as THREE.MeshLambertMaterial;
-    const canopyMat = canopy.material as THREE.MeshLambertMaterial;
-    canopyMat.color.setHex(t.xf.color ?? TREE_CANOPY_COLOR);
-
     // Selection reads as a faint emissive wash, the same supporting role it
     // plays on a building — see paintMesh.
     const sel = this.selected?.kind === 'tree' && this.selected.obj === group;
-    trunkMat.emissive.setHex(sel ? 0x16304a : 0x000000);
-    canopyMat.emissive.setHex(sel ? 0x16304a : 0x000000);
-
     const a = t.xf.opacity;
-    for (const m of [trunkMat, canopyMat]) {
-      m.transparent = a < 1;
-      m.opacity = a;
-      m.depthWrite = a >= 1;
+    const order = a < 1 ? DRAW_ORDER.GHOST_FRONT : DRAW_ORDER.TREE;
+
+    // Trunk and canopy are closed volumes of their own, so each gets its own
+    // back-face pass — same two-pass ghost as a building's prism, see syncShell.
+    for (const part of [trunk, canopy]) {
+      const color = part === canopy ? (t.xf.color ?? TREE_CANOPY_COLOR) : TREE_TRUNK_COLOR;
+      const shell = Viewer.syncShell(part, a < 1);
+      const mats = [part.material as THREE.MeshLambertMaterial];
+      if (shell) mats.push(shell.material as THREE.MeshLambertMaterial);
+      for (const m of mats) {
+        m.color.setHex(color);
+        m.emissive.setHex(sel ? 0x16304a : 0x000000);
+        setTranslucency(m, a);
+      }
+      part.renderOrder = order;
     }
-    const order = a < 1 ? 7 : 6;
-    trunk.renderOrder = order;
-    canopy.renderOrder = order;
   }
 
   private treeTarget(group: THREE.Group | null | undefined): Target | null {
@@ -2145,7 +2403,13 @@ export class Viewer {
     let downY = 0;
     let onGizmo = false;
 
+    // The presentation orbit hides the chrome the element editor lives in, so a
+    // selection made under one would open a panel nobody can see and leave an
+    // outline round a building for no stated reason. Both ends of the gesture
+    // are guarded rather than just the release, so a press cannot arm anything
+    // that outlives the mode.
     dom.addEventListener('pointerdown', (e) => {
+      if (this.present) return;
       downX = e.clientX;
       downY = e.clientY;
       onGizmo = !!this.gizmo.axis; // the gizmo sets .axis while hovered
@@ -2190,6 +2454,7 @@ export class Viewer {
     });
 
     dom.addEventListener('pointerup', (e) => {
+      if (this.present) return;
       if (this.drawTool === 'rect') {
         const anchor = this.rectAnchor;
         this.rectAnchor = null;

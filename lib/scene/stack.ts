@@ -60,6 +60,54 @@ export const LAYER_DZ = {
 } as const;
 
 /**
+ * Draw order for everything in the viewer, low to high.
+ *
+ * The companion to LAYER_DZ above, and here for the same reason: the ladder
+ * only holds while it is read from one place. These were bare literals spread
+ * across five viewer modules, each with a comment pointing at "the stacking
+ * order in lib/scene/stack" for a table that did not exist yet.
+ *
+ * Only the relative order matters — three sorts on this before it sorts on
+ * distance. The gaps are deliberate room to insert a tier without renumbering
+ * the ones above it.
+ *
+ * GHOST_BACK/GHOST_FRONT are one tier split in two. A translucent solid is
+ * drawn twice, far faces then near ones, because three sorts per object and
+ * never per triangle: one double-sided mesh would blend its own faces in index
+ * order and collapse to whichever happened to be last. Splitting the passes is
+ * what makes a ghosted massing read as a volume rather than as a single sheet.
+ *
+ * The origin marker is on this ladder even though it is not scene content,
+ * because it hangs directly off the scene and therefore sorts against it. It
+ * sits above the ghost tiers: it is drawn with depthTest off precisely so it
+ * stays reachable wherever it lands, which a number below a translucent
+ * building would quietly undo by letting the building paint over it.
+ *
+ * The footprint draft and the measure layer are deliberately NOT here. Both are
+ * whole Groups with a renderOrder of their own, and three compares an object's
+ * groupOrder before its renderOrder (see sortings in WebGLRenderLists), so any
+ * positive number on those groups already puts every one of their children
+ * after everything under contentGroup. Their internal numbers only order them
+ * against each other and mean nothing on this ladder — pulling them in here
+ * would suggest a comparison that never happens.
+ */
+export const DRAW_ORDER = {
+  SKY: -1,
+  BUILDING: 0,
+  PARCEL: 1,
+  VEGETATION: 2,
+  WATER: 3,
+  ROAD: 4,
+  RAILWAY: 5,
+  HEDGE: 5,
+  TREE: 6,
+  GHOST_BACK: 7,
+  GHOST_FRONT: 8,
+  MARKER: 20,
+  MARKER_DOT: 21,
+} as const;
+
+/**
  * How far each flat layer's skirt reaches BELOW the terrain, in metres.
  *
  * Only the bite lives here; the depth itself is arithmetic (see skirtDepth).

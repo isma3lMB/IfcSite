@@ -23,6 +23,10 @@ export type StatusToastProps = {
   drawTool: DrawTool | null;
   /** Corners placed so far in the current polygon, for the live hint. */
   drawPoints: number;
+  /** The presentation orbit is running. A condition, like an armed tool, so it
+   *  pins rather than fades — and it is the only place the way out is written
+   *  down once the chrome has faded. */
+  presenting: boolean;
 };
 
 /**
@@ -67,6 +71,11 @@ export function StatusToast(p: StatusToastProps) {
   const { t } = useT();
 
   const step: Step = buildStep(p);
+
+  /* Outranks every other pinned condition below: entering presentation disarms
+     whatever tool was in hand, and a stale-scene warning is not what a room is
+     looking at the model for. */
+  const presentHint = p.presenting ? t('bar.presenting') : null;
 
   const drawHint = !p.drawTool
     ? null
@@ -127,7 +136,7 @@ export function StatusToast(p: StatusToastProps) {
   // short-circuit this branch entirely, so a status raised with a tool still
   // armed was invisible — and the stale warning is about a scene that is at this
   // moment being replaced.
-  const pinned = p.working ? null : (drawHint ?? (stale ? t('bar.stale') : null));
+  const pinned = p.working ? null : (presentHint ?? drawHint ?? (stale ? t('bar.stale') : null));
   // Only the kinds that do not fade are worth a dismiss control; everything else
   // is already leaving. Progress is excluded on top of that: it holds because
   // work is running, and closing it would not stop the work.
@@ -142,7 +151,9 @@ export function StatusToast(p: StatusToastProps) {
       {pinned ? (
         <div className="toastBody">
           <div className="statusline statusline--bar" title={pinned}>
-            {drawHint ? pinned : <span className="err">{pinned}</span>}
+            {/* Only the stale warning is a warning. The two hints are guidance,
+                and the error style would read as something having gone wrong. */}
+            {presentHint || drawHint ? pinned : <span className="err">{pinned}</span>}
           </div>
         </div>
       ) : (
