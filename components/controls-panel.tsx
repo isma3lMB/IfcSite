@@ -287,6 +287,16 @@ export function ControlsPanel(p: ControlsPanelProps) {
 
         <label className="check">
           <Checkbox
+            checked={p.form.terrain}
+            onCheckedChange={(v) => p.onChange({ terrain: v === true })}
+          />
+          <Glyph id="terrain" />
+          {t('ctl.terrain')}
+          <span className="src">{ign ? t('ctl.terrainSrcIgn') : t('ctl.terrainSrcOsm')}</span>
+        </label>
+
+        <label className="check">
+          <Checkbox
             checked={p.form.buildings}
             onCheckedChange={(v) => p.onChange({ buildings: v === true })}
           />
@@ -310,16 +320,6 @@ export function ControlsPanel(p: ControlsPanelProps) {
           />
           <Glyph id="railways" />
           {t('ctl.railways')}
-        </label>
-
-        <label className="check">
-          <Checkbox
-            checked={p.form.terrain}
-            onCheckedChange={(v) => p.onChange({ terrain: v === true })}
-          />
-          <Glyph id="terrain" />
-          {t('ctl.terrain')}
-          <span className="src">{ign ? t('ctl.terrainSrcIgn') : t('ctl.terrainSrcOsm')}</span>
         </label>
 
         <label className="check">
