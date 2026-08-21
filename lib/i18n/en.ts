@@ -176,7 +176,7 @@ export const en = {
   'ctl.advLaneWidth': 'Lane width',
   'ctl.advTrackWidth': 'Rail track width',
 
-  'ctl.build': 'Build sheet',
+  'ctl.build': 'Build site',
   'ctl.building': 'Building…',
   'ctl.download': 'Download IFC',
 

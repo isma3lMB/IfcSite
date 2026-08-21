@@ -177,7 +177,7 @@ export const fr: Dict = {
   'ctl.advLaneWidth': 'Largeur d’une voie',
   'ctl.advTrackWidth': 'Largeur d’une voie ferrée',
 
-  'ctl.build': 'Construire la maquette',
+  'ctl.build': 'Construire la maquette site',
   'ctl.building': 'Construction…',
   'ctl.download': 'Télécharger l’IFC',
 
