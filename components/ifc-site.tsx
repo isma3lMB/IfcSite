@@ -766,6 +766,38 @@ export function IfcSite() {
   const toggleTree = useCallback(() => toggleFlyout('tree'), [toggleFlyout]);
   const toggleFile = useCallback(() => toggleFlyout('file'), [toggleFlyout]);
 
+  /* The fifth way a flyout closes, after its own ✕, Escape, its rail button and
+     another flyout opening: a click that lands anywhere else.
+
+     "Anywhere else" is outside the whole rail zone rather than outside the panel
+     alone, because the button that opened it sits in the rail — a handler that
+     fired on that button would close the panel just in time for the click to
+     toggle it straight back open.
+
+     On click rather than pointerdown, which is the usual choice for a dismiss:
+     the rename field in Drafts commits on blur, and blur is a default action of
+     the press, so closing any earlier would unmount the field before it could
+     write. In the capture phase, so a viewer that stops the event on its own
+     container cannot swallow it.
+
+     Portalled popups — the select and combobox lists — mount outside .app
+     entirely, so requiring the target to be inside it is what stops a click on
+     an option from closing the panel its field belongs to. The modals are
+     exempt for the reason Escape ranks them first: their backdrop is not the
+     viewer, and one click should not unwind two layers. */
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (presentingRef.current || infoOpenRef.current || confirmOpenRef.current) return;
+      const el = e.target instanceof Element ? e.target : null;
+      if (!el || !el.closest('.app') || el.closest('.railZone')) return;
+      for (const name of Object.keys(flyouts) as FlyoutName[]) {
+        if (flyouts[name].open.current) setFlyout(name, false);
+      }
+    };
+    window.addEventListener('click', onClick, true);
+    return () => window.removeEventListener('click', onClick, true);
+  }, [flyouts, setFlyout]);
+
   /* The one auto-behaviour here: Search starts open because there is nothing
      to search *for* until a site rectangle exists, and it collapses to an
      icon — same as every other rail item — the instant one does. Guarded on

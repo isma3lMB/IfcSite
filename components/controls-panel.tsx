@@ -124,6 +124,9 @@ function TuneRow(q: {
 export function ControlsPanel(p: ControlsPanelProps) {
   const { t, n } = useT();
   const ign = p.form.provider === 'ign';
+  /* Buildings, roads and railways all come from whichever provider is selected —
+     IGN BD TOPO or Overpass. Mirrors scene.vectorSource in lib/build/run.ts. */
+  const vectorSrc = ign ? 'IGN' : 'OSM';
   /* The panel unmounts with the flyout, so this is born false every time it is
      opened — which is exactly the "collapsed by default" we want, without
      anything having to reset it. Deliberately not persisted for the same
@@ -302,6 +305,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
           />
           <Glyph id="buildings" />
           {t('ctl.buildings')}
+          <span className="src">{vectorSrc}</span>
         </label>
 
         <label className="check">
@@ -311,6 +315,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
           />
           <Glyph id="roads" />
           {t('ctl.roads')}
+          <span className="src">{vectorSrc}</span>
         </label>
 
         <label className="check">
@@ -320,6 +325,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
           />
           <Glyph id="railways" />
           {t('ctl.railways')}
+          <span className="src">{vectorSrc}</span>
         </label>
 
         <label className="check">
