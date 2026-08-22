@@ -8,13 +8,13 @@ export const en = {
   /* ---- chrome ---- */
   'app.title': 'IFC Site — site context to IFC',
   'app.description':
-    'Draw a rectangle on a map and get a georeferenced IFC file of the buildings, roads and terrain inside it — entirely in the browser.',
+    'Generating an IFC model of site context from public cartographic data sources — buildings, roads and terrain, georeferenced, entirely in the browser. Open source.',
   'app.wordmark': 'IFC Site',
   'app.tag': 'No server · runs in this tab',
   'app.h1a': 'IFC',
   'app.h1b': 'Site',
   'app.sub':
-    'Draw a rectangle on the map. It pulls the buildings and roads inside it, extrudes them, and writes a georeferenced IFC file — entirely in the browser.',
+    'Generating an IFC model of site context from public cartographic data sources. Draw a rectangle on the map: it pulls the buildings, roads and terrain inside it, extrudes them, and writes a georeferenced IFC file — entirely in the browser.',
   'app.badge': 'LOD1 massing\nIfcBuildingElementProxy\nLoGeoRef 50',
   'app.langLabel': 'Language',
 
@@ -22,6 +22,11 @@ export const en = {
      over them, so these label controls that have no room for prose. ---- */
   'ui.info': 'About this tool',
   'ui.close': 'Close',
+  /* The info panel's footer. The repo URL itself lives in the component — it is
+     the one string on this surface that does not translate. */
+  'info.openSource':
+    'IFC Site is an open source project. The whole pipeline — the Overpass and IGN queries, the geometry, the IFC writer — is on GitHub, and open to issues and pull requests.',
+  'info.github': 'View the source on GitHub',
   'ui.options': 'Options',
   'ui.originMarker': 'Show the model origin',
   'ui.projection': 'Orthographic view',
@@ -95,7 +100,7 @@ export const en = {
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Find a place',
-  'ctl.findPlacePlaceholder': 'Street, town, postcode…',
+  'ctl.findPlacePlaceholder': 'Street, town, postcode, or lat, lon…',
   'ctl.drawSite': 'Draw site',
   'ctl.zoomSite': 'Zoom to site',
   'ctl.crs': 'Projected CRS',
@@ -264,6 +269,9 @@ export const en = {
   'status.buildingRoads': 'Merging roads and conforming them to the ground…',
   'status.assembling': 'Assembling the model and building the 3D view…',
   'status.queryingTrees': 'Querying OSM trees…',
+  /* Replaces whichever fetch line had just been set, so it does not need to name
+     the source again. */
+  'status.reusingData': 'Reusing data already downloaded this session…',
   'status.fetchingIgnBuildings': 'Fetching IGN BD TOPO buildings…',
   'status.fetchingIgnRoads': 'Fetching IGN BD TOPO roads…',
   'status.fetchingIgnRailways': 'Fetching IGN BD TOPO railways…',
@@ -306,6 +314,7 @@ export const en = {
   'sum.kindTagged': 'tagged',
   'sum.capped': 'Capped at {cap}; draw a smaller rectangle to see the rest.',
   'sum.treesCapped': 'Trees capped at {cap}.',
+  'sum.reused': 'Reused {n} downloads from earlier in this session.',
   'sum.skipped': 'No {layers} returned.',
 
   /* ---- layer names (UI only; the IFC keeps stable English names) ---- */

@@ -375,6 +375,11 @@ export type BuildSummary = {
   treesCapped: boolean;
   treeCap: number;
   skipped: LayerKey[];
+  /** Fetches this build answered out of the session cache rather than off the
+   *  network. Reported because a build that normally takes forty seconds
+   *  finishing in two is otherwise unexplained — and because it is the only
+   *  standing signal that what is on screen was not pulled just now. */
+  reused: number;
 };
 
 /** Readout numbers, returned by emitIFC instead of written into the DOM. */

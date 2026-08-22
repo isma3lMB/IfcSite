@@ -53,6 +53,9 @@ export class MapController {
   private siteRect: SiteRect | null = null;
   private rectLayer: L.Rectangle | null = null;
   private handles: L.Marker[] = [];
+
+  /** Where the last search landed. Not part of the site — see setPin. */
+  private pinLayer: L.Marker | null = null;
   private armed = false;
   private dragIdx = -1;
   private dragAnchor: L.LatLng | null = null;
@@ -131,6 +134,7 @@ export class MapController {
     r: SiteRect,
     { anchor = null, live = false }: { anchor?: L.LatLng | null; live?: boolean } = {},
   ): void {
+    this.clearPin();
     const { rect, clamped } = clampRect(r, anchor, this.siteMax);
     this.siteRect = rect;
     this.syncSiteLayers();
@@ -409,11 +413,43 @@ export class MapController {
    * the caller's to queue — see runOnMap in components/ifc-site.
    */
   showSite(rect: SiteRect): void {
+    this.clearPin(); // a restored draft arrives with a site; no search led here
     this.siteRect = { ...rect };
     this.syncSiteLayers();
     // A restored site is not an invitation to draw another one over it.
     if (this.armed) this.setArmed(false);
     this.map.setView([(rect.minLat + rect.maxLat) / 2, (rect.minLon + rect.maxLon) / 2], 16);
+  }
+
+  /**
+   * Marks where a search landed, so the pan has a point rather than just a
+   * rough neighbourhood — the next thing anyone does is draw the site over that
+   * spot, and the tiles alone do not say which building was meant.
+   *
+   * There is only ever one pin: repeated searches move this marker rather than
+   * leaving a trail. It is not a site and never becomes one, so drawing a
+   * rectangle takes it away (see setSite).
+   *
+   * Non-interactive on purpose. The drawing gesture is hand-written on raw
+   * mousedown/mousemove, and a marker that accepted the pointer would sit over
+   * the very spot the user is about to click and swallow a corner.
+   */
+  setPin(lat: number, lon: number): void {
+    if (this.pinLayer) return void this.pinLayer.setLatLng([lat, lon]);
+    this.pinLayer = this.L.marker([lat, lon], {
+      interactive: false,
+      keyboard: false,
+      // The div is a 16 px square that CSS rotates 45° into a teardrop, which
+      // swings its sharp corner to 8·√2 ≈ 11 px below centre — so the tip, and
+      // therefore the coordinate, sits at y = 8 + 11 = 19.
+      icon: this.L.divIcon({ className: 'search-pin', iconSize: [16, 16], iconAnchor: [8, 19] }),
+    }).addTo(this.map);
+  }
+
+  clearPin(): void {
+    if (!this.pinLayer) return;
+    this.map.removeLayer(this.pinLayer);
+    this.pinLayer = null;
   }
 
   setView(lat: number, lon: number, zoom: number): void {
@@ -438,6 +474,7 @@ export class MapController {
   dispose(): void {
     this.resizeObserver.disconnect();
     this.endDraw();
+    this.clearPin();
     this.map.remove();
   }
 }

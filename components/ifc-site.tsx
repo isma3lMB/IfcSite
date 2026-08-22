@@ -182,6 +182,10 @@ export function IfcSite() {
   /** Not a mirror but a throttle: pointermove fires far too often to write
       chromeAwake on every one of them. See the reveal effect. */
   const awakeRef = useRef(false);
+  /** Not a mirror either but a one-shot: armed when a site gesture commits, and
+      consumed by the click that same press is about to produce. See the
+      click-outside effect, which is what it exists to except. */
+  const drawEndClickRef = useRef(false);
 
   /* ---- React state --------------------------------------------------- */
   const [form, setForm] = useState<BuildOptions>(DEFAULT_FORM);
@@ -332,6 +336,11 @@ export function IfcSite() {
               : f,
           );
           setFlyout('options', true);
+          // Every one of these commits fires from a mouseup, so the browser is
+          // about to dispatch that press's click on the map — outside the rail
+          // zone, and so a dismissal by the rule below. It is the end of the
+          // gesture that just opened this panel, not a click away from it.
+          drawEndClickRef.current = true;
         }
       },
       onArmed: setArmed,
@@ -795,18 +804,36 @@ export function IfcSite() {
      entirely, so requiring the target to be inside it is what stops a click on
      an option from closing the panel its field belongs to. The modals are
      exempt for the reason Escape ranks them first: their backdrop is not the
-     viewer, and one click should not unwind two layers. */
+     viewer, and one click should not unwind two layers.
+
+     The one exception is the click that ends a site gesture, which arrives on
+     the map a moment after that same press opened Options — see onSite. It is
+     the tail of the gesture rather than a click away from the panel, so it is
+     consumed here instead of acting. A press clears the flag too: if it is
+     still set by then the closing click never came — Leaflet suppresses it
+     after a handle drag — and a stale one-shot would eat a real dismissal. */
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (presentingRef.current || infoOpenRef.current || confirmOpenRef.current) return;
+      if (drawEndClickRef.current) {
+        drawEndClickRef.current = false;
+        return;
+      }
       const el = e.target instanceof Element ? e.target : null;
       if (!el || !el.closest('.app') || el.closest('.railZone')) return;
       for (const name of Object.keys(flyouts) as FlyoutName[]) {
         if (flyouts[name].open.current) setFlyout(name, false);
       }
     };
+    const onDown = () => {
+      drawEndClickRef.current = false;
+    };
     window.addEventListener('click', onClick, true);
-    return () => window.removeEventListener('click', onClick, true);
+    window.addEventListener('pointerdown', onDown, true);
+    return () => {
+      window.removeEventListener('click', onClick, true);
+      window.removeEventListener('pointerdown', onDown, true);
+    };
   }, [flyouts, setFlyout]);
 
   /* The one auto-behaviour here: Search starts open because there is nothing
@@ -937,6 +964,9 @@ export function IfcSite() {
         const bb = p.boundingbox;
         if (bb) m.fitBoundsRaw(+bb[0], +bb[2], +bb[1], +bb[3]);
         else m.setView(+p.lat, +p.lon, 16);
+        // A bounding box can be a whole town, so the pin is what actually says
+        // where the result was. It goes once a rectangle exists.
+        m.setPin(+p.lat, +p.lon);
         // Going somewhere is not choosing a site — the rectangle stays the
         // user's two clicks, so this only arms the map for them.
         m.arm();

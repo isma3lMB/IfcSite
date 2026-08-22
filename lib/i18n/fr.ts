@@ -12,19 +12,22 @@ export const fr: Dict = {
   /* ---- chrome ---- */
   'app.title': 'IFC Site — contexte de site vers IFC',
   'app.description':
-    'Tracez un rectangle sur une carte et obtenez un fichier IFC géoréférencé des bâtiments, voiries et terrain qu’il contient — entièrement dans le navigateur.',
+    'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques — bâtiments, voiries et terrain, géoréférencés, dans le navigateur.',
   'app.wordmark': 'IFC Site',
   'app.tag': 'Sans serveur · s’exécute dans cet onglet',
   'app.h1a': 'IFC',
   'app.h1b': 'Site',
   'app.sub':
-    'Tracez un rectangle sur la carte. Il récupère les bâtiments et les voiries qu’il contient, les extrude et écrit un fichier IFC géoréférencé — entièrement dans le navigateur.',
+    'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques. Tracez un rectangle sur la carte : il récupère les bâtiments, les voiries et le terrain qu’il contient, les extrude et écrit un fichier IFC géoréférencé — entièrement dans le navigateur.',
   'app.badge': 'Volumétrie LOD1\nIfcBuildingElementProxy\nLoGeoRef 50',
   'app.langLabel': 'Langue',
 
   /* ---- habillage ---- */
   'ui.info': 'À propos de cet outil',
   'ui.close': 'Fermer',
+  'info.openSource':
+    'IFC Site est un projet open source. Toute la chaîne — les requêtes Overpass et IGN, la géométrie, l’écriture de l’IFC — est sur GitHub, ouverte aux tickets et aux pull requests.',
+  'info.github': 'Voir le code source sur GitHub',
   'ui.options': 'Options',
   'ui.originMarker': 'Afficher l’origine du modèle',
   'ui.projection': 'Vue orthographique',
@@ -99,7 +102,7 @@ export const fr: Dict = {
 
   /* ---- controls ---- */
   'ctl.findPlace': 'Rechercher un lieu',
-  'ctl.findPlacePlaceholder': 'Rue, ville, code postal…',
+  'ctl.findPlacePlaceholder': 'Rue, ville, code postal, ou lat, lon…',
   'ctl.drawSite': 'Tracer le site',
   'ctl.zoomSite': 'Zoomer sur le site',
   'ctl.crs': 'SCR projeté',
@@ -262,6 +265,7 @@ export const fr: Dict = {
   'status.buildingRoads': 'Fusion des voiries et calage sur le terrain…',
   'status.assembling': 'Assemblage du modèle et construction de la vue 3D…',
   'status.queryingTrees': 'Interrogation des arbres OSM…',
+  'status.reusingData': 'Réutilisation de données déjà téléchargées…',
   'status.fetchingIgnBuildings': 'Récupération des bâtiments IGN BD TOPO…',
   'status.fetchingIgnRoads': 'Récupération des voiries IGN BD TOPO…',
   'status.fetchingIgnRailways': 'Récupération des voies ferrées IGN BD TOPO…',
@@ -306,6 +310,7 @@ export const fr: Dict = {
   'sum.kindTagged': 'renseignée',
   'sum.capped': 'Limité à {cap} ; tracez un rectangle plus petit pour voir le reste.',
   'sum.treesCapped': 'Arbres limités à {cap}.',
+  'sum.reused': '{n} téléchargements réutilisés depuis le début de la session.',
   'sum.skipped': 'Aucune donnée renvoyée : {layers}.',
 
   /* ---- layer names ---- */

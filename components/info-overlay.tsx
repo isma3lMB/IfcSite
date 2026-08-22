@@ -8,6 +8,10 @@ export type InfoOverlayProps = {
   onClose: () => void;
 };
 
+/** Not a dictionary key: it is the one string on this surface that is the same
+ *  in every language. */
+const REPO_URL = 'https://github.com/isma3lMB/IfcSite';
+
 /**
  * What used to be the page header and the footer notes. Full-bleed viewers left
  * no room for prose, and none of it is needed to draw a rectangle — so it waits
@@ -50,7 +54,23 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
           </div>
         </div>
 
-        <Notes />
+        {/* The head stays outside the scroller so the close button is always
+            reachable — and so the h1's box-shadow "border" is not clipped by an
+            overflow ancestor. Only the prose below scrolls. */}
+        <div className="infoBody">
+          <Notes />
+          <div className="infoFoot">
+            <p>{t('info.openSource')}</p>
+            <a
+              className="btn-ghost"
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t('info.github')}
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );

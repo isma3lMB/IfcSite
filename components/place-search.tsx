@@ -1,6 +1,7 @@
 'use client';
 
 import { type RefObject, useEffect, useRef, useState } from 'react';
+import { formatLatLon, parseLatLon } from '@/lib/geo/coords';
 import { useT } from '@/lib/i18n/context';
 import { type Place, searchPlaces } from '@/lib/sources/nominatim';
 
@@ -33,6 +34,22 @@ export function PlaceSearch({ onPickPlace, onSearchFailed, inputRef }: PlaceSear
 
   const run = async (query: string) => {
     const mine = ++seq.current;
+    // A coordinate pair is already an answer, so it never reaches the geocoder.
+    // It still goes through the results list rather than jumping the map: one
+    // confirm-then-go path for both kinds of query, and the formatted readout
+    // shows what was understood before anything moves.
+    const pt = parseLatLon(query);
+    if (pt) {
+      setResults([
+        {
+          display_name: formatLatLon(pt.lat, pt.lon),
+          lat: String(pt.lat),
+          lon: String(pt.lon),
+        },
+      ]);
+      setOpen(true);
+      return;
+    }
     try {
       const list = await searchPlaces(query);
       if (mine !== seq.current) return;
@@ -48,6 +65,10 @@ export function PlaceSearch({ onPickPlace, onSearchFailed, inputRef }: PlaceSear
     setQ(v);
     if (timer.current) clearTimeout(timer.current);
     const query = v.trim();
+    // Ahead of the length guard and ahead of the debounce: the debounce exists
+    // to spare Nominatim, and resolving a coordinate locally owes it nothing.
+    // Short pairs like "48,2" would also fall foul of the three-character floor.
+    if (parseLatLon(query)) return void run(query);
     if (query.length < 3) {
       seq.current++;
       setOpen(false);

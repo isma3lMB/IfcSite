@@ -67,6 +67,7 @@ export function StatusLine({
     ];
     if (s.capped) parts.push(t('sum.capped', { cap: n(s.capAt) }));
     if (s.treesCapped) parts.push(t('sum.treesCapped', { cap: n(s.treeCap) }));
+    if (s.reused) parts.push(t('sum.reused', { n: n(s.reused) }));
     if (s.skipped.length)
       parts.push(t('sum.skipped', { layers: s.skipped.map((k) => t(k)).join(', ') }));
     // No "click a building to edit it" tail: the build lands in the 3D view with

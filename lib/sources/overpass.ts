@@ -1,6 +1,8 @@
 import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import type { SplitPolygon } from '@/lib/geo/boolean';
+import { sameRect } from '@/lib/geo/rect';
+import { RegionCache } from '@/lib/sources/cache';
 import { pushBuilding, pushRoadway } from '@/lib/scene/push';
 import { LAYER_DZ } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
@@ -93,6 +95,85 @@ async function overpassQuery(
 // north,east) — the site is no longer a circle around a point.
 const overpassBox = (b: SiteRect) => `${b.minLat},${b.minLon},${b.maxLat},${b.maxLon}`;
 
+/* =====================================================================
+   Session reuse. Both queries below go through one cache, which may hand back a
+   payload fetched for a WIDER rectangle than the one being asked about — see
+   lib/sources/cache. That is what the site filters underneath are for.
+   ===================================================================== */
+
+const estOverpass = (els: OverpassElement[]): number => {
+  let pts = 0;
+  for (const el of els) {
+    pts += el.geometry?.length ?? 1;
+    if (el.members) for (const m of el.members) pts += m.geometry?.length ?? 0;
+  }
+  // ~200 B for the element and its tag map, ~48 B for a two-property {lat,lon}.
+  // Within a factor of two is fine: this is a safety valve, not an invoice.
+  return els.length * 200 + pts * 48;
+};
+
+/** One cache for both queries. A buildings entry can never answer a tree
+ *  question — the kinds test sees to that — so they share a namespace safely and
+ *  share the byte budget usefully. */
+const osmCache = new RegionCache<OverpassElement>((el) => `${el.type}/${el.id}`, estOverpass);
+
+/**
+ * Is this way part of the site?
+ *
+ * A NO-OP on a response fetched at exactly this rectangle, which is what makes
+ * it safe to add. Overpass's `(bbox)` filter on a way selects ways with at least
+ * one NODE inside the box, so the first clause is the predicate the server
+ * already applied and every element of an exact response passes it.
+ *
+ * It earns its keep on a cached SUPERSET, where without it a padded fetch would
+ * plant buildings from outside the drawn rectangle. The second clause is what
+ * keeps a building large enough to enclose the whole site, all of whose vertices
+ * sit out in the padding ring — Overpass cannot return one of those from an
+ * exact fetch either, so that clause is a no-op today as well.
+ *
+ * Tested in lat/lon against the drawn rectangle rather than in local metres
+ * against ±halfX/±halfY. Those half-extents are taken from the outermost
+ * projected corner (see Site in lib/types), which makes the local box slightly
+ * WIDER than what was drawn — close enough for parseIGN's purposes, but not the
+ * same predicate as Overpass's, and matching Overpass exactly is the whole
+ * argument that this changes nothing.
+ */
+const geomInSite = (g: OverpassGeom[], s: SiteRect): boolean => {
+  let nLat = 90;
+  let xLat = -90;
+  let nLon = 180;
+  let xLon = -180;
+  for (const p of g) {
+    if (p.lat >= s.minLat && p.lat <= s.maxLat && p.lon >= s.minLon && p.lon <= s.maxLon)
+      return true;
+    if (p.lat < nLat) nLat = p.lat;
+    if (p.lat > xLat) xLat = p.lat;
+    if (p.lon < nLon) nLon = p.lon;
+    if (p.lon > xLon) xLon = p.lon;
+  }
+  return nLat <= s.minLat && xLat >= s.maxLat && nLon <= s.minLon && xLon >= s.maxLon;
+};
+
+/** The point case, where "inside the box" is the whole test. */
+const nodeInSite = (lat: number, lon: number, s: SiteRect): boolean =>
+  lat >= s.minLat && lat <= s.maxLat && lon >= s.minLon && lon <= s.maxLon;
+
+const mainQuery = (
+  b: SiteRect,
+  wantBuildings: boolean,
+  wantRoads: boolean,
+  wantRailways: boolean,
+  tune: Tunables,
+): string => {
+  const bb = overpassBox(b);
+  return `[out:json][timeout:${serverSecs(tune)}];(
+    ${wantBuildings ? `way["building"](${bb});` : ''}
+    ${wantBuildings ? `relation["building"]["type"="multipolygon"](${bb});` : ''}
+    ${wantRoads ? `way["highway"~"^(${ROADS})$"](${bb});` : ''}
+    ${wantRailways ? `way["railway"~"^(${RAILWAYS})$"](${bb});` : ''}
+  );out geom;`;
+};
+
 export async function overpass(
   box: SiteRect,
   wantBuildings: boolean,
@@ -101,17 +182,35 @@ export async function overpass(
   tune: Tunables,
   onStatus?: StatusFn,
 ): Promise<OverpassResponse> {
-  const bb = overpassBox(box);
-  return overpassQuery(
-    `[out:json][timeout:${serverSecs(tune)}];(
-    ${wantBuildings ? `way["building"](${bb});` : ''}
-    ${wantBuildings ? `relation["building"]["type"="multipolygon"](${bb});` : ''}
-    ${wantRoads ? `way["highway"~"^(${ROADS})$"](${bb});` : ''}
-    ${wantRailways ? `way["railway"~"^(${RAILWAYS})$"](${bb});` : ''}
-  );out geom;`,
-    tune,
-    onStatus,
-  );
+  // What a stored payload has to carry to answer this. A buildings+roads
+  // response answers a buildings-only question, because parseOSM is told
+  // wantRoads=false and never looks at them.
+  const kinds = [
+    ...(wantBuildings ? ['building'] : []),
+    ...(wantRoads ? ['highway'] : []),
+    ...(wantRailways ? ['railway'] : []),
+  ];
+  const p = osmCache.plan('main', box, kinds);
+  if (p.hit) {
+    onStatus?.('status.reusingData');
+    return { elements: p.have };
+  }
+
+  const q = (r: SiteRect) => mainQuery(r, wantBuildings, wantRoads, wantRailways, tune);
+  try {
+    const got = [...p.have];
+    for (const r of p.fetch) got.push(...(await overpassQuery(q(r), tune, onStatus)).elements);
+    return { elements: osmCache.put('main', p.cover, kinds, got) };
+  } catch (e) {
+    // Padding is an optimisation and must never be the reason a build fails. A
+    // grown box is up to 44% more area, which on a dense site is enough to tip a
+    // mirror into a timeout the drawn box would have survived — so pay for one
+    // more round trip rather than hand back an error. Nothing to retry if what
+    // was already attempted WAS the drawn rectangle.
+    if (p.fetch.length === 1 && sameRect(p.fetch[0], box)) throw e;
+    const got = (await overpassQuery(q(box), tune, onStatus)).elements;
+    return { elements: osmCache.put('main', box, kinds, got) };
+  }
 }
 
 // Individual trees are the one thing IGN has no national layer for — BD TOPO
@@ -122,14 +221,37 @@ export async function osmTrees(
   toLocal: ToLocal,
   sampleZ: SampleZ,
   tune: Tunables,
+  onStatus?: StatusFn,
 ): Promise<Tree[]> {
-  const data = await overpassQuery(
-    `[out:json][timeout:${serverSecs(tune)}];node["natural"="tree"](${overpassBox(box)});out geom;`,
-    tune,
-  );
+  // Fetch and parse are separated here for the cache's sake: what is worth
+  // keeping is the OSM nodes, not the Tree[] built from them, because every
+  // field of a Tree past its tags comes from toLocal and sampleZ — the CRS and
+  // the terrain, which change without OSM changing.
+  const q = (r: SiteRect) =>
+    `[out:json][timeout:${serverSecs(tune)}];node["natural"="tree"](${overpassBox(r)});out geom;`;
+  const p = osmCache.plan('trees', box, ['tree']);
+  let els: OverpassElement[];
+  if (p.hit) {
+    onStatus?.('status.reusingData');
+    els = p.have;
+  } else {
+    try {
+      const got = [...p.have];
+      for (const r of p.fetch) got.push(...(await overpassQuery(q(r), tune)).elements);
+      els = osmCache.put('trees', p.cover, ['tree'], got);
+    } catch (e) {
+      if (p.fetch.length === 1 && sameRect(p.fetch[0], box)) throw e;
+      els = osmCache.put('trees', box, ['tree'], (await overpassQuery(q(box), tune)).elements);
+    }
+  }
+
   const out: Tree[] = [];
-  for (const el of data.elements) {
+  for (const el of els) {
     if (el.type !== 'node' || el.lat === undefined || el.lon === undefined) continue;
+    // Above the cap, not below it: on a superset payload the out-of-site nodes
+    // come in the same arbitrary order as the rest, and testing after the break
+    // would spend the budget on trees the site never gets to keep.
+    if (!nodeInSite(el.lat, el.lon, box)) continue;
     const t = el.tags || {};
     const [x, y] = toLocal(el.lon, el.lat);
     const h = Math.min(parseFloat(t.height) || 8, 60);
@@ -197,10 +319,15 @@ export function parseOSM(
     const rings: [OverpassGeom[], Record<string, string>, number][] = [];
     for (const el of data.elements) {
       if (el.tags && el.tags.building) {
-        if (el.type === 'way' && el.geometry) rings.push([el.geometry, el.tags, el.id]);
-        else if (el.type === 'relation' && el.members) {
+        // Filtered as the rings are collected rather than as they are pushed, so
+        // that a reused superset cannot spend tune.buildingCap slots below on
+        // footprints outside the site. Same ordering parseIGN already keeps.
+        if (el.type === 'way' && el.geometry) {
+          if (geomInSite(el.geometry, site)) rings.push([el.geometry, el.tags, el.id]);
+        } else if (el.type === 'relation' && el.members) {
           for (const m of el.members)
-            if (m.role === 'outer' && m.geometry) rings.push([m.geometry, el.tags, el.id]);
+            if (m.role === 'outer' && m.geometry && geomInSite(m.geometry, site))
+              rings.push([m.geometry, el.tags, el.id]);
         }
       }
     }
@@ -228,6 +355,11 @@ export function parseOSM(
   if (wantRoads) {
     for (const el of data.elements) {
       if (el.type !== 'way' || !el.tags || !el.tags.highway || !el.geometry) continue;
+      // pushRoadway clips to the box itself, so this is not needed for
+      // correctness — but rejecting a five-kilometre trunk road before
+      // projecting every vertex of it is free, and it keeps the three loops
+      // reading alike.
+      if (!geomInSite(el.geometry, site)) continue;
       const lanes =
         parseFloat(el.tags.lanes) || (/motorway|trunk|primary/.test(el.tags.highway) ? 4 : 2);
       const w = Math.max(parseFloat(el.tags.width) || lanes * tune.laneWidth, 3);
@@ -239,6 +371,7 @@ export function parseOSM(
   if (wantRailways) {
     for (const el of data.elements) {
       if (el.type !== 'way' || !el.tags || !el.tags.railway || !el.geometry) continue;
+      if (!geomInSite(el.geometry, site)) continue;
       const tracks = parseFloat(el.tags.tracks) || 1;
       const w = Math.max(
         parseFloat(el.tags.width) || tracks * tune.railTrackWidth,

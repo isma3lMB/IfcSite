@@ -850,11 +850,19 @@ html.dark {
        could actually lose content are widened. */
     padding: 64px max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
       max(16px, env(safe-area-inset-left));
-    overflow-y: auto;
+    /* The backdrop does not scroll — the card does, from the inside. Scrolling
+       out here dragged the close button off the top of the window. */
+    overflow: hidden;
   }
   .infoCard {
     width: min(880px, 100%);
     padding: 28px;
+    /* Resolves against the overlay's content box, whose padding already holds
+       the safe-area insets back — same trick as .rail. */
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
   }
   .infoHead {
     display: flex;
@@ -862,6 +870,45 @@ html.dark {
     justify-content: space-between;
     gap: 20px;
     flex-wrap: wrap;
+    flex: none;
+  }
+  /* Everything below the title. The scrollbar is left visible here, unlike the
+     rail's: it is the only sign that the notes run past the fold. */
+  .infoBody {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid var(--color-ink);
+  }
+  .infoFoot {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 18px;
+    border-top: 1px solid var(--color-ink);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--color-ink-soft);
+  }
+  .infoFoot p {
+    margin: 0;
+    flex: 1 1 22ch;
+  }
+  /* Sizes to its label, like every other btn-ghost outside the 330 px sidebar
+     it was born in. */
+  .infoFoot .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    width: auto;
+    padding: 9px 16px;
+    text-decoration: none;
+    white-space: nowrap;
+    flex: none;
   }
 
   /* ---- confirm card ----
@@ -940,7 +987,7 @@ html.dark {
   .sub {
     font-size: 13.5px;
     color: var(--color-ink-soft);
-    max-width: 46ch;
+    max-width: 62ch;
     margin: 10px 0 0;
   }
   .tag {
@@ -1574,10 +1621,9 @@ html.dark {
     font-weight: 600;
   }
 
+  /* The rule that used to head this block now sits on .infoBody, so it stays
+     pinned under the title instead of scrolling away with the first note. */
   .notes {
-    margin-top: 24px;
-    padding-top: 18px;
-    border-top: 1px solid var(--color-ink);
     font-size: 13px;
     color: var(--color-ink-soft);
     line-height: 1.7;
@@ -1694,6 +1740,8 @@ html.dark {
     padding: 56px max(10px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
       max(10px, env(safe-area-inset-left));
   }
+  /* The card is height-capped at every width now, so this only trims the frame
+     around a body that was already going to scroll. */
   .infoCard {
     padding: 20px;
   }
@@ -1954,6 +2002,39 @@ html.dark .leaflet-tile-pane {
 }
 .site-handle:active {
   cursor: grabbing;
+}
+/* Where the last search landed. Same vocabulary as .site-handle — yellow on an
+   ink outline — because it is the same map speaking, but a teardrop rather than
+   a square so it never reads as a corner you could drag.
+
+   It lives in markerPane, which the dark-mode tile invert above deliberately
+   does not reach, so this one set of colors has to carry over both light tiles
+   and inverted-dark ones. The white halo is what does that work.
+
+   No image: the shape is a rotated square with three rounded corners, which
+   keeps it on the same icon-free footing as the handles and sidesteps Leaflet's
+   default marker sprite entirely. pointer-events is belt and braces with the
+   marker's own interactive:false — the drawing gesture must never lose a click
+   to this. */
+.search-pin {
+  /* Leaflet sets the box to iconSize inline (16×16); the rotation about its
+     centre swings the un-rounded corner straight down, and iconAnchor in
+     MapController.setPin is what lands that tip on the coordinate. */
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--color-yellow);
+  border: 1.5px solid var(--color-ink);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--color-surface-solid) 80%, transparent);
+  pointer-events: none;
+}
+/* The hole in the middle, so the pin still reads as a pin at tile scale rather
+   than as a yellow blob. */
+.search-pin::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--color-ink);
 }
 .leaflet-container.drawing,
 .leaflet-container.drawing .leaflet-interactive {

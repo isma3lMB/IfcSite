@@ -1,6 +1,7 @@
 import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import { MAX_GRID_N, gridFrom, gridLattice, gridSize } from '@/lib/geo/grid';
+import { TILE_MAX, memo, tileMemo, trimMemo } from '@/lib/sources/cache';
 import type { Grid, Site, SiteRect, StatusFn, ToLocal } from '@/lib/types';
 import { paint } from '@/lib/ui/yield';
 
@@ -65,15 +66,30 @@ export function terrariumN(
   return gridSize(span, cell, Math.max(8, Math.min(maxN, Math.floor(span / mpp))));
 }
 
-const loadTile = (z: number, x: number, y: number): Promise<HTMLImageElement> => {
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  return new Promise((ok, no) => {
-    img.onload = () => ok(img);
-    img.onerror = () => no(new AppError('err.terrainTileBlocked'));
-    img.src = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
-  });
-};
+/**
+ * A decoded tile, kept for the session.
+ *
+ * The easy one of the caches: a tile is already a quantised rectangle, so it
+ * gets area reuse for free with no bbox arithmetic at all — a twenty-metre nudge
+ * lands on the same nine tiles, and a site inside a bigger one shares most of
+ * them. The browser already HTTP-caches the PNG bytes; what this saves is the
+ * decode, which is what the nine parallel loads below actually wait on. Holding
+ * the promise rather than the image also means the same tile asked for twice in
+ * one mosaic is fetched once.
+ */
+const loadTile = (z: number, x: number, y: number): Promise<HTMLImageElement> =>
+  memo(tileMemo, `${z}/${x}/${y}`, () => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    return new Promise<HTMLImageElement>((ok, no) => {
+      img.onload = () => {
+        trimMemo(tileMemo, TILE_MAX);
+        ok(img);
+      };
+      img.onerror = () => no(new AppError('err.terrainTileBlocked'));
+      img.src = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+    });
+  }, false);
 
 export async function terrariumGrid(
   site: Site,

@@ -22,7 +22,7 @@ export const DEFAULT_FORM: BuildOptions = {
   buildings: true,
   roads: true,
   railways: false,
-  terrain: false,
+  terrain: true,
   terrainAccuracy: 'standard',
   trees: false,
   veg: false,

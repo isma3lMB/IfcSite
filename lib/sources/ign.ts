@@ -4,7 +4,17 @@ import { clipPolygonToRect, type SplitPolygon } from '@/lib/geo/boolean';
 import { conformToTerrain } from '@/lib/geo/conform';
 import { gridFrom, gridLattice, gridSize } from '@/lib/geo/grid';
 import { prismInto, skirtInto } from '@/lib/geo/mesh';
+import { rectArea, sameRect } from '@/lib/geo/rect';
 import { clipToBox, dedupe, densify } from '@/lib/geo/rings';
+import {
+  ALTI_MAX as ALTI_MEMO_MAX,
+  DATUM_MAX,
+  RegionCache,
+  altiMemo,
+  datumMemo,
+  memo,
+  trimMemo,
+} from '@/lib/sources/cache';
 import { pushBuilding, pushRoadway } from '@/lib/scene/push';
 import { LAYER_DZ, SURFACE_COLOR, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
@@ -144,9 +154,43 @@ type Feature = {
   geometry?: GeoJsonGeometry | null;
 };
 
-// WFS hands back at most 5000 features per call; dense Paris at 900 m matches
-// 6423 buildings, so paging is not optional.
-async function wfs(layer: IgnLayer, box: SiteRect, cap = 10000): Promise<Feature[]> {
+/** GeoJSON positions in a coordinate tree of any nesting depth. */
+const countCoords = (c: unknown): number =>
+  Array.isArray(c)
+    ? typeof c[0] === 'number'
+      ? 1
+      : (c as unknown[]).reduce<number>((s, v) => s + countCoords(v), 0)
+    : 0;
+
+const estWfs = (fs: Feature[]): number =>
+  fs.length * 300 + fs.reduce((s, f) => s + countCoords(f.geometry?.coordinates ?? []), 0) * 80;
+
+/**
+ * One cache for every BD TOPO and cadastre layer, namespaced by TYPENAMES and
+ * PROPERTYNAME together: the service returns only the attributes it was asked
+ * for, so the same layer requested with two property lists is two different
+ * payloads and must not collide.
+ *
+ * Every consumer of `wfs` is already superset-safe — parseIGN tests inSite,
+ * pushRoadway clips, and fetchThemeLayer clips every ring — so unlike the OSM
+ * path this needed no filtering work to be handed a wider rectangle.
+ *
+ * Identity falls back through the three things a BD TOPO or cadastre feature can
+ * be named by, because no one of them is universal: `cleabs` is absent from the
+ * parcel layer, which carries `idu` instead, and neither is guaranteed to be in
+ * PROPERTYNAME for a layer whose props list did not ask for it.
+ *
+ * Returning null when all three are missing is what stops the dedupe from
+ * collapsing every anonymous feature into one — see `put`. Such a payload is
+ * used but never stored.
+ */
+const ignCache = new RegionCache<Feature>((f) => {
+  const p = f.properties || {};
+  const id = f.id ?? p.cleabs ?? p.idu;
+  return id == null || id === '' ? null : String(id);
+}, estWfs);
+
+const wfsQuery = async (layer: IgnLayer, box: SiteRect, cap: number): Promise<Feature[]> => {
   const feats: Feature[] = [];
   let start = 0;
   for (;;) {
@@ -173,6 +217,53 @@ async function wfs(layer: IgnLayer, box: SiteRect, cap = 10000): Promise<Feature
     start += got.length;
   }
   return feats;
+};
+
+// WFS hands back at most 5000 features per call; dense Paris at 900 m matches
+// 6423 buildings, so paging is not optional.
+async function wfs(
+  layer: IgnLayer,
+  box: SiteRect,
+  cap = 10000,
+  onStatus?: StatusFn,
+): Promise<Feature[]> {
+  const ns = layer.type + '|' + [...layer.props].sort().join(',');
+  const p = ignCache.plan(ns, box, ['*']);
+  if (p.hit) {
+    onStatus?.('status.reusingData');
+    return p.have;
+  }
+
+  // The cap is a feature budget over an area, so a padded box has to be allowed
+  // proportionally more of it. Left as it was, a grown rectangle could truncate
+  // where the drawn one would not have, and the features lost would be real ones
+  // inside the site.
+  const scaled = (r: SiteRect): number =>
+    Math.ceil(cap * Math.max(1, rectArea(r) / rectArea(box)));
+
+  const run = async (rects: SiteRect[], cover: SiteRect, seed: Feature[]): Promise<Feature[]> => {
+    const got = [...seed];
+    let full = true;
+    for (const r of rects) {
+      const c = scaled(r);
+      const part = await wfsQuery(layer, r, c);
+      // A run that stopped at its cap is a truncation, not an answer. Use it
+      // once — the drawn box may well be complete within it — but never store
+      // it, or every later build inherits the hole.
+      if (part.length >= c) full = false;
+      got.push(...part);
+    }
+    return ignCache.put(ns, cover, ['*'], got, full);
+  };
+
+  try {
+    return await run(p.fetch, p.cover, p.have);
+  } catch (e) {
+    // Same reasoning as the Overpass path: a padded or split request must not be
+    // what turns a working build into a failed one.
+    if (p.fetch.length === 1 && sameRect(p.fetch[0], box)) throw e;
+    return run([box], box, []);
+  }
 }
 
 /** One outer ring with the inner rings belonging to it, in source lon/lat. */
@@ -277,10 +368,16 @@ const altiZ = (v: unknown): number | null => {
  * on a free, key-less endpoint is a cheap price for the two agreeing.
  */
 export async function siteDatumZ(site: Site): Promise<number> {
-  const [v] = await altiPost([site.lon.toFixed(6)], [site.lat.toFixed(6)]);
-  const z = altiZ(v);
-  if (z === null) throw new AppError('err.altiOutsideCoverage');
-  return z;
+  const lon = site.lon.toFixed(6);
+  const lat = site.lat.toFixed(6);
+  // Hits on every rebuild of a site that has not moved, which is the common one.
+  return memo(datumMemo, lon + ',' + lat, async () => {
+    const [v] = await altiPost([lon], [lat]);
+    const z = altiZ(v);
+    if (z === null) throw new AppError('err.altiOutsideCoverage');
+    trimMemo(datumMemo, DATUM_MAX);
+    return z;
+  });
 }
 
 export async function rgeAltiGrid(
@@ -293,43 +390,61 @@ export async function rgeAltiGrid(
   const span = 2 * Math.max(site.halfX, site.halfY);
   const N = gridSize(span, cell, tune.maxGridN);
   const box = site;
-  const ll = gridLattice(box, N);
-  const lats = ll.map(([la]) => la.toFixed(6));
-  const lons = ll.map(([, lo]) => lo.toFixed(6));
-  const chunks = Math.ceil(ll.length / ALTI_MAX);
-  // gridSize clamps to tune.maxGridN, whose own ceiling — MAX_GRID_N, pinned in
-  // TUNE_RANGE — is the largest N these two constants can pay for. So this stays
-  // a guard on the constants agreeing with each other rather than on anything a
-  // caller, or the options panel, can trigger.
-  if (chunks > ALTI_MAX_CHUNKS) throw new AppError('err.altiGridTooLarge');
 
-  const z: unknown[] = [];
-  for (let c = 0; c < chunks; c++) {
-    const from = c * ALTI_MAX;
-    const to = Math.min(ll.length, from + ALTI_MAX);
-    if (chunks > 1) onStatus('status.samplingAltiChunk', { done: c + 1, total: chunks });
-    z.push(...(await altiPost(lons.slice(from, to), lats.slice(from, to))));
-  }
-  if (z.length !== ll.length) throw new AppError('err.altiShortGrid');
+  // The heights, and not the nine chunk payloads they were assembled from —
+  // those ARE this array, and keeping both would store the same numbers twice.
+  //
+  // Keyed exactly, with no area reuse, because none is available: the lattice is
+  // a pure function of (box, N) — see gridLattice in lib/geo/grid — so a smaller
+  // rectangle's sample points are not a subset of a larger one's. An unmoved
+  // rebuild at the same accuracy is the hit, and it is worth up to nine
+  // sequential posts.
+  //
+  // Float32 resolves the highest ground in France to about half a millimetre;
+  // Float64 would be storing noise.
+  const key = `${box.minLat},${box.minLon},${box.maxLat},${box.maxLon}|${N}`;
+  if (altiMemo.has(key)) onStatus('status.reusingData');
+  const zn = await memo(altiMemo, key, async () => {
+    const ll = gridLattice(box, N);
+    const lats = ll.map(([la]) => la.toFixed(6));
+    const lons = ll.map(([, lo]) => lo.toFixed(6));
+    const chunks = Math.ceil(ll.length / ALTI_MAX);
+    // gridSize clamps to tune.maxGridN, whose own ceiling — MAX_GRID_N, pinned in
+    // TUNE_RANGE — is the largest N these two constants can pay for. So this stays
+    // a guard on the constants agreeing with each other rather than on anything a
+    // caller, or the options panel, can trigger.
+    if (chunks > ALTI_MAX_CHUNKS) throw new AppError('err.altiGridTooLarge');
 
-  // A few off-coverage posts are fine to patch; a mostly-empty grid means we are
-  // outside the dataset.
-  let bad = 0;
-  const zs: (number | null)[] = z.map((v) => {
-    const n = altiZ(v);
-    if (n === null) bad++;
-    return n;
+    const z: unknown[] = [];
+    for (let c = 0; c < chunks; c++) {
+      const from = c * ALTI_MAX;
+      const to = Math.min(ll.length, from + ALTI_MAX);
+      if (chunks > 1) onStatus('status.samplingAltiChunk', { done: c + 1, total: chunks });
+      z.push(...(await altiPost(lons.slice(from, to), lats.slice(from, to))));
+    }
+    if (z.length !== ll.length) throw new AppError('err.altiShortGrid');
+
+    // A few off-coverage posts are fine to patch; a mostly-empty grid means we are
+    // outside the dataset.
+    let bad = 0;
+    const zs: (number | null)[] = z.map((v) => {
+      const n = altiZ(v);
+      if (n === null) bad++;
+      return n;
+    });
+    if (bad > zs.length / 2) throw new AppError('err.altiOutsideCoverage');
+    const mean =
+      zs.reduce<number>((s, v) => (v === null ? s : s + v), 0) / Math.max(1, zs.length - bad);
+    for (let i = 0; i < zs.length; i++) if (zs[i] === null) zs[i] = mean;
+    trimMemo(altiMemo, ALTI_MEMO_MAX);
+    return Float32Array.from(zs as number[]);
   });
-  if (bad > zs.length / 2) throw new AppError('err.altiOutsideCoverage');
-  const mean = zs.reduce<number>((s, v) => (v === null ? s : s + v), 0) / Math.max(1, zs.length - bad);
-  for (let i = 0; i < zs.length; i++) if (zs[i] === null) zs[i] = mean;
-  const zn = zs as number[];
 
   // Unlike Terrarium there is no raster left to re-query, so arbitrary lookups
   // interpolate the grid we already have — over the same triangles as `faces`,
   // so a sampled point sits exactly on the ground the viewer draws. gridFrom
   // builds both off the one lattice these heights were read on.
-  return gridFrom(box, N, zn, toLocal);
+  return gridFrom(box, N, Array.from(zn), toLocal);
 }
 
 /**
@@ -380,6 +495,8 @@ export async function parseIGN(
         ],
       },
       box,
+      undefined,
+      onStatus,
     );
 
     for (const f of bat) {
@@ -450,6 +567,8 @@ export async function parseIGN(
         props: ['cleabs', 'largeur_de_chaussee', 'nombre_de_voies', 'nature'],
       },
       box,
+      undefined,
+      onStatus,
     );
     for (const f of rt) {
       const p = f.properties || {};
@@ -477,6 +596,8 @@ export async function parseIGN(
         props: ['cleabs', 'nature', 'nombre_de_voies', 'largeur', 'electrifie'],
       },
       box,
+      undefined,
+      onStatus,
     );
     for (const f of rf) {
       const p = f.properties || {};
@@ -510,11 +631,12 @@ export async function fetchThemeLayer(
   sampleZ: SampleZ,
   layerName: string,
   tune: Tunables,
+  onStatus?: StatusFn,
 ): Promise<number> {
   const L = IGN_LAYERS[key];
   const hx = site.halfX;
   const hy = site.halfY;
-  const feats = await wfs(L, site);
+  const feats = await wfs(L, site, undefined, onStatus);
   const hedge: { verts: Vec3[]; faces: number[][] } = { verts: [], faces: [] };
   // Distinguishes vegetation/water/parcel/hedge for the viewer's render-order
   // tiers, since `L.ifc` alone can't (vegetation and hedges both say VEGETATION).

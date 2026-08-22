@@ -4,6 +4,7 @@ import { AppError } from '@/lib/errors';
 import type { SplitPolygon } from '@/lib/geo/boolean';
 import { resolveCRS } from '@/lib/geo/crs';
 import { ACCURACY_CELL } from '@/lib/geo/grid';
+import { resetReuseCount, reuseCount } from '@/lib/sources/cache';
 import {
   IGN_LAYERS,
   LAYER_IFC_NAME,
@@ -76,6 +77,9 @@ export async function runBuild(
   // these are restored from localStorage, where a hand-edited or stale blob can
   // carry a NaN that would turn every `length >= cap` guard below into a no-op.
   const tune = sanitizeTunables(opts.tune);
+  // Counted per build, not per session: the summary is answering "why was THIS
+  // one instant", so a running total would be the wrong number.
+  resetReuseCount();
 
   const themes: ThemeKey[] = [];
   if (ign) {
@@ -260,7 +264,17 @@ export async function runBuild(
     const label = IGN_LAYERS[key].label!;
     onStatus('status.fetchingIgnLayer', { layer: label });
     try {
-      await fetchThemeLayer(scene, key, site, toLocal, toGeo, sampleZ, LAYER_IFC_NAME[key], tune);
+      await fetchThemeLayer(
+        scene,
+        key,
+        site,
+        toLocal,
+        toGeo,
+        sampleZ,
+        LAYER_IFC_NAME[key],
+        tune,
+        onStatus,
+      );
     } catch {
       skipped.push(label);
     }
@@ -279,7 +293,7 @@ export async function runBuild(
   if (opts.trees) {
     onStatus('status.queryingTrees');
     try {
-      scene.trees = await osmTrees(site, toLocal, sampleZ, tune);
+      scene.trees = await osmTrees(site, toLocal, sampleZ, tune, onStatus);
     } catch {
       skipped.push('layer.trees');
     }
@@ -310,6 +324,7 @@ export async function runBuild(
       treesCapped: scene.trees.length === tune.treeCap,
       treeCap: tune.treeCap,
       skipped,
+      reused: reuseCount(),
     },
   };
 }

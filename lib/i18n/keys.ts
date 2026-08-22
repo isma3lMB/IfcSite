@@ -17,6 +17,7 @@ export type StatusKey =
   | 'status.buildingRoads'
   | 'status.assembling'
   | 'status.queryingTrees'
+  | 'status.reusingData'
   | 'status.fetchingIgnBuildings'
   | 'status.fetchingIgnRoads'
   | 'status.fetchingIgnRailways'
