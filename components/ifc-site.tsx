@@ -363,9 +363,20 @@ export function IfcSite() {
      gap, and it is on screen exactly when there is a selection. Below 860 px
      the editor spans the width instead (see globals.css), so the inset would
      push the widget off the left edge; hold it at the plain margin there and
-     let the editor cover it. */
+     let the editor cover it.
+
+     Bound to resize as well as to the selection. This is the one place in the
+     app where a breakpoint is read in JS rather than in CSS, and on [selection]
+     alone it only re-read it when something was picked — so a tablet rotated
+     across 860 kept whichever inset it happened to have until the next click,
+     with the widget either overlapped by the editor or floating inboard of it.
+     The listener costs nothing on a desktop that never crosses the threshold. */
   useEffect(() => {
-    viewerRef.current?.setRightInset(selection && window.innerWidth > 860 ? 332 : 12);
+    const apply = () =>
+      viewerRef.current?.setRightInset(selection && window.innerWidth > 860 ? 332 : 12);
+    apply();
+    window.addEventListener('resize', apply);
+    return () => window.removeEventListener('resize', apply);
   }, [selection]);
 
   /* ---- theme ------------------------------------------------------------

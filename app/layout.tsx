@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
 import './globals.css';
 
@@ -19,9 +19,30 @@ const plexMono = IBM_Plex_Mono({
 // Static metadata is in the default language, matching the lang attribute
 // below. LangProvider rewrites both once the stored/URL preference is known.
 export const metadata: Metadata = {
-  title: 'IFC Site — contexte de site vers IFC',
+  title: 'IFC SITE',
   description:
-    'Tracez un rectangle sur une carte et obtenez un fichier IFC géoréférencé des bâtiments, voiries et terrain qu’il contient — entièrement dans le navigateur.',
+    'Générer une maquette site IFC géoréférencée entièrement dans le navigateur.',
+};
+
+/**
+ * `viewport-fit: cover` is what lets the app own the whole phone screen rather
+ * than the rounded-rectangle safe box inside it — the viewer is full-bleed, and
+ * a letterboxed one on a notched device reads as a broken page.
+ *
+ * It comes with an obligation, discharged in globals.css: with `cover` the
+ * chrome is free to land *under* the notch and the home indicator, so .overlay's
+ * padding is the safe-area insets rather than a flat 12px. The two are one
+ * change; neither is correct on its own.
+ *
+ * Nothing here restricts zoom — no maximum-scale, no user-scalable=no. Pinching
+ * is the only way to read fine print on a phone and taking it away is an
+ * accessibility failure, so the fix for iOS's focus-zoom is the 16px input rule
+ * in globals.css, not a locked viewport.
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 /**

@@ -224,7 +224,17 @@ html.dark {
     grid-template-rows: auto 1fr auto;
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 12px;
-    padding: 12px;
+    /* The gutter, or the safe area, whichever is larger. The document declares
+       `viewport-fit: cover` (see app/layout.tsx) so the viewer reaches the edges
+       of a notched screen — which puts the chrome under the notch and the home
+       indicator unless this padding backs off. max() rather than an addition:
+       12px is already clearance, and stacking the two would push the corner
+       clusters a finger's width inboard of where they belong.
+
+       Every inset is 0 on a desktop browser, so this computes to exactly the
+       flat 12px it replaces. */
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
     transition:
       opacity 0.45s ease,
       visibility 0.45s ease;
@@ -834,7 +844,12 @@ html.dark {
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    padding: 64px 16px 24px;
+    /* Safe-area aware for the same reason .overlay is: `viewport-fit: cover`
+       lets a fixed inset:0 box run under the notch and the home indicator. The
+       top already clears any notch on its own, so only the three edges that
+       could actually lose content are widened. */
+    padding: 64px max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
     overflow-y: auto;
   }
   .infoCard {
@@ -861,7 +876,8 @@ html.dark {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+      max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
   }
   .confirmCard {
     width: min(560px, 100%);
@@ -1622,7 +1638,9 @@ html.dark {
     max-height: none;
   }
   /* 2 / -1, not 1 / -1: pinned to the bottom this would otherwise sit over the
-     lower half of the rail, and the 3D rail is nine buttons tall. */
+     lower half of the rail, and the 3D rail is nine buttons tall. The phone tier
+     at the end of this file takes it back to 1 / -1 — the rail has left column 1
+     by then, so there is nothing in the way. */
   .editPanel {
     grid-column: 2 / -1;
     align-self: end;
@@ -1665,9 +1683,154 @@ html.dark {
     display: none;
   }
 }
+@media (max-width: 760px) {
+  .notes {
+    columns: 1;
+  }
+  /* Tighter than the base rule but still safe-area aware — see .infoOverlay
+     above. Falling back to a flat padding here would put the card under the home
+     indicator on exactly the devices this width is for. */
+  .infoOverlay {
+    padding: 56px max(10px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
+  }
+  .infoCard {
+    padding: 20px;
+  }
+}
 
-@media (max-width: 520px) {
+/* ---------------------------------------------------------------------
+   Phone.
+
+   The 860 tier above is narrow *desktop*: it shrinks the chrome but keeps the
+   shape. The shape is what fails here. The rail is a 40px column of up to
+   fourteen buttons — some 500px of them — and a phone is 667 tall. It would
+   take most of the window and sit under the element editor's bottom sheet.
+
+   So on a phone the rail lies down. It becomes a horizontally scrolling strip
+   along the foot, above the action bar, which hands the full height back to the
+   viewer and puts every tool in thumb reach. The overlay grows a fourth row to
+   hold it:
+
+     row 1  corner chips
+     row 2  viewer — the toast pins to the top of it, the editor sheet to the
+            bottom
+     row 3  the rail
+     row 4  the action bar
+
+   Landscape phones are wider than this and stay on the vertical rail, which is
+   right: height is the scarce axis there, and the max-height tier above already
+   folds the rail down to fit it.
+
+   Ordered after the 440 and 860 tiers deliberately — these selectors are no more
+   specific than theirs, so source order is what decides.
+   --------------------------------------------------------------------- */
+@media (max-width: 560px) {
+  .overlay {
+    grid-template-rows: auto 1fr auto auto;
+  }
+
+  /* Full width at the foot, and shrink-wrapped to the rail rather than stretched
+     down the row as it is on desktop. `.overlay > .railZone` still refuses the
+     pointer and `.railZone > *` still hands it back, so the strip does not
+     swallow the gestures that land either side of the rail. */
+  .railZone {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    align-self: end;
+    justify-self: stretch;
+  }
+
+  /* The rail, on its side. */
+  .rail {
+    flex-direction: row;
+    width: auto;
+    max-height: none;
+    gap: 4px;
+    /* overflow-y is spelled out because the max-height: 440px tier above sets it
+       to auto, and auto on both axes makes a two-axis scroller that drifts
+       vertically under the thumb. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+  /* `flex: none`, not the column's `flex: 0 1 32px`: on this axis that basis is
+     the width, so the buttons would squeeze towards each other instead of
+     scrolling — and the rail would quietly become unreadable as it grows,
+     which is the failure the vertical rail's comment describes. 44px is the
+     touch-target floor, and sideways there is finally room for it. */
+  .railBtn {
+    flex: none;
+    width: 44px;
+    height: 44px;
+  }
+  .railSep {
+    width: 1px;
+    height: 24px;
+    margin: 0 2px;
+  }
+  /* No hover label on this tier, and no attempt at one.
+
+     The vertical rail refuses to be a scroller specifically so the tip can hang
+     out past its right edge — see the comment on .rail. Lying down, the rail has
+     to scroll: fourteen 44px buttons are 616px of strip and a phone is 375 wide.
+     A scroller clips both axes, so wherever the tip is put it is cut off, and
+     the flipped-above version this block used to carry looked correct in the
+     stylesheet while being invisible on screen.
+
+     Same trade the max-height tier above already makes, in its words: reachable
+     beats readable. The buttons keep their aria-label, so the tip was never what
+     a screen reader was reading. Giving touch users a visible label is a real
+     gap and is tracked as interaction work, not layout — it wants a tap-to-label
+     affordance, which is markup, not a media query. */
+
+  /* Sheets that rise off the dock. Back to absolute, where the 860 tier pins
+     them to the window: .railZone is a full-width bar at the foot now, so
+     `bottom: calc(100% + 8px)` against it lands the sheet directly above the
+     rail without knowing anything about the action bar's height. The grid keeps
+     them apart, the same way it does everywhere else in this file.
+
+     .searchFlyout and .fileFlyout are named because their widths are set later
+     in the source at equal specificity and would otherwise win. */
+  .flyout,
+  .searchFlyout,
+  .fileFlyout {
+    position: absolute;
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    max-height: 60dvh;
+  }
+  /* Opens upward. The search flyout is overflow: visible precisely so this can
+     escape it, and below the field escaping means landing over the rail. */
+  .searchResults {
+    top: auto;
+    bottom: calc(100% + 4px);
+  }
+
+  /* Above the rail, and free to span the full width now that the rail has left
+     column 1 — see the note on .editPanel in the 860 tier. */
+  .editPanel {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    align-self: end;
+    justify-self: stretch;
+    max-height: 52%;
+  }
+
+  /* Row 4, and tight. The gap and padding here are folded in from what used to
+     be a separate max-width: 520px block: the bar is wanted tight from the
+     moment the dock appears, and two overlapping phone tiers is the kind of
+     thing the rest of this file avoids. */
   .statusbar {
+    grid-row: 4;
     gap: 10px;
     padding: 6px 10px;
   }
@@ -1676,16 +1839,55 @@ html.dark {
     padding: 10px 12px;
     letter-spacing: 0.06em;
   }
+
+  /* Seven round buttons and the brand mark, on a 375px window: 7x32 + 6x4 of gap
+     + 12 of padding = 260, the mark and its own padding another 46, the grid gap
+     12 and the overlay's padding 24 — 342, which fits. flex-wrap is the valve for
+     the 320px case, not a layout anyone should normally see. */
+  .utilChip {
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  /* iOS zooms the page whenever a focused field is under 16px, and a zoomed page
+     with a position: fixed overlay on it is a mess you cannot pan out of.
+     Raising the field is the fix. Locking the viewport would also work and would
+     take pinch-zoom away from everybody, so it is not the fix. */
+  .ctl-input {
+    font-size: 16px;
+  }
+  /* 74 was sized for 13px mono and clips three digits at 16. */
+  .barHeight .ctl-input {
+    width: 86px;
+  }
 }
-@media (max-width: 760px) {
-  .notes {
-    columns: 1;
+
+/* Touch targets, keyed to what is driving the pointer rather than to how wide
+   the window is — this catches tablets, which are far too wide for the tier
+   above and are still being used with a finger. It cannot match a mouse, so the
+   desktop layout is out of its reach by construction. */
+@media (pointer: coarse) {
+  /* 32, not the 44 the rail buttons get: at 44 the seven of these overflow a
+     375px window and force the chip onto a second row, which costs more than the
+     eight pixels are worth. The compass comes with them or the row goes uneven —
+     it is sized here, and only rotated by the viewer. */
+  .iconBtn,
+  .compassChip {
+    width: 32px;
+    height: 32px;
   }
-  .infoOverlay {
-    padding: 56px 10px 16px;
+  .statusToast .toastX {
+    width: 32px;
+    height: 32px;
   }
-  .infoCard {
-    padding: 20px;
+  /* Width only. The leaf list is windowed on a fixed 24px row (ROW_H in
+     components/model-tree), so anything taller than the row it sits in would
+     overlap the row below — these grow into the panel's spare width instead. */
+  .treeTwisty,
+  .treeEye,
+  .treeSwatch {
+    min-width: 30px;
   }
 }
 
@@ -1720,6 +1922,10 @@ html.dark .leaflet-tile-pane {
    a 16 px strip. */
 .leaflet-top.leaflet-right {
   margin-top: 52px;
+  /* Leaflet's own DOM sits on .stage, which is outside .overlay and therefore
+     gets none of its safe-area padding. In landscape on a notched phone the
+     zoom control would otherwise sit under the notch. */
+  margin-right: env(safe-area-inset-right);
 }
 .leaflet-bar,
 .leaflet-bar a {
