@@ -414,7 +414,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
 
           The body is always rendered and `hidden` rather than mounted on
           demand, so aria-controls always resolves to something; `hidden` keeps
-          the nine sliders out of the tab order and out of layout either way. */}
+          the ten sliders out of the tab order and out of layout either way. */}
       <div className="field editSection">
         <button
           type="button"
@@ -547,10 +547,28 @@ export function ControlsPanel(p: ControlsPanelProps) {
             onChange={(railTrackWidth) => setTune({ railTrackWidth })}
           />
 
+          {/* The one setting here that changes nothing a build fetches or
+              produces, and the only one whose effect you can watch while you
+              drag it — the orbit changes pace under a camera that stays put. */}
+          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advPresentation')}</span>
+
+          {/* Held in ms because that is what the viewer's clock is in, shown in
+              whole seconds for the same reason the timeout above is. */}
+          <TuneRow
+            id="advOrbitCycle"
+            label={t('ctl.advOrbitCycle')}
+            hint={t('ctl.advOrbitCycleHint')}
+            value={tune.orbitCycleMs / 1000}
+            range={[TUNE_RANGE.orbitCycleMs[0] / 1000, TUNE_RANGE.orbitCycleMs[1] / 1000]}
+            step={5}
+            format={(v) => `${n(v)} s`}
+            onChange={(s) => setTune({ orbitCycleMs: s * 1000 })}
+          />
+
           {/* Always present, disabled at defaults, rather than appearing when
               something is customised — a control that comes and goes moves
               every slider above it. DEFAULT_TUNABLES is complete, so this one
-              patch resets all nine. */}
+              patch resets all ten. */}
           <div className="presets">
             <button
               type="button"

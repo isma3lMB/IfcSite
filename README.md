@@ -1,9 +1,9 @@
 # IFC Site
 
-**Draw a rectangle on a map. Get a georeferenced IFC model of everything inside it.**
+**Extract and build a georeferenced IFC site context model from public cartographic datasets**
 
 IFC Site pulls the buildings, roads, terrain and context layers under a rectangle you draw,
-extrudes them into an LOD100 massing model, lets you edit it, and writes an IFC file you can
+extrudes them into an *LOD100* massing model, lets you edit it, and writes an IFC file you can
 open in Revit, ArchiCAD, Blender, BlenderBIM, Solibri or any IFC viewer.
 
 There is no backend. No account, no API key, no upload. Every query goes straight from your
@@ -35,7 +35,7 @@ Then, in the app:
    definition; nothing is selected until you draw one.
 3. **Build site** — watch the status line. A first build in a French town takes a few
    seconds.
-4. **Download IFC** — the file lands as `IFCSITE_<lon>_<lat>_<timestamp>.ifc`.
+4. **Download IFC** — the file lands as `IFCSITE_<lon>_<lat>.ifc`.
 
 Everything between steps 3 and 4 — editing, drawing extra buildings, measuring, restyling
 layers — is optional.
@@ -166,7 +166,8 @@ network not at all.
 - **Light and dark** themes. The exported colours are identical either way — the theme
   changes the sky and the lighting, never the model.
 - **Orthographic** projection toggle, and a **presentation mode** that flies a slow orbit
-  with the whole site guaranteed in frame.
+  with the whole site guaranteed in frame — its pace is adjustable under Advanced, and
+  changing it mid-orbit changes the speed without moving the camera.
 
 ### Keyboard
 
@@ -185,10 +186,8 @@ network not at all.
 
 ### The IFC file
 
-**`IFCSITE_<lon>_<lat>_<timestamp>.ifc`** — for example
-`IFCSITE_2.3522_48.8566_20260823-143207.ifc`. Longitude then latitude, to four decimals
-(about 11 m), and a local `YYYYMMDD-HHMMSS` stamp so exporting the same site twice leaves you
-with both files rather than overwriting the first.
+**`IFCSITE_<lon>_<lat>.ifc`** — for example `IFCSITE_2.3522_48.8566.ifc`. Longitude then
+latitude, to four decimals, which is about 11 m.
 
 In your choice of three schemas:
 
@@ -273,9 +272,10 @@ because there is nothing on the server side to configure.
 
 ## Advanced settings
 
-Under **Advanced** in the options panel are nine pipeline limits: building and tree caps,
-maximum site side, the Overpass timeout, the terrain grid ceiling, the drape step, and the
-storey/lane/track width defaults. The defaults suit almost every site. They are sliders
+Under **Advanced** in the options panel are ten settings: building and tree caps, maximum
+site side, the Overpass timeout, the terrain grid ceiling, the drape step, the
+storey/lane/track width defaults, and how long one presentation revolution takes. The
+defaults suit almost every site. They are sliders
 rather than number fields on purpose — these numbers feed fetch deadlines and geometry
 loops, where a bad value is a wedged tab rather than a wrong pixel.
 

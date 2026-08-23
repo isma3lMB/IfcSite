@@ -180,11 +180,10 @@ The single stateful component. It owns:
   no longer describes what Download would write.
 - **`onBuild`** calls `runBuild`, then feeds the result to the emitter and the viewer and
   flips to the 3D tab. **`onDownload`** flushes the emitter's debounce window and triggers
-  a Blob download named `IFCSITE_<lon>_<lat>_<stamp>.ifc` — longitude first, matching the
-  east-then-north order the georeferencing is written in, and stamped by
-  [fileStamp](lib/io/file.ts) so a second export of the same site does not silently replace
-  the first. `YYYYMMDD-HHMMSS` rather than ISO 8601, because ISO's time separator is the
-  colon and a browser rewrites a download name it cannot use without saying so.
+  a Blob download named `IFCSITE_<lon>_<lat>.ifc` — longitude first, matching the
+  east-then-north order the georeferencing is written in. The name is a pure function of
+  where the site is, so re-exporting the same site overwrites rather than accumulating
+  numbered copies in the downloads folder.
 - **Theme push.** Both viewers own a backdrop CSS cannot reach — a shader dome and a tile
   URL — so the class on `<html>` is not enough for either. An effect on `theme` calls
   `Viewer.setTheme` and `MapController.setTheme`; both return early when the theme has not
@@ -361,7 +360,7 @@ be reasoned about without a scene. They are modules, not methods, for that reaso
 | --- | --- |
 | [snap.ts](lib/viewer/snap.ts) | Pure geometry. What a measured point latched onto — `vertex`, `midpoint`, `edge` or `free` — within `SNAP_PX = 10` of the cursor. Priority is expressed as **pixels of forgiveness** (`BONUS`) rather than as a sort order: a corner and the edge that ends at it are within a pixel of each other near that corner, so a strict nearest-wins flickers between them. Also `toScreen`, which returns `behind` *separately* from the coordinates — a point behind the camera still projects to a finite pair, mirrored through the screen centre, and anything placing a label has to drop those rather than trust them. |
 | [measureLayer.ts](lib/viewer/measureLayer.ts) | Distance and area measurements: the lines, the DOM labels (DOM, so they cannot live in the scene graph), the snap cursor held at a constant pixel size, and the live in-progress gesture. Number **formatters are injected from React** — nothing under `lib/viewer` may compose user-facing text, and a thousands separator is locale, not geometry. |
-| [presentation.ts](lib/viewer/presentation.ts) | The camera path presentation mode flies, as pure geometry: `OrbitPose` at phase *p* of a `CYCLE_MS = 36000` loop, with an `ENTRY_MS = 1200` blend in. Deliberately not a turntable — a constant ring reads as a screensaver after half a revolution and shows the model from one height forever, so elevation and distance breathe once per revolution. The wide end of that breath is pinned to the distance the viewer frames the whole site from, which is what makes "the whole site is in frame" a guarantee rather than a hope. `OrbitPose` is Z-up spherical, not `THREE.Spherical`, whose phi is measured from +Y. |
+| [presentation.ts](lib/viewer/presentation.ts) | The camera path presentation mode flies, as pure geometry: `OrbitPose` at phase *p* of the loop, with an `ENTRY_MS = 1200` blend in. The loop's *shape* is fixed here; its *pace* is a setting — `orbitCycleMs`, default 36 s, held by `Viewer` and re-anchored mid-orbit by `setOrbitCycle` so a change of speed is not a cut. Deliberately not a turntable — a constant ring reads as a screensaver after half a revolution and shows the model from one height forever, so elevation and distance breathe once per revolution. The wide end of that breath is pinned to the distance the viewer frames the whole site from, which is what makes "the whole site is in frame" a guarantee rather than a hope. `OrbitPose` is Z-up spherical, not `THREE.Spherical`, whose phi is measured from +Y. |
 | [translucency.ts](lib/viewer/translucency.ts) | Twenty-seven lines, and the `needsUpdate` in them is the entire point rather than being defensive: three bakes `transparent` into the shader program's cache key as `#define OPAQUE`, which forces `diffuseColor.a = 1.0`, and assigning the flag does not bump `material.version`. A material compiled while opaque keeps reaching the screen solid no matter what opacity says — exactly what an element created at 1 and then dragged down the slider does. Gated on a real crossing so a drag inside the translucent range never recompiles. A solid below 1 must not write depth, or it hides what it is meant to be seen through, including its own far side. |
 | [viewTriad.ts](lib/viewer/viewTriad.ts) | three.js's `ViewHelper`, vendored and rewritten. What is kept is the corner render pass — clear depth, shrink the viewport, draw a second tiny scene, put the viewport back. The rest had to go: the stock helper is Y-up in three places at once (hard-coded snap Eulers, a dummy object with the default up, and X/Y/Z labels), and this scene is Z-up with axes that have names — east, north, up. It reports which axis the pointer is over and **never touches the camera**, so the Viewer can apply its own click-versus-orbit rules first. |
 | [originMarker.ts](lib/viewer/originMarker.ts) | The draggable model origin. Axis colours read X=east, Y=north, Z=up, sitting a little off pure R/G/B so the marker stays quieter than the `TransformControls` gizmo it shares the scene with. Arms run from `-STUB` to `ARM` so it reads as a crosshair rather than three arms off a corner. |
@@ -406,10 +405,17 @@ would turn every `length >= cap` guard in the parsers into a no-op — a tab pul
 whole city rather than a wrong number on screen.
 
 ### [tunables.ts](lib/build/tunables.ts) — the pipeline's limits, as data
-Nine numbers that used to be `const`s beside their one call site: `buildingCap`, `treeCap`,
+Ten numbers that used to be `const`s beside their one call site: `buildingCap`, `treeCap`,
 `siteMax`, `overpassTimeoutMs`, `maxGridN`, `conformStep`, `storeyHeight`, `laneWidth`,
-`railTrackWidth`. `runBuild` fans one `tune` object out to every parse path, so the change
-is a parameter, not a module global — the purity above still holds.
+`railTrackWidth`, `orbitCycleMs`. `runBuild` fans one `tune` object out to every parse path,
+so the change is a parameter, not a module global — the purity above still holds.
+
+Eight of the ten are the builder's. The other two have an imperative consumer instead and
+are pushed to it from an effect in `ifc-site.tsx` rather than carried into `runBuild`:
+`siteMax` reaches the Leaflet controller, whose clamp binds at drag time, and `orbitCycleMs`
+reaches `Viewer.setOrbitCycle`, whose clock binds per frame. Both are excluded from
+`SCENE_TUNABLES` for the same reason — they change what you see now, not what the next build
+would produce, so neither may mark the scene stale.
 
 Naming them once also fixed three numbers that were written down twice, once for OSM and
 once for BD TOPO (storey height, lane width, rail track width), and collapsed the Overpass
@@ -771,7 +777,10 @@ for React to render.
   [app/layout.tsx](app/layout.tsx), which must resolve identically.
 - [lib/build/tunables.ts](lib/build/tunables.ts) is the third store, key `ifcsite.tunables`,
   loaded and saved in `ifc-site.tsx` under the same in-an-effect rule. No pre-paint script
-  here: nothing a tunable changes is visible until a build runs.
+  here: nothing a tunable changes is on screen at first paint. Two of them do bite before
+  the next build — `siteMax` at the next drag on the map, `orbitCycleMs` on the very next
+  frame of a running presentation orbit — but neither is visible until you are already past
+  the load.
 - **Nested interpolation**: a `{param}` whose value is itself a dictionary key is translated
   first. That is how `status.undone` takes an `edit.*` label, `status.fetchingIgnLayer`
   takes a `layer.*` name, and `status.terrainUnavailable` takes the `err.*` code that

@@ -42,9 +42,21 @@ describe('DEFAULT_TUNABLES', () => {
     expect((212 + 1) ** 2).toBeGreaterThan(45000);
   });
 
-  /** siteMax bounds the rectangle you may draw next; it does not change output. */
-  it('counts every tunable except siteMax as scene-changing', () => {
-    expect([...SCENE_TUNABLES].sort()).toEqual(KEYS.filter((k) => k !== 'siteMax').sort());
+  /**
+   * The two that change nothing a build produces: siteMax bounds the rectangle
+   * you may draw next, and orbitCycleMs only paces a camera. Counting either as
+   * scene-changing would mark the scene stale on every drag of its slider.
+   */
+  it('counts every tunable except siteMax and orbitCycleMs as scene-changing', () => {
+    const viewOnly = new Set(['siteMax', 'orbitCycleMs']);
+    expect([...SCENE_TUNABLES].sort()).toEqual(KEYS.filter((k) => !viewOnly.has(k)).sort());
+  });
+
+  /** The shipped pace of the presentation orbit, pinned: it was CYCLE_MS in
+   *  lib/viewer/presentation before the panel could reach it, and the default
+   *  has to keep reproducing that exactly. */
+  it('keeps the presentation orbit at its shipped 36 s revolution', () => {
+    expect(DEFAULT_TUNABLES.orbitCycleMs).toBe(36000);
   });
 });
 

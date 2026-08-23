@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { DEFAULT_TUNABLES, TUNE_RANGE } from '@/lib/build/tunables';
 import { treeCanopyGeometry, treeTrunkGeometry, treeTrunkHeight } from '@/lib/geo/treeShape';
 import {
   LAYER_LABEL,
@@ -47,7 +48,6 @@ import {
 } from '@/lib/viewer/measureLayer';
 import { createOriginMarker, markerPick, setMarkerActive } from '@/lib/viewer/originMarker';
 import {
-  CYCLE_MS,
   ENTRY_MS,
   type OrbitPose,
   easeInOut,
@@ -457,17 +457,26 @@ export class Viewer {
   private readonly slerpQ = new THREE.Quaternion();
 
   /**
-   * The presentation orbit in flight: the clock, the azimuth it was entered at,
+   * The presentation orbit in flight: two clocks, the azimuth it was entered at,
    * and the camera it was handed — the last two so the sweep can pick up from
    * where the user was rather than cutting to a canned pose. Null when the mode
    * is off, which is the only thing anything else needs to test.
+   *
+   * The clocks are separate because they answer to different things. `t0` anchors
+   * the entry blend and never moves. `tPhase`/`phase0` anchor the loop itself and
+   * are re-seated every time the cycle length changes, which is what lets the
+   * pace change under a camera that does not — see setOrbitCycle.
    */
   private present: {
     t0: number;
+    phase0: number;
+    tPhase: number;
     az0: number;
     from: OrbitPose;
     fromTarget: THREE.Vector3;
   } | null = null;
+  /** How long one revolution takes. The panel's, once React pushes it down. */
+  private orbitCycleMs = DEFAULT_TUNABLES.orbitCycleMs;
   /** Scratch for stepPresent, which runs every frame. */
   private readonly orbitEye = new THREE.Vector3();
   private readonly orbitTarget = new THREE.Vector3();
@@ -1023,9 +1032,12 @@ export class Viewer {
     this.controls.enableDamping = damp;
     this.controls.enabled = false;
 
+    const t0 = performance.now();
     const from = poseOf(this.camera.position.clone().sub(this.controls.target));
     this.present = {
-      t0: performance.now(),
+      t0,
+      phase0: 0,
+      tPhase: t0,
       az0: from.az,
       from,
       fromTarget: this.controls.target.clone(),
@@ -1048,15 +1060,53 @@ export class Viewer {
     return !!this.present;
   }
 
+  /** Where in the loop we are, 0..1, given an anchor and the phase it stood at. */
+  private phaseAt(now: number, tPhase: number, phase0: number): number {
+    return (((now - tPhase) / this.orbitCycleMs + phase0) % 1 + 1) % 1;
+  }
+
+  /**
+   * How long one revolution takes, in ms.
+   *
+   * Idempotent like every other setter here, so React can push it on a render
+   * without knowing whether it is already in force — and safe to call while the
+   * orbit is running, which is the point. The phase is frozen at its current
+   * value before the divisor changes, so what the viewer does at the moment of
+   * the change is speed up or slow down; azimuth, elevation and distance are all
+   * exactly where they were. Recomputing phase from an unmoved anchor instead
+   * would teleport the camera, which is the one thing this mode exists to avoid.
+   *
+   * `t0` is deliberately left alone: it anchors the entry blend, and re-seating
+   * it would restart the ease-in under someone who nudged the slider on the way in.
+   */
+  setOrbitCycle(ms: number): void {
+    // The panel's slider cannot emit a bad value, but this is a public surface
+    // and localStorage is not the only way in. Finiteness before the clamp, the
+    // same order sanitizeTunables takes and for the same reason.
+    const [lo, hi] = TUNE_RANGE.orbitCycleMs;
+    const next = Number.isFinite(ms)
+      ? Math.min(hi, Math.max(lo, ms))
+      : DEFAULT_TUNABLES.orbitCycleMs;
+    if (next === this.orbitCycleMs) return;
+    const p = this.present;
+    if (p) {
+      const now = performance.now();
+      p.phase0 = this.phaseAt(now, p.tPhase, p.phase0);
+      p.tPhase = now;
+    }
+    this.orbitCycleMs = next;
+  }
+
   private stepPresent(now: number): void {
     const p = this.present;
     if (!p) return;
     const fit = this.fitDistance();
     const elapsed = now - p.t0;
     // Modulo rather than a wrapped counter: the phase is a pure function of the
-    // clock, so a dropped frame costs a frame rather than desynchronising the
-    // loop from its own elevation.
-    const phase = ((elapsed / CYCLE_MS) % 1 + 1) % 1;
+    // clock since the last change of pace, so a dropped frame costs a frame
+    // rather than desynchronising the loop from its own elevation. Only
+    // setOrbitCycle moves the anchor, and it moves phase0 with it.
+    const phase = this.phaseAt(now, p.tPhase, p.phase0);
     let pose = orbitPose(phase, p.az0, fit);
 
     // The entry blend. Azimuth is already continuous — orbitPose is built from

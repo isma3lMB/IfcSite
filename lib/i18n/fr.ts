@@ -10,7 +10,7 @@ import type { Dict } from '@/lib/i18n/en';
  */
 export const fr: Dict = {
   /* ---- chrome ---- */
-  'app.title': 'IFC Site — Environnement en maquette',
+  'app.title': 'IFC SITE - Environnement en BIM',
   'app.description':
     'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques — bâtiments, voiries et terrain, géoréférencés, dans le navigateur.',
   'app.wordmark': 'IFC Site',
@@ -46,7 +46,7 @@ export const fr: Dict = {
   'rail.drawTree': 'Planter un arbre',
   'rail.measure': 'Mesurer une distance',
   'rail.measureArea': 'Mesurer une surface',
-  'rail.model': 'Arborescence du modèle',
+  'rail.model': 'Couches',
   'rail.file': 'Ébauches',
 
   /* ---- ébauches. Le document, par opposition au livrable : une ébauche se
@@ -114,9 +114,9 @@ export const fr: Dict = {
   'ctl.crsNone': 'Aucun résultat.',
   'ctl.crsValidHere': '{n} valables sur ce site',
   'ctl.ifcSchema': 'Schéma IFC',
-  'ctl.ifcSchema2x3': 'IFC2X3 — logiciels plus anciens',
-  'ctl.ifcSchema4': 'IFC4 — par défaut',
-  'ctl.ifcSchema4x3': 'IFC4X3 — infrastructure',
+  'ctl.ifcSchema2x3': 'IFC2X3',
+  'ctl.ifcSchema4': 'IFC4',
+  'ctl.ifcSchema4x3': 'IFC4X3',
   'ctl.ifcSchemaBrepHint':
     'IFC2X3 ne connaît pas la tessellation : le terrain, les voiries et les arbres sont exportés en représentation par frontières — le même modèle, dans un fichier plusieurs fois plus lourd.',
   'ctl.verticalDatum': 'Référence verticale',
@@ -125,7 +125,7 @@ export const fr: Dict = {
     'Les altitudes portent la référence de ce qui les a mesurées, où que soit le site : IGN RGE ALTI donne NGF-IGN69, Terrarium donne EGM96 dès lors que le terrain est inclus. Sans terrain, le modèle n’a aucune référence verticale.',
   'ctl.defaultHeight': 'Hauteur si non renseignée',
   'ctl.dataSource': 'Source de données',
-  'ctl.sourceOsm': 'OpenStreetMap + Terrarium — monde entier',
+  'ctl.sourceOsm': 'OSM + Terrarium — Monde',
   'ctl.sourceIgn': 'IGN Géoplateforme — France',
   'ctl.include': 'Inclure',
   'ctl.buildings': 'Emprises des bâtiments',
@@ -136,10 +136,10 @@ export const fr: Dict = {
   'ctl.terrainSrcIgn': 'RGE ALTI ~1 m',
   'ctl.trees': 'Arbres isolés',
   'ctl.accuracy': 'Précision du terrain',
-  'ctl.accuracyCoarse': 'Grossière — mailles de 30 m',
-  'ctl.accuracyStandard': 'Standard — mailles de 15 m',
-  'ctl.accuracyFine': 'Fine — mailles de 5 m',
-  'ctl.accuracyMax': 'Maximale — mailles de 1 m',
+  'ctl.accuracyCoarse': 'Grossière : mailles de 30 m',
+  'ctl.accuracyStandard': 'Standard : mailles de 15 m',
+  'ctl.accuracyFine': 'Fine : mailles de 5 m',
+  'ctl.accuracyMax': 'Maximale : mailles de 1 m',
   'ctl.accuracyCell': '{n}×{n} · ~{m} m',
   'ctl.accuracyHint':
     'Un échantillonnage plus dense est plus long à récupérer et plus lourd à exporter.',
@@ -179,6 +179,10 @@ export const fr: Dict = {
     'Utilisée lorsqu’un bâtiment indique son nombre de niveaux mais pas sa hauteur.',
   'ctl.advLaneWidth': 'Largeur d’une voie',
   'ctl.advTrackWidth': 'Largeur d’une voie ferrée',
+  'ctl.advPresentation': 'Présentation',
+  'ctl.advOrbitCycle': 'Durée d’une révolution',
+  'ctl.advOrbitCycleHint':
+    'Temps que la caméra met à faire le tour du site. Plus long, c’est un mouvement de caméra ; plus court, une rotation. S’applique en cours d’orbite.',
 
   'ctl.build': 'Construire la maquette site',
   'ctl.building': 'Construction…',

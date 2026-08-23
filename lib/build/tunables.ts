@@ -17,6 +17,13 @@
  * here and the pipeline modules import *from* here, not the other way round.
  */
 
+/**
+ * Most of these are the pipeline's own limits, threaded into runBuild. Two are
+ * not, and reach an imperative consumer by a push-down effect instead: `siteMax`
+ * bounds the rectangle the map will let you drag, and `orbitCycleMs` paces the
+ * viewer's presentation orbit. They live here because this is where a number the
+ * options panel can reach is written down, not because the builder reads them.
+ */
 export type Tunables = {
   /** Footprints imported before the rest are dropped. */
   buildingCap: number;
@@ -36,6 +43,14 @@ export type Tunables = {
   laneWidth: number;
   /** Metres of ribbon per parallel track, absent an explicit `width`. */
   railTrackWidth: number;
+  /**
+   * How long one revolution of the presentation orbit takes, in ms.
+   *
+   * The default is slow enough to read as a camera move rather than a spin — a
+   * room has to be able to follow it while someone talks over it. Shorter suits
+   * showing a site quickly; longer suits a screen nobody is narrating.
+   */
+  orbitCycleMs: number;
 };
 
 export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
@@ -48,6 +63,7 @@ export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
   storeyHeight: 3.0,
   laneWidth: 3.25,
   railTrackWidth: 3.5,
+  orbitCycleMs: 36000,
 });
 
 /**
@@ -76,14 +92,17 @@ export const TUNE_RANGE: Record<keyof Tunables, [number, number]> = {
   storeyHeight: [2, 6],
   laneWidth: [2, 6],
   railTrackWidth: [1, 8],
+  orbitCycleMs: [10000, 180000],
 };
 
 /**
  * The tunables that change what a build *produces*, and so mean the scene on
  * screen was made under rules the next build would not use.
  *
- * `siteMax` is the one that does not: it bounds the rectangle you may draw next
- * and says nothing about a scene already built. See onFormChange in
+ * Two do not. `siteMax` bounds the rectangle you may draw next and says nothing
+ * about a scene already built; `orbitCycleMs` only paces a camera. Both change
+ * what you see immediately and neither makes the scene stale, which is the whole
+ * reason this set is a set rather than "all of them". See onFormChange in
  * components/ifc-site.
  */
 export const SCENE_TUNABLES: ReadonlySet<keyof Tunables> = new Set<keyof Tunables>([

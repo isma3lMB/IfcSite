@@ -39,7 +39,7 @@ import {
   parseDraft,
   toDraft,
 } from '@/lib/io/draft';
-import { downloadText, fileStamp, readDraftFile, safeFileStem } from '@/lib/io/file';
+import { downloadText, readDraftFile, safeFileStem } from '@/lib/io/file';
 import {
   type SlotMeta,
   deleteSlot,
@@ -419,12 +419,20 @@ export function IfcSite() {
   }, [form.tune]);
 
   /* The map is imperative and outside React, and its clamp binds at drag time
-     rather than at build time — so this is the one tunable that does not travel
-     inside BuildOptions. */
+     rather than at build time — so this is one of the two tunables whose
+     consumer is not reached by BuildOptions. */
   useEffect(() => {
     siteMaxRef.current = form.tune.siteMax;
     mapRef.current?.setSiteLimits(form.tune.siteMax);
   }, [form.tune.siteMax]);
+
+  /* The second of the two, for the same reason: the orbit's pace binds per frame
+     rather than per build, so it is pushed to the viewer like the theme above
+     rather than carried into runBuild. Safe to arrive mid-orbit — the setter
+     re-anchors the phase so the loop changes speed without changing pose. */
+  useEffect(() => {
+    viewerRef.current?.setOrbitCycle(form.tune.orbitCycleMs);
+  }, [form.tune.orbitCycleMs]);
 
   /* ---- footprint authoring ---------------------------------------------
      The viewer cannot translate, so the name a drawn building gets is pushed
@@ -1038,11 +1046,10 @@ export function IfcSite() {
     const text = emitterRef.current?.flush();
     const meta = metaRef.current;
     if (!text || !meta) return;
-    // IFCSITE_<lon>_<lat>_<stamp>.ifc — east-then-north, the order the
-    // georeferencing itself is written in, and the stamp so that exporting the
-    // same site twice does not silently overwrite the first file.
+    // IFCSITE_<lon>_<lat>.ifc — east-then-north, the order the georeferencing
+    // itself is written in.
     downloadText(
-      `IFCSITE_${meta.lon.toFixed(4)}_${meta.lat.toFixed(4)}_${fileStamp()}.ifc`,
+      `IFCSITE_${meta.lon.toFixed(4)}_${meta.lat.toFixed(4)}.ifc`,
       text,
       'application/x-step',
     );
