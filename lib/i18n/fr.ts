@@ -10,7 +10,7 @@ import type { Dict } from '@/lib/i18n/en';
  */
 export const fr: Dict = {
   /* ---- chrome ---- */
-  'app.title': 'IFC Site — contexte de site vers IFC',
+  'app.title': 'IFC Site — Environnement en maquette',
   'app.description':
     'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques — bâtiments, voiries et terrain, géoréférencés, dans le navigateur.',
   'app.wordmark': 'IFC Site',
@@ -19,7 +19,7 @@ export const fr: Dict = {
   'app.h1b': 'Site',
   'app.sub':
     'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques. Tracez un rectangle sur la carte : il récupère les bâtiments, les voiries et le terrain qu’il contient, les extrude et écrit un fichier IFC géoréférencé — entièrement dans le navigateur.',
-  'app.badge': 'Volumétrie LOD1\nIfcBuildingElementProxy\nLoGeoRef 50',
+  'app.badge': 'Volumétrie LOD100\nIfcBuildingElementProxy\nLoGeoRef 50',
   'app.langLabel': 'Langue',
 
   /* ---- habillage ---- */
@@ -122,7 +122,7 @@ export const fr: Dict = {
   'ctl.verticalDatum': 'Référence verticale',
   'ctl.verticalDatumNone': 'Aucun — plat',
   'ctl.verticalDatumHint':
-    'Les sites IGN utilisent NGF-IGN69 ; les sites OSM utilisent EGM96 dès lors que le terrain est inclus — sans lui, le modèle n’a aucune référence verticale.',
+    'Les altitudes portent la référence de ce qui les a mesurées, où que soit le site : IGN RGE ALTI donne NGF-IGN69, Terrarium donne EGM96 dès lors que le terrain est inclus. Sans terrain, le modèle n’a aucune référence verticale.',
   'ctl.defaultHeight': 'Hauteur si non renseignée',
   'ctl.dataSource': 'Source de données',
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — monde entier',

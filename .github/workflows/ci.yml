@@ -1,0 +1,53 @@
+# The gate on every pull request: the same three commands CONTRIBUTING.md asks
+# you to run locally, so a green tick here means what it says.
+#
+# `pull_request` and not `pull_request_target`. The latter runs a fork's code
+# with a write-scoped token and access to secrets, which is the standard way an
+# open-source project's CI gets turned against it. This workflow needs neither:
+# there are no secrets, and the build is a static export that touches no network
+# service — public/epsg.json is committed, so nothing here calls Overpass, the
+# IGN Géoplateforme or Nominatim.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+# A contributor pushing three times to a PR should not queue three full builds.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      # Both versions run to completion, so one failure still reports the other.
+      fail-fast: false
+      matrix:
+        # The floor from package.json engines, and the current LTS.
+        node: ['20.19', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # Last, because it is the slowest and the least likely to be what broke.
+      - name: Static export
+        run: npm run build

@@ -4,6 +4,7 @@ import { AppError } from '@/lib/errors';
 import type { SplitPolygon } from '@/lib/geo/boolean';
 import { resolveCRS } from '@/lib/geo/crs';
 import { ACCURACY_CELL } from '@/lib/geo/grid';
+import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
 import { resetReuseCount, reuseCount } from '@/lib/sources/cache';
 import {
   IGN_LAYERS,
@@ -188,15 +189,14 @@ export async function runBuild(
     epsg: crs.epsg,
     crsName: crs.name,
     geodeticDatum: crs.datum,
-    // The vertical datum belongs to whatever produced the heights, not to the
-    // horizontal grid — a projected CRS is two-dimensional and names none. So it
-    // follows the DEM: with no altimetry there is no datum to declare, and
-    // naming one would be a claim nothing in the file supports. EGM96 is the
-    // datum of Terrarium's dominant source; the tiles are a mosaic, so read it
-    // as accurate to about a metre. This is also RefElevation's null rule — see
+    // The vertical datum follows the DEM — see VERTICAL_DATUMS for why it is the
+    // elevation source that names it and not the site's country. With no
+    // altimetry there is no datum to declare, and naming one would be a claim
+    // nothing in the file supports. This is also RefElevation's null rule — see
     // ContextModel in lib/ifc/writer, which derives the actual number from
     // wherever the origin marker sits rather than from anything here.
-    verticalDatum: scene.datumZ === null ? null : ign ? 'NGF-IGN69' : 'EGM96',
+    verticalDatum: scene.datumZ === null ? null : VERTICAL_DATUMS[opts.provider].name,
+    verticalDatumEpsg: scene.datumZ === null ? null : VERTICAL_DATUMS[opts.provider].epsg,
     crsDef: crs.def,
     projectName: `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
     // Seeded from the form, then owned by the meta: the options panel writes

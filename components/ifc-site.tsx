@@ -39,7 +39,7 @@ import {
   parseDraft,
   toDraft,
 } from '@/lib/io/draft';
-import { downloadText, readDraftFile, safeFileStem } from '@/lib/io/file';
+import { downloadText, fileStamp, readDraftFile, safeFileStem } from '@/lib/io/file';
 import {
   type SlotMeta,
   deleteSlot,
@@ -1038,8 +1038,11 @@ export function IfcSite() {
     const text = emitterRef.current?.flush();
     const meta = metaRef.current;
     if (!text || !meta) return;
+    // IFCSITE_<lon>_<lat>_<stamp>.ifc — east-then-north, the order the
+    // georeferencing itself is written in, and the stamp so that exporting the
+    // same site twice does not silently overwrite the first file.
     downloadText(
-      `context_${meta.lat.toFixed(4)}_${meta.lon.toFixed(4)}.ifc`,
+      `IFCSITE_${meta.lon.toFixed(4)}_${meta.lat.toFixed(4)}_${fileStamp()}.ifc`,
       text,
       'application/x-step',
     );

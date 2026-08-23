@@ -7,7 +7,8 @@ import { findRecord, loadEpsgIndex, toCrsDef } from '@/lib/geo/epsg';
  *
  * There is no vertical datum here. A projected CRS is two-dimensional — EPSG
  * publishes none — and the datum the heights are actually in belongs to whatever
- * produced them, which is the DEM, not the grid. See runBuild.
+ * produced them, which is the DEM, not the grid. It lives in ./vertical, and
+ * runBuild is what puts the two together.
  */
 export type CrsDef = {
   def: string;

@@ -14,6 +14,7 @@ import {
 } from '@/lib/build/tunables';
 import { ACCURACY_CELL, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
+import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
 import { useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
 import { IFC_SCHEMAS } from '@/lib/ifc/writer';
@@ -136,12 +137,13 @@ export function ControlsPanel(p: ControlsPanelProps) {
   const tune = p.form.tune;
   const setTune = (patch: Partial<Tunables>) => p.onChange({ tune: patch });
 
-  /* IGN's absolute heights fall back to a single-post probe even with terrain
-     unchecked (see siteDatumZ in lib/build/run), so its datum is not
-     conditional on the checkbox the way OSM's is — that only gets a datum at
-     all once a terrain mesh is sampled. Mirrors the rule in lib/build/run.ts
-     that actually produces SiteMeta.verticalDatum. */
-  const vDatum = ign ? 'NGF-IGN69' : p.form.terrain ? 'EGM96' : null;
+  /* Which datum comes from VERTICAL_DATUMS, the same table runBuild reads.
+     Whether there is one at all is decided differently here on purpose: runBuild
+     knows whether heights were actually sampled, and this can only predict it
+     from the checkbox. IGN is not conditional on that checkbox because its
+     absolute heights fall back to a single-post probe with terrain off (see
+     siteDatumZ in lib/build/run); OSM gets a datum only once a mesh is sampled. */
+  const vDatum = ign || p.form.terrain ? VERTICAL_DATUMS[p.form.provider].name : null;
 
   /* The trigger shows the label of the selected option rather than the bare
      value ("osm") only if the root is handed the whole map, so the list and the

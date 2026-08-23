@@ -15,7 +15,7 @@ export const en = {
   'app.h1b': 'Site',
   'app.sub':
     'Generating an IFC model of site context from public cartographic data sources. Draw a rectangle on the map: it pulls the buildings, roads and terrain inside it, extrudes them, and writes a georeferenced IFC file — entirely in the browser.',
-  'app.badge': 'LOD1 massing\nIfcBuildingElementProxy\nLoGeoRef 50',
+  'app.badge': 'LOD100 massing\nIfcBuildingElementProxy\nLoGeoRef 50',
   'app.langLabel': 'Language',
 
   /* ---- shell chrome. The viewers are full-bleed and everything else floats
@@ -120,7 +120,7 @@ export const en = {
   'ctl.verticalDatum': 'Vertical datum',
   'ctl.verticalDatumNone': 'None — flat',
   'ctl.verticalDatumHint':
-    'IGN sites use NGF-IGN69; OSM sites use EGM96 once terrain is included — without it the model has no vertical reference.',
+    'Heights carry the datum of whatever measured them, wherever the site is: IGN RGE ALTI gives NGF-IGN69, Terrarium gives EGM96 once terrain is included. Without terrain the model has no vertical reference.',
   'ctl.defaultHeight': 'Height when untagged',
   'ctl.dataSource': 'Data source',
   'ctl.sourceOsm': 'OpenStreetMap + Terrarium — worldwide',

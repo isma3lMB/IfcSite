@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How the app is put together
+    url: https://github.com/isma3lMB/IfcSite/blob/main/DEVELOPER.md
+    about: Architecture, layering rules, and why the odd-looking parts are the way they are.
+  - name: Contributing
+    url: https://github.com/isma3lMB/IfcSite/blob/main/CONTRIBUTING.md
+    about: What to run before opening a pull request, and where tests live.

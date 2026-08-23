@@ -1,0 +1,40 @@
+name: Feature request
+description: A source, an export option, or a tool the app does not have yet.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What you are trying to get done
+      description: >
+        The workflow behind the request. It often turns out there is a shorter
+        route to the same result, or that the right shape for the feature is not
+        the obvious one.
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: If this needs a new data source, which one
+      description: >
+        It has to be free to query from a browser and send
+        `Access-Control-Allow-Origin: *` — the app is a static export with no
+        backend to proxy through, so a source needing an API key or a server
+        cannot be added without changing what the project is.
+      placeholder: e.g. a national cadastre WFS, with a link to its documentation
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: I have read DEVELOPER.md and this fits the layering the app already has
+        - label: I would be willing to work on this

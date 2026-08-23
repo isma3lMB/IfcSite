@@ -41,6 +41,24 @@ export async function readDraftFile(f: File): Promise<string> {
 const ILLEGAL = new Set('<>:"/\\|?*'.split(''));
 
 /**
+ * A moment, as a filename may spell it: `YYYYMMDD-HHMMSS`.
+ *
+ * Deliberately not ISO 8601 — its time separator is the colon, which is in
+ * ILLEGAL above, and a browser silently rewrites a download name it cannot use
+ * rather than telling anyone. Year-first so a directory of exports sorts into
+ * the order they were made.
+ *
+ * Local time rather than UTC: the stamp exists to tell this export from the one
+ * before it on the person's own disk, and 14:32 is when *they* pressed the
+ * button. The georeferencing carries the part that has to be absolute.
+ */
+export const fileStamp = (d = new Date()): string => {
+  const p = (n: number): string => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+  return `${date}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+};
+
+/**
  * A filename stem safe on every platform, from whatever the user typed.
  *
  * A name that reduces to nothing falls back rather than producing a dotfile.

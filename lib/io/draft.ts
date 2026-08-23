@@ -3,6 +3,7 @@ import { DEFAULT_FORM } from '@/lib/build/defaults';
 import { sanitizeTunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import { gridFrom } from '@/lib/geo/grid';
+import { verticalEpsgFor } from '@/lib/geo/vertical';
 import { isIfcSchema } from '@/lib/ifc/writer';
 import { LAYER_IDS, newLayerState } from '@/lib/types';
 import type {
@@ -371,6 +372,7 @@ const siteMeta = (v: unknown, rect: SiteRect): SiteMeta | null => {
   if (!isObj(v)) return null;
   const lat = num(v.lat, (rect.minLat + rect.maxLat) / 2);
   const lon = num(v.lon, (rect.minLon + rect.maxLon) / 2);
+  const vDatum = typeof v.verticalDatum === 'string' ? v.verticalDatum : null;
   return {
     origin: vec2(v.origin),
     exportOffset: vec3(v.exportOffset),
@@ -381,7 +383,11 @@ const siteMeta = (v: unknown, rect: SiteRect): SiteMeta | null => {
     epsg: str(v.epsg, 'EPSG:4326'),
     crsName: str(v.crsName, ''),
     geodeticDatum: str(v.geodeticDatum, ''),
-    verticalDatum: typeof v.verticalDatum === 'string' ? v.verticalDatum : null,
+    verticalDatum: vDatum,
+    // Recovered from the name for a draft written before the code was stored
+    // beside it, so an old one still exports a header citing the registry.
+    verticalDatumEpsg:
+      typeof v.verticalDatumEpsg === 'string' ? v.verticalDatumEpsg : verticalEpsgFor(vDatum),
     // Defaulted here and overwritten by fromDraft with the envelope's own copy,
     // which is validated and present in every draft — including those written
     // before the meta carried one.
