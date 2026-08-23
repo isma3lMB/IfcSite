@@ -6,7 +6,7 @@
  */
 export const en = {
   /* ---- chrome ---- */
-  'app.title': 'IFC Site — site context to IFC',
+  'app.title': 'IFC SITE - Site context to BIM',
   'app.description':
     'Generating an IFC model of site context from public cartographic data sources — buildings, roads and terrain, georeferenced, entirely in the browser. Open source.',
   'app.wordmark': 'IFC Site',
@@ -15,7 +15,7 @@ export const en = {
   'app.h1b': 'Site',
   'app.sub':
     'Generating an IFC model of site context from public cartographic data sources. Draw a rectangle on the map: it pulls the buildings, roads and terrain inside it, extrudes them, and writes a georeferenced IFC file — entirely in the browser.',
-  'app.badge': 'LOD1 massing\nIfcBuildingElementProxy\nLoGeoRef 50',
+  'app.badge': 'LOD100 massing\nIfcBuildingElementProxy\nLoGeoRef 50',
   'app.langLabel': 'Language',
 
   /* ---- shell chrome. The viewers are full-bleed and everything else floats
@@ -48,7 +48,7 @@ export const en = {
   'rail.drawTree': 'Plant a tree',
   'rail.measure': 'Measure a distance',
   'rail.measureArea': 'Measure an area',
-  'rail.model': 'Model tree',
+  'rail.model': 'Layers',
   'rail.file': 'Drafts',
 
   /* ---- drafts. The document, as against the deliverable: a draft reopens into
@@ -120,10 +120,10 @@ export const en = {
   'ctl.verticalDatum': 'Vertical datum',
   'ctl.verticalDatumNone': 'None — flat',
   'ctl.verticalDatumHint':
-    'IGN sites use NGF-IGN69; OSM sites use EGM96 once terrain is included — without it the model has no vertical reference.',
+    'Heights carry the datum of whatever measured them, wherever the site is: IGN RGE ALTI gives NGF-IGN69, Terrarium gives EGM96 once terrain is included. Without terrain the model has no vertical reference.',
   'ctl.defaultHeight': 'Height when untagged',
   'ctl.dataSource': 'Data source',
-  'ctl.sourceOsm': 'OpenStreetMap + Terrarium — worldwide',
+  'ctl.sourceOsm': 'OSM + Terrarium — worldwide',
   'ctl.sourceIgn': 'IGN Géoplateforme — France',
   'ctl.include': 'Include',
   'ctl.buildings': 'Building footprints',
@@ -134,10 +134,10 @@ export const en = {
   'ctl.terrainSrcIgn': 'RGE ALTI ~1 m',
   'ctl.trees': 'Individual trees',
   'ctl.accuracy': 'Terrain accuracy',
-  'ctl.accuracyCoarse': 'Coarse — 30 m cells',
-  'ctl.accuracyStandard': 'Standard — 15 m cells',
-  'ctl.accuracyFine': 'Fine — 5 m cells',
-  'ctl.accuracyMax': 'Maximum — 1 m cells',
+  'ctl.accuracyCoarse': 'Coarse : 30 m cells',
+  'ctl.accuracyStandard': 'Standard : 15 m cells',
+  'ctl.accuracyFine': 'Fine : 5 m cells',
+  'ctl.accuracyMax': 'Maximum : 1 m cells',
   /* The target is a request, not a promise: a big site runs out of point budget
      long before 1 m, so the dock reports what the grid will actually be. */
   'ctl.accuracyCell': '{n}×{n} · ~{m} m',
@@ -180,6 +180,10 @@ export const en = {
     'Used when a building states its number of levels but not its height.',
   'ctl.advLaneWidth': 'Lane width',
   'ctl.advTrackWidth': 'Rail track width',
+  'ctl.advPresentation': 'Presentation',
+  'ctl.advOrbitCycle': 'Orbit period',
+  'ctl.advOrbitCycleHint':
+    'Time the camera takes to circle the site once. Longer reads as a camera move, shorter as a spin. Takes effect mid-orbit.',
 
   'ctl.build': 'Build site',
   'ctl.building': 'Building…',

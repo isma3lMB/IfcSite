@@ -1,0 +1,84 @@
+name: Bug report
+description: Something the app got wrong — a bad model, a failed build, a wrong height.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most bugs here are location-specific: the same rectangle a kilometre away
+        behaves differently because the data underneath it does. The site and the
+        provider are usually the two facts that make one reproducible.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      placeholder: The buildings came out flat, the export was empty, the terrain sat below the roads…
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: site
+    attributes:
+      label: Where
+      description: >
+        Coordinates or a place name for the site you drew. This is the single most
+        useful thing in the report — the app is a function of public data, so the
+        location usually reproduces the bug on its own.
+      placeholder: 48.8566, 2.3522 — or "central Strasbourg"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - IGN Géoplateforme (France)
+        - OpenStreetMap
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings that were not the defaults
+      description: >
+        Site size, CRS, IFC schema, terrain accuracy, anything moved in Advanced.
+        Leave blank if it was all as it came.
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Firefox 142 on Windows 11
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: http
+    attributes:
+      label: How it was being served
+      description: >
+        Opening the build through `file://` gives the page a null origin, which
+        Overpass rejects — it returns an empty result rather than an error, so it
+        looks like a bug in the app. If you are not sure, check whether the
+        address bar starts with `http`.
+      options:
+        - label: It was served over HTTP (localhost, or a real host) — not opened as a file
+          required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Anything in the browser console
+      description: Optional, but a red line here usually names the cause outright.
+      render: text

@@ -15,6 +15,12 @@ import * as THREE from 'three';
  * back out. The wide end of that breath is pinned to the distance the viewer
  * frames the whole site from, which is what makes "the whole site is in frame"
  * a guarantee rather than a hope.
+ *
+ * What is *not* here is how long a revolution takes. The shape of the path is
+ * fixed; its pace is a setting, and lives with the rest of them as
+ * DEFAULT_TUNABLES.orbitCycleMs in lib/build/tunables. Everything below takes a
+ * phase, which is unitless — the duration only ever mattered to the caller
+ * holding the clock.
  */
 
 /**
@@ -26,10 +32,6 @@ import * as THREE from 'three';
  * that on every frame would be three sign errors waiting to happen.
  */
 export type OrbitPose = { az: number; el: number; dist: number };
-
-/** One full revolution. Slow enough to read as a camera move rather than a
- *  spin — a room has to be able to follow it while someone talks over it. */
-export const CYCLE_MS = 36000;
 
 /** How long the entry blend takes. Longer than an axis snap's 380 ms because it
  *  is travelling further: elevation, distance and the pivot all move, where a

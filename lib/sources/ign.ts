@@ -2,6 +2,7 @@ import type { Tunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import { clipPolygonToRect, type SplitPolygon } from '@/lib/geo/boolean';
 import { conformToTerrain } from '@/lib/geo/conform';
+import { rectInFrance } from '@/lib/geo/france';
 import { gridFrom, gridLattice, gridSize } from '@/lib/geo/grid';
 import { prismInto, skirtInto } from '@/lib/geo/mesh';
 import { rectArea, sameRect } from '@/lib/geo/rect';
@@ -42,19 +43,10 @@ import type {
 const GEOPF_WFS = 'https://data.geopf.fr/wfs/ows';
 const GEOPF_ALTI = 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json';
 
-// Metropolitan France's actual extent: Bray-Dunes to southern Corsica,
-// Ouessant to the Corsican east coast. Keep it tight — slack of even half a
-// degree at the top puts London inside the box.
-export const FR_BOUNDS = { minLat: 41.3, maxLat: 51.15, minLon: -5.2, maxLon: 9.6 };
-
-// A rectangle can straddle the border, so every corner has to be inside.
+// Coverage is a shape, not a box — see lib/geo/france for why the min/max
+// bounds this used to be got Spain wrong. The corner rule lives there too.
 export function isOutsideFrance(rect: SiteRect): boolean {
-  return (
-    rect.minLat < FR_BOUNDS.minLat ||
-    rect.maxLat > FR_BOUNDS.maxLat ||
-    rect.minLon < FR_BOUNDS.minLon ||
-    rect.maxLon > FR_BOUNDS.maxLon
-  );
+  return !rectInFrance(rect);
 }
 
 export type IgnLayer = {

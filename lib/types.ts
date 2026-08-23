@@ -289,7 +289,10 @@ export type SiteMeta = {
   epsg: string;
   crsName: string;
   geodeticDatum: string;
+  /** Both null together, and both from VERTICAL_DATUMS in lib/geo/vertical: the
+   *  name for the UI, the EPSG code for the IFC header. */
   verticalDatum: string | null;
+  verticalDatumEpsg: string | null;
   /**
    * The proj4 definition the site was projected through.
    *

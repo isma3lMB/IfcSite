@@ -14,6 +14,7 @@ import {
 } from '@/lib/build/tunables';
 import { ACCURACY_CELL, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
+import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
 import { useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
 import { IFC_SCHEMAS } from '@/lib/ifc/writer';
@@ -136,12 +137,13 @@ export function ControlsPanel(p: ControlsPanelProps) {
   const tune = p.form.tune;
   const setTune = (patch: Partial<Tunables>) => p.onChange({ tune: patch });
 
-  /* IGN's absolute heights fall back to a single-post probe even with terrain
-     unchecked (see siteDatumZ in lib/build/run), so its datum is not
-     conditional on the checkbox the way OSM's is — that only gets a datum at
-     all once a terrain mesh is sampled. Mirrors the rule in lib/build/run.ts
-     that actually produces SiteMeta.verticalDatum. */
-  const vDatum = ign ? 'NGF-IGN69' : p.form.terrain ? 'EGM96' : null;
+  /* Which datum comes from VERTICAL_DATUMS, the same table runBuild reads.
+     Whether there is one at all is decided differently here on purpose: runBuild
+     knows whether heights were actually sampled, and this can only predict it
+     from the checkbox. IGN is not conditional on that checkbox because its
+     absolute heights fall back to a single-post probe with terrain off (see
+     siteDatumZ in lib/build/run); OSM gets a datum only once a mesh is sampled. */
+  const vDatum = ign || p.form.terrain ? VERTICAL_DATUMS[p.form.provider].name : null;
 
   /* The trigger shows the label of the selected option rather than the bare
      value ("osm") only if the root is handed the whole map, so the list and the
@@ -412,7 +414,7 @@ export function ControlsPanel(p: ControlsPanelProps) {
 
           The body is always rendered and `hidden` rather than mounted on
           demand, so aria-controls always resolves to something; `hidden` keeps
-          the nine sliders out of the tab order and out of layout either way. */}
+          the ten sliders out of the tab order and out of layout either way. */}
       <div className="field editSection">
         <button
           type="button"
@@ -545,10 +547,28 @@ export function ControlsPanel(p: ControlsPanelProps) {
             onChange={(railTrackWidth) => setTune({ railTrackWidth })}
           />
 
+          {/* The one setting here that changes nothing a build fetches or
+              produces, and the only one whose effect you can watch while you
+              drag it — the orbit changes pace under a camera that stays put. */}
+          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advPresentation')}</span>
+
+          {/* Held in ms because that is what the viewer's clock is in, shown in
+              whole seconds for the same reason the timeout above is. */}
+          <TuneRow
+            id="advOrbitCycle"
+            label={t('ctl.advOrbitCycle')}
+            hint={t('ctl.advOrbitCycleHint')}
+            value={tune.orbitCycleMs / 1000}
+            range={[TUNE_RANGE.orbitCycleMs[0] / 1000, TUNE_RANGE.orbitCycleMs[1] / 1000]}
+            step={5}
+            format={(v) => `${n(v)} s`}
+            onChange={(s) => setTune({ orbitCycleMs: s * 1000 })}
+          />
+
           {/* Always present, disabled at defaults, rather than appearing when
               something is customised — a control that comes and goes moves
               every slider above it. DEFAULT_TUNABLES is complete, so this one
-              patch resets all nine. */}
+              patch resets all ten. */}
           <div className="presets">
             <button
               type="button"

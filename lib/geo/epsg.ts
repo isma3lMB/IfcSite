@@ -11,6 +11,7 @@
  * and why.
  */
 import type { CrsDef } from '@/lib/geo/crs';
+import { inFrance } from '@/lib/geo/france';
 
 /** One CRS. Short keys: the file holds four thousand of these. */
 export type CrsRecord = {
@@ -45,6 +46,32 @@ const COARSE_TIE = 5;
 /** Unstated accuracy reads as fine, not as bad: plenty of current national CRSs
  *  simply carry no figure. */
 const tier = (r: CrsRecord): number => (r.k !== undefined && r.k > COARSE_TIE ? 1 : 0);
+
+/**
+ * Does this record's area of use reach past the country it names?
+ *
+ * An area of use is published as a bounding box, and a box around a country is
+ * not the country. France's is the one that hurts: EPSG:2154 is registered with
+ * a southern edge at 41.15°N and the nine RGF93 / CCxx conic zones as wide
+ * latitude bands, so all of them contain Barcelona, Bilbao and Zaragoza. Ranking
+ * on box area then hands a Spanish site Lambert-93, which is the complaint this
+ * rule exists to answer — with it, northern Spain lands on ETRS89 / UTM 29-31N
+ * like the rest of the country.
+ *
+ * Only France is described this way, because France is the only country the app
+ * carries a shape for; the same box problem at other borders (Brussels and
+ * Aachen reaching Amersfoort / RD New, Dublin reaching British National Grid) is
+ * untouched. Matching on the area string is safe here: of the 31 France records
+ * in the index, all 31 are metropolitan — the overseas départements are
+ * published under their own names, so Guadeloupe and Réunion cannot be caught.
+ *
+ * A tier, not a filter, exactly as COARSE_TIE is. A French system is still a
+ * legitimate thing to ask for from over the border, and stays in the picker —
+ * it just is not what a site there lands on by itself.
+ */
+const namesFrance = (r: CrsRecord): boolean => /^France\b/.test(r.a);
+
+const spill = (r: CrsRecord, home: boolean): number => (!home && namesFrance(r) ? 1 : 0);
 
 let pending: Promise<CrsRecord[]> | null = null;
 
@@ -109,10 +136,20 @@ export const areaOf = (r: CrsRecord): number => {
  * its HARN, NSRS2007 and 2011 readjustments), all published with an identical
  * area of use. The higher code is the later registration, so it wins.
  */
-export const candidatesAt = (list: CrsRecord[], lat: number, lon: number): CrsRecord[] =>
-  list
+export const candidatesAt = (list: CrsRecord[], lat: number, lon: number): CrsRecord[] => {
+  // Once for the whole list, not once per record: the index holds four thousand
+  // of them and the polygon test is a ray cast over sixty-odd vertices.
+  const home = inFrance(lat, lon);
+  return list
     .filter((r) => containsPoint(r, lat, lon))
-    .sort((x, y) => tier(x) - tier(y) || areaOf(x) - areaOf(y) || y.c - x.c);
+    .sort(
+      (x, y) =>
+        spill(x, home) - spill(y, home) ||
+        tier(x) - tier(y) ||
+        areaOf(x) - areaOf(y) ||
+        y.c - x.c,
+    );
+};
 
 /**
  * What to select for a site nobody has chosen a CRS for.
@@ -125,6 +162,19 @@ export const candidatesAt = (list: CrsRecord[], lat: number, lon: number): CrsRe
  *
  * Everywhere else the smallest containing area of use is the best available
  * guess, and the picker is one click away when it guesses wrong.
+ *
+ * Two things decide which curated code, when more than one covers the site.
+ *
+ * Inside France, one that names France wins. EPSG:25832 is a UTM zone shared by
+ * eight countries and is registered with a smaller box than Lambert-93 — whose
+ * own box is half Atlantic — so ranking by area alone handed Nice, Cannes,
+ * Strasbourg, Metz, Besançon and both Corsican cities a German-flavoured UTM
+ * zone instead of the grid every French deliverable is drawn on. Box area cannot
+ * see that; the polygon can.
+ *
+ * Outside it, the search skips the spilled records rather than scanning the
+ * whole list, or a curated code would be found however far it had been demoted —
+ * which is precisely how EPSG:2154 kept winning in Spain.
  */
 export const bestAt = (
   list: CrsRecord[],
@@ -132,8 +182,11 @@ export const bestAt = (
   lat: number,
   lon: number,
 ): CrsRecord | undefined => {
+  const home = inFrance(lat, lon);
   const here = candidatesAt(list, lat, lon);
-  return here.find((r) => curated.includes(String(r.c))) ?? here[0];
+  const pick = (want: (r: CrsRecord) => boolean): CrsRecord | undefined =>
+    here.find((r) => curated.includes(String(r.c)) && want(r));
+  return (home ? pick(namesFrance) : undefined) ?? pick((r) => !spill(r, home)) ?? here[0];
 };
 
 /**

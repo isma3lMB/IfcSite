@@ -530,12 +530,15 @@ export class ContextModel {
     const eastings = this.origin[0] + off[0] - (base[0] * cos - base[1] * sin);
     const northings = this.origin[1] + off[1] - (base[0] * sin + base[1] * cos);
 
+    /* VerticalDatum carries the registry code rather than the name, so it reads
+       EPSG:5773 the way Name two slots up reads EPSG:25830. Both are
+       IfcIdentifier, and a code is unambiguous where "EGM96" is a convention. */
     if (caps.mapConversion) {
       const crs = f.add('IfcProjectedCRS', [
         S(o.epsg),
         o.crsName ? S(o.crsName) : null,
         o.geodeticDatum ? S(o.geodeticDatum) : null,
-        o.verticalDatum ? S(o.verticalDatum) : null,
+        o.verticalDatumEpsg ? S(o.verticalDatumEpsg) : null,
         null,
         null,
         metre,
@@ -568,7 +571,7 @@ export class ContextModel {
         Name: o.epsg,
         ...(o.crsName ? { Description: o.crsName } : {}),
         ...(o.geodeticDatum ? { GeodeticDatum: o.geodeticDatum } : {}),
-        ...(o.verticalDatum ? { VerticalDatum: o.verticalDatum } : {}),
+        ...(o.verticalDatumEpsg ? { VerticalDatum: o.verticalDatumEpsg } : {}),
         MapUnit: 'METRE',
       });
       this.pset(this.site, 'ePset_MapConversion', {
