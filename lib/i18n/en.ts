@@ -203,6 +203,9 @@ export const en = {
   'ctl.advConformStep': 'Drape step',
   'ctl.advConformStepHint':
     'How closely roads and surfaces follow the ground between terrain posts. Finer is truer and heavier.',
+  'ctl.advDrape': 'Drape onto terrain',
+  'ctl.advDrapeHint':
+    'Ticked, a layer is conformed to the ground. Unticked, it keeps the elevation BD TOPO surveyed for it, so a bridge stays above what it crosses. Layers whose source carries no elevation stay draped.',
   'ctl.advGeometry': 'Geometry defaults',
   'ctl.advStoreyHeight': 'Storey height',
   'ctl.advStoreyHeightHint':

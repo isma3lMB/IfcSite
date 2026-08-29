@@ -112,6 +112,15 @@ function latticeFrame(terrain: Grid | null): LatticeFrame | null {
  *
  * Everything it needs about the lattice comes out of `terrain`, so there is no
  * way for it to disagree with the grid it is conforming to.
+ *
+ * `zAt` opts a layer out of the drape entirely: elevation then comes from the
+ * feature's own source geometry (lib/geo/sourcez) instead of the DEM, and the
+ * lattice is skipped along with it. Skipping it is the point, not an
+ * optimisation — cutting on the terrain's triangles exists to make a flat ring
+ * follow ground it does not know about, whereas a source-Z ring already carries
+ * its own longitudinal profile, and the extra stations would only resample a
+ * line that is already linear between them. It is also what lets a bridge deck
+ * stay above the ground rather than being conformed back down onto it.
  */
 export function conformToTerrain(
   ring: Vec2[],
@@ -121,6 +130,7 @@ export function conformToTerrain(
   dz: number,
   ringHoles: Vec2[][] = [],
   step: number = DEFAULT_TUNABLES.conformStep,
+  zAt?: (x: number, y: number) => number,
 ): { verts: Vec3[]; faces: number[][] } {
   const r = ensureCCW(dedupe(ring));
   // Wound against the outer, which is what triangulate and skirtInto both read
@@ -149,14 +159,15 @@ export function conformToTerrain(
   const flat = (): { verts: Vec3[]; faces: number[][] } => ({
     // Concatenation order is triangulate's index convention: the ring, then
     // each hole in turn. See its doc comment in ./mesh.
-    verts: [r, ...hs].flatMap((p) => drape(p, toGeo, sampleZ, dz)),
+    verts: [r, ...hs].flatMap((p) => drape(p, toGeo, sampleZ, dz, zAt)),
     faces: triangulate(r, hs),
   });
   // No terrain means sampleZ is a constant — either the flat datum or the IGN
   // single post — so a boundary-only drape is already exact and there is
-  // nothing to conform to. This is the cheap path this module replaced.
+  // nothing to conform to. This is the cheap path this module replaced, and it
+  // is the same path a source-Z ring takes, for the reason in the doc above.
   const frame = latticeFrame(terrain);
-  if (r.length < 3 || !frame) return flat();
+  if (r.length < 3 || zAt || !frame) return flat();
   const { n, at } = frame;
 
   // Ring bbox -> index window. An affine map takes a rectangle's corners to the

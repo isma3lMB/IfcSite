@@ -986,6 +986,11 @@ export function IfcSite() {
     // rectangle you may draw next and says nothing about a scene already built.
     if (patch.tune && Object.keys(patch.tune).some((k) => SCENE_TUNABLES.has(k as keyof Tunables)))
       setSiteDirty((d) => d || hasScene);
+    // Draping decides where a layer's geometry sits, so flipping one is as much
+    // a build input as a tunable — and unlike the Include checkboxes beside it,
+    // there is no way to tell from the viewer that the scene on screen was built
+    // the other way.
+    if (patch.drape) setSiteDirty((d) => d || hasScene);
     // The IFC schema used to need a third clause here, because it travelled on
     // this form and was not a build input. It is on IfcMeta now and reaches the
     // open model through onIfc — so everything left in this callback dirties the

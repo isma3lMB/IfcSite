@@ -24,10 +24,11 @@ import {
 import { ACCURACY_CELL, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
 import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
-import { useT } from '@/lib/i18n/context';
+import { type StringKey, useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
 import type {
   BuildOptions,
+  DrapeLayer,
   FormPatch,
   LayerId,
   Provider,
@@ -105,6 +106,48 @@ function TuneRow(q: {
     </div>
   );
 }
+
+/**
+ * The boolean sibling of TuneRow, for the one advanced group that is not a
+ * number.
+ *
+ * Reuses the `.check` row the Include group is built from rather than inventing
+ * a switch: these tick a layer the same way those do, and a second control
+ * idiom inside one panel would be the only thing distinguishing them. What it
+ * adds over a bare `<label className="check">` is the `.field dimmed` wrapper
+ * and `aria-disabled`, so a disabled row reads the same as a disabled TuneRow
+ * beside it.
+ */
+function TuneToggle(q: {
+  label: string;
+  icon: LayerId;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="check" aria-disabled={q.disabled || undefined}>
+      <Checkbox
+        checked={q.checked}
+        disabled={q.disabled}
+        onCheckedChange={(v) => q.onChange(v === true)}
+      />
+      <Glyph id={q.icon} />
+      {q.label}
+    </label>
+  );
+}
+
+/** The drape rows, in the order the Include group lists the same layers, with
+ *  the LayerId each one's glyph and label come from. DrapeLayer is keyed in the
+ *  form's vocabulary; LAYER_ICON is keyed in the scene's. */
+const DRAPE_ROWS: { key: DrapeLayer; icon: LayerId; label: StringKey }[] = [
+  { key: 'roads', icon: 'roads', label: 'ctl.roads' },
+  { key: 'railways', icon: 'railways', label: 'ctl.railways' },
+  { key: 'veg', icon: 'vegetation', label: 'ctl.veg' },
+  { key: 'water', icon: 'water', label: 'ctl.water' },
+  { key: 'parcels', icon: 'parcel', label: 'ctl.parcels' },
+];
 
 /**
  * Everything that describes *how* to build, as a flyout off the rail's first
@@ -468,6 +511,32 @@ export function ControlsPanel(p: ControlsPanelProps) {
             format={(v) => `${n(v)} m`}
             onChange={(conformStep) => setTune({ conformStep })}
           />
+
+          {/* Ticked means draped, which is what every one of these layers did
+              before the group existed. Unticking asks for the elevation the
+              source geometry carries instead — a bridge deck at its surveyed
+              height rather than flattened onto the ground it crosses.
+
+              IGN-gated, and not merely as a courtesy: OSM ways are 2D, so there
+              would be nothing to fall back to. The layers whose BD TOPO
+              geometry turns out to be flat as well are handled at build time
+              rather than here — that cannot be known before the fetch, so they
+              stay draped and say so in the element editor's z_source. */}
+          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advDrape')}</span>
+
+          <div className="field dimmed ign-only" aria-disabled={!ign}>
+            {DRAPE_ROWS.map((r) => (
+              <TuneToggle
+                key={r.key}
+                label={t(r.label)}
+                icon={r.icon}
+                checked={p.form.drape[r.key]}
+                disabled={!ign}
+                onChange={(v) => p.onChange({ drape: { ...p.form.drape, [r.key]: v } })}
+              />
+            ))}
+            <div className="fieldHint">{t('ctl.advDrapeHint')}</div>
+          </div>
 
           {/* None of these three is provider-gated: each was written down twice,
               once for OSM and once for BD TOPO, and now is not. */}

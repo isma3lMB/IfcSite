@@ -5,10 +5,11 @@ import { AppError } from '@/lib/errors';
 import { gridFrom } from '@/lib/geo/grid';
 import { verticalEpsgFor } from '@/lib/geo/vertical';
 import { isIfcSchema } from '@/lib/ifc/writer';
-import { LAYER_IDS, defaultProjectName, newIfcMeta, newLayerState } from '@/lib/types';
+import { DRAPE_LAYERS, LAYER_IDS, defaultProjectName, newIfcMeta, newLayerState } from '@/lib/types';
 import type {
   Building,
   BuildOptions,
+  DrapeLayer,
   Grid,
   HeightSource,
   IfcMeta,
@@ -365,8 +366,22 @@ const buildOptions = (v: unknown): BuildOptions => {
     veg: bool(s.veg, d.veg),
     water: bool(s.water, d.water),
     parcels: bool(s.parcels, d.parcels),
+    drape: drapeFlags(s.drape),
     tune: sanitizeTunables(s.tune),
   };
+};
+
+/** The per-layer drape record, walked against its own default the same way the
+ *  fields above are. Keyed off DRAPE_LAYERS rather than off the stored object,
+ *  so a draft written before a layer joined the list gets that layer's default
+ *  instead of a hole, and a key that has since been dropped is discarded. */
+const drapeFlags = (v: unknown): Record<DrapeLayer, boolean> => {
+  const s = isObj(v) ? v : {};
+  const d = DEFAULT_FORM.drape;
+  return Object.fromEntries(DRAPE_LAYERS.map((k) => [k, bool(s[k], d[k])])) as Record<
+    DrapeLayer,
+    boolean
+  >;
 };
 
 /**

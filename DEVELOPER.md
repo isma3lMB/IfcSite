@@ -234,7 +234,7 @@ agree — the bar offers Rebuild in the same step the toast calls the scene stal
 | [brand-chip.tsx](components/brand-chip.tsx) | What is left of the masthead: the wordmark and the Map/3D switch, shrink-wrapped into the top-left corner. It used to be a strip across the whole window carrying a readout and three utility buttons as well — a bar between the user and the viewer for the sake of two controls. The readout moved to the status bar and the utilities to the opposite corner. |
 | [util-chip.tsx](components/util-chip.tsx) | The opposite corner: compass host, origin-marker toggle, orthographic toggle, presentation mode, theme toggle, info and the language select. Icon-only, so every label is a tooltip — and each is written as *what pressing it does*, not as the state it is in. |
 | [tool-rail.tsx](components/tool-rail.tsx) | The vertical rail: pan/select, draw site, zoom to site, the box/polygon/tree draw tools, the two measure tools, the three gizmo modes and Duplicate, undo/redo, and the four flyout buttons (search, options, model tree, drafts). Icon-only and stateless — every button is a callback into `ifc-site`, and what is *offered* is derived from `view`, `hasScene`, `rect` and `selection` rather than stored. |
-| [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections. Every one is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
+| [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections, plus a **Drape onto terrain** group of five per-layer checkboxes (IGN-only, dimmed under OSM, since OSM ways are 2D and there would be nothing to fall back to). Every tunable is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
 | [crs-field.tsx](components/crs-field.tsx) | The projected CRS, as a searchable list of the systems valid where the site actually is. It carries its own loading rather than sitting in the dock, because the list is a function of a rectangle drawn on the other side of the app — and it is inert until there is one, since a CRS list has nothing to be evaluated against and any choice made early is one the first rectangle invalidates. The hint line doubles as the loading and failure channel. |
 | [search-flyout.tsx](components/search-flyout.tsx) | The place search on its own rail button rather than folded into Options — finding a place is the first thing you do, before there is anything to configure. It opens on arrival while no rectangle exists and collapses to an icon the moment one does. |
 | [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
@@ -552,6 +552,7 @@ A five-result search. Explicitly a convenience — the caller reports failure an
 | [rings.ts](lib/geo/rings.ts) | Pure ring arithmetic, free of three.js so the IFC serialiser does not pull in a renderer. `dedupe`, `signedArea`, `ensureCCW` (IFC profiles need CCW outer curves — skip it and half the buildings render inverted), `clipToBox` (Sutherland–Hodgman against the site square: one BD TOPO forest polygon near Fontainebleau is 3539 vertices spanning 4 km), `densify` (split long edges so a drape has stations to follow the ground between — elevation is only ever looked up *at vertices*, so a 200 m road segment across a valley otherwise dives clean under the terrain), `ringCentre`. |
 | [grid.ts](lib/geo/grid.ts) | `gridSampler` — elevation lookup that interpolates the DEM lattice over the *same* two triangles the terrain mesh is drawn from, rather than bilinearly. A bilinear value sags below those triangles on a twisted cell, so anything placed with it sinks into the ground the user actually sees. Both providers return one. |
 | [mesh.ts](lib/geo/mesh.ts) | The parts that genuinely need three: `triangulate` (three's own earcut), `drape` (a clipped ring onto terrain, lifted by `dz` against z-fighting), `prismInto` (extrude into shared arrays for merged layers; the base comes from a per-*point* callback, not a number, so the underside can follow the terrain — point rather than index because the ring is reordered and deduplicated inside), `treeProxy` (a 6-sided trunk and canopy cone, ~24 triangles, returned as two separate parts — they are two colours, and a style attaches to a whole item). |
+| [sourcez.ts](lib/geo/sourcez.ts) | Elevation from the source geometry rather than the DEM, for a layer whose drape has been turned off. `zLineFrom` pulls the third ordinate out of a BD TOPO ring into local metres and returns `null` when there is none — which doubles as the "does this feature carry elevation" test, since the answer varies per layer and cannot be known before the fetch. A position is kept only if `plausibleZ` accepts it: BD TOPO's nodata sentinel is exactly `-1000` and is finite, so `isFinite` alone lets it through and it drags a ribbon corner a kilometre down. The band is deliberately wide — real altitudes here go negative (−2.3 m water near Bordeaux), so "reject negatives" would delete true data. `polylineZAt` answers a query at a local XY off the nearest point of those lines, interpolating along the segment and clamping past either end; nearest-point rather than per-vertex because the ring being sampled is not the polyline being sampled from — a carriageway's outline is offset half a width sideways and carries arc and clip corners no source position corresponds to. Segments are bucketed on a uniform grid, and the search widens a ring of cells at a time until the best distance found is inside the ring already searched. Pure: no projection, no fetch, no terrain. |
 | [euler.ts](lib/geo/euler.ts) | `xfAxes` — an XYZ Euler as the local Z and X unit vectors `IfcAxis2Placement3D` wants, expanded in closed form from three's own `'XYZ'` branch so the serialiser stays renderer-free. Returns `null` when unrotated, which keeps unedited files small. |
 
 ### The CRS index
@@ -657,6 +658,57 @@ The ribbon is then cut on the terrain's own triangles by `conformToTerrain` and 
 solid by `skirtInto`, exactly like water or vegetation, so elevation is sampled across the
 surface rather than only at its boundary. A carriageway runs to 13 m wide, and a face held
 flat across that width cuts into the hillside on any cross-slope.
+
+**Draping is per layer, and can be turned off.** `BuildOptions.drape` carries one flag each
+for roads, railways, vegetation, water and parcels — all on by default, which is what every
+one of them did before the flags existed. Off, the layer takes the elevation its own source
+geometry carries instead of the DEM's, so a bridge deck stays above what it crosses rather
+than being flattened onto it. BD TOPO ships `troncon_de_route` and `troncon_de_voie_ferree`
+as 3D linestrings whose Z is the carriageway surface in the same NGF datum RGE ALTI is in;
+[sourcez.ts](lib/geo/sourcez.ts) lifts that out (`zLineFrom`) and answers elevation queries
+off it (`polylineZAt`, nearest point on the centreline, bucketed on a uniform grid).
+`conformToTerrain` takes it as an optional `zAt` and skips the lattice along with the drape —
+a source-Z ring already carries its own longitudinal profile, and conforming would only put
+it back on the ground.
+
+Three things about it are load-bearing:
+
+- **The fallback is per feature and per vertex, not per layer.** Source Z is used only under
+  IGN, only when `scene.datumZ !== null` (the same guard a building's surveyed
+  `altitude_minimale_sol` takes — an absolute altitude means nothing in a model that is not in
+  absolute altitudes), and only where the position actually carries an elevation. Anything
+  else drapes as before. A surface built with the flag off records which way it went in
+  `props.z_source`, the same job `height_source` does on a building — otherwise a no-op toggle
+  is indistinguishable from a broken one. Measured against the live WFS: `troncon_de_route`,
+  `troncon_de_voie_ferree` and `surface_hydrographique` are 3D and the flag does real work;
+  `zone_de_vegetation` is 2D, so that toggle is a genuine no-op and says so.
+- **3D is not the same as populated, and this one bites.** BD TOPO writes exactly `-1000` into
+  a position it has no altimetry for. It is finite, so it passes a plain `isFinite` check, and
+  one of them left in a road ribbon puts a corner 1160 m under a site at +160 m and hangs a
+  spike off the model down to it. Sparse and clustered rather than uniform — 21 of 5077 road
+  vertices around Lyon in a single feature, 18 of 1369 rail vertices in two, none at all around
+  Paris or Grenoble — so it shows up as a handful of spikes rather than a layer that visibly
+  collapses. `plausibleZ` in [sourcez.ts](lib/geo/sourcez.ts) rejects it against a band far
+  wider than the sentinel needs, because a real altitude here **can be negative**:
+  `surface_hydrographique` returns −2.3 m near Bordeaux. Do not tighten it to "no negatives",
+  and do not clamp against the terrain — both start deleting true data. A rejected position is
+  dropped, not defaulted, so `polylineZAt` interpolates a straight line in Z across the gap
+  from the neighbours that do have one; a line left with under two survivors drapes instead.
+  The `altitude_minimale_sol` *attribute* buildings read is clean by comparison — unknown comes
+  back as `null`, which the existing `!= null` guard already handles.
+- **`finishRibbons` drops the cross-road union for the ribbons it has Z for.** That union
+  merges carriageways overlapping in plan, and its premise is that one DEM decides the
+  elevation at any XY. An overpass and the road beneath it overlap in plan and are ten metres
+  apart, so a merged region could hold only one of the two answers — and losing the bridge is
+  the one thing the flag exists to prevent. `pushRoadway` already unions each road's own
+  quads and arcs before pushing, so a single road is still one ribbon and a roundabout still
+  keeps its island; what is given up is the merge *between* distinct roads, which can hairline
+  z-fight where two meet at grade. Ribbons with no Z go through the union in the same pass.
+- **The centreline has to be carried, not recovered.** By the time `finishRibbons` sees a
+  ribbon, every vertex has been offset half a width sideways, arcs have been cut into the
+  bends and the lot has been clipped to the site box — nothing in the outline maps back to a
+  source position. Hence `Ribbon = SplitPolygon & { zLine?: Vec3[] }`, and hence the sampler
+  being nearest-point rather than per-vertex: the invented corners have to get an answer too.
 
 Two notes on the boolean layer, both learned the hard way. `polygon-clipping`'s sweep line
 throws on coordinates that are the same point reached by different arithmetic, so
