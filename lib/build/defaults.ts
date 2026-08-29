@@ -24,5 +24,8 @@ export const DEFAULT_FORM: BuildOptions = {
   veg: false,
   water: false,
   parcels: false,
+  // All on: draping is what every layer here did before the toggles existed,
+  // and it is the right default whenever the source has no elevation of its own.
+  drape: { roads: true, railways: true, veg: true, water: true, parcels: true },
   tune: { ...DEFAULT_TUNABLES },
 };

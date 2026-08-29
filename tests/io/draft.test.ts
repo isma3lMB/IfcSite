@@ -54,7 +54,15 @@ const draft = (): Draft =>
     name: 'Test site',
     rect: RECT,
     site: SITE,
-    form: { ...DEFAULT_FORM, tune: { ...DEFAULT_TUNABLES } },
+    // `drape` deliberately carries a non-default value. buildOptions() walks an
+    // explicit field list, so a key it forgets is silently replaced by its
+    // default — which a fixture sitting on the defaults would round-trip
+    // perfectly while proving nothing.
+    form: {
+      ...DEFAULT_FORM,
+      drape: { ...DEFAULT_FORM.drape, roads: false, water: false },
+      tune: { ...DEFAULT_TUNABLES },
+    },
     epsgPicked: true,
     crsDef: CRS_DEFS['2154'].def,
     meta: META,

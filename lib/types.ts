@@ -140,6 +140,21 @@ export const LAYER_IDS = [
 export type LayerId = (typeof LAYER_IDS)[number];
 
 /**
+ * The layers that reach the scene as a flat skin conformed onto the terrain,
+ * and so the layers a drape can be turned off for. Hedges are absent on
+ * purpose: they are prisms that already keep their surveyed `hauteur`, and only
+ * their base is draped, so there is nothing here for them to gain.
+ *
+ * Named in the FORM's vocabulary (`veg`, `parcels`), not LayerId's
+ * (`vegetation`, `parcel`), because that is what BuildOptions.drape is keyed on
+ * and what the options panel reads. See the Glyph helper in
+ * components/controls-panel for the bridge between the two spellings.
+ */
+export const DRAPE_LAYERS = ['roads', 'railways', 'veg', 'water', 'parcels'] as const;
+
+export type DrapeLayer = (typeof DRAPE_LAYERS)[number];
+
+/**
  * Per-layer edits that have nowhere else to live.
  *
  * `color` is only ever read for the layers with no per-record colour store —
@@ -433,6 +448,11 @@ export type BuildOptions = {
   veg: boolean;
   water: boolean;
   parcels: boolean;
+  /** Per layer: conform onto the DEM (true, and the default), or take elevation
+   *  from the source geometry's own Z (false). Off falls back to draping for
+   *  any feature whose source carries no Z, which is most of them outside the
+   *  BD TOPO road and rail centrelines — see lib/geo/sourcez. */
+  drape: Record<DrapeLayer, boolean>;
   /** Pipeline limits and geometry fallbacks. Nested rather than flattened in
    *  beside the rest so the fields above stay the things a build is *about* —
    *  where, from whom, with what in it — and the knobs stay knobs. See

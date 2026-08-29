@@ -197,6 +197,9 @@ export const fr: Dict = {
   'ctl.advConformStep': 'Pas de drapage',
   'ctl.advConformStepHint':
     'À quel point la voirie et les surfaces suivent le sol entre les points du terrain. Plus fin, plus juste, plus lourd.',
+  'ctl.advDrape': 'Draper sur le terrain',
+  'ctl.advDrapeHint':
+    'Coché, la couche épouse le sol. Décoché, elle conserve l’altitude relevée par la BD TOPO, si bien qu’un pont reste au-dessus de ce qu’il franchit. Les couches dont la source ne porte aucune altitude restent drapées.',
   'ctl.advGeometry': 'Valeurs géométriques par défaut',
   'ctl.advStoreyHeight': 'Hauteur d’étage',
   'ctl.advStoreyHeightHint':

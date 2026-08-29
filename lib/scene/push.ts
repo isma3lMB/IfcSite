@@ -2,6 +2,7 @@ import { DEFAULT_TUNABLES, type Tunables } from '@/lib/build/tunables';
 import { type SplitPolygon, unionPolygons, unionRings } from '@/lib/geo/boolean';
 import { conformToTerrain } from '@/lib/geo/conform';
 import { skirtInto } from '@/lib/geo/mesh';
+import { polylineZAt } from '@/lib/geo/sourcez';
 import {
   clipPolyline,
   clipToBox,
@@ -92,6 +93,17 @@ export function pushTree(
   scene.trees.push({ id, x, y, z, h, cr, tr, name, props, xf: newXf(), src });
 }
 
+/**
+ * A buffered carriageway, optionally still holding the centreline it came from.
+ *
+ * A plain SplitPolygon everywhere it meets the boolean library — the extra
+ * field is only read by finishRibbons below, and only when the layer's drape is
+ * turned off. `zLine` is absent whenever the source geometry was 2D, which is
+ * every OSM way and any BD TOPO feature that shipped without elevation; those
+ * ribbons take the draped path regardless of the toggle.
+ */
+export type Ribbon = SplitPolygon & { zLine?: Vec3[] };
+
 /** Centreline vertices closer together than this are collapsed before anything
  *  reads a direction off them — see collapseNear in lib/geo/rings. */
 const JOIN_TOL = 0.05;
@@ -160,10 +172,11 @@ const JOIN_FLAT = -0.985;
  * way to produce a handful of quads.
  */
 export function pushRoadway(
-  ribbons: SplitPolygon[],
+  ribbons: Ribbon[],
   pts: Vec2[],
   w: number,
   site: Site,
+  zLine?: Vec3[] | null,
 ): void {
   const { halfX, halfY } = site;
   const m = w / 2;
@@ -267,7 +280,12 @@ export function pushRoadway(
     )
       join(live[live.length - 1], live[0], line[0]);
   }
-  ribbons.push(...unionRings(quads));
+  // The centreline rides along with the ribbon it was buffered from. It cannot
+  // be recovered later: by the time finishRibbons sees these, pushRoadway has
+  // offset every vertex sideways, cut arcs into the bends and clipped the lot
+  // to the site box, so nothing in the outline can be matched back to a source
+  // position. Carrying it is what makes a drape-off road possible at all.
+  for (const r of unionRings(quads)) ribbons.push(zLine ? { ...r, zLine } : r);
 }
 
 /**
@@ -293,54 +311,99 @@ export function pushRoadway(
  * up the skirt's vertical and floor edges; `skirtInto`'s return index is what
  * splits the one faceset back into those two.
  */
+/**
+ * With `drape` off, the cross-road union above is what has to go.
+ *
+ * It exists to merge two carriageways that overlap in plan, and its premise is
+ * that one DEM decides the elevation at any XY — true while every ribbon is
+ * being conformed to the same ground. Source Z breaks that premise outright: an
+ * overpass and the road beneath it overlap in plan and are ten metres apart in
+ * height, and unioning them produces a single region that can hold only one of
+ * those two answers. Whichever it picked, the bridge would be destroyed — which
+ * is the one thing turning the drape off is for.
+ *
+ * So a ribbon that carries a centreline is conformed on its own instead, with
+ * its own profile. What that gives up is only the merge BETWEEN distinct roads:
+ * pushRoadway already unioned each road's own quads and arcs before pushing, so
+ * a single road is still one clean ribbon and a roundabout still keeps its
+ * island. Two roads meeting at grade now overlap as separate coplanar surfaces
+ * rather than merging, which reads the same — same colour, same material — but
+ * can hairline z-fight where they cross. That is the price of being able to
+ * hold two heights at one XY, and it is only paid by layers the user has
+ * explicitly taken off the terrain.
+ *
+ * Ribbons with no centreline — every OSM way, and any BD TOPO feature that came
+ * back 2D — go through the union and the drape exactly as before, in the same
+ * pass. The two sets are disjoint and each is self-consistent, so mixing them
+ * in one layer is safe.
+ */
 /** Shared by finishRoads and finishRailways below — both are a centreline
  *  ribbon conformed to the terrain and skirted into a solid, differing only
  *  in which LAYER_DZ/skirtDepth rung and which scene arrays they land in. */
 function finishRibbons(
   scene: SceneData,
-  ribbons: SplitPolygon[],
+  ribbons: Ribbon[],
   toGeo: ToGeo,
   sampleZ: SampleZ,
   layer: 'road' | 'railway',
   top: Vec3[][],
   walls: Vec3[][],
   tune: Tunables,
+  drape: boolean,
 ): void {
   if (!ribbons.length) return;
-  for (const { outer, holes } of unionPolygons(ribbons)) {
+  // Source Z is an absolute altitude, so it is only comparable with the rest of
+  // the model when the model is in absolute altitudes too. datumZ null means it
+  // is not, and the same guard already decides whether a building may believe
+  // its surveyed altitude_minimale_sol — see lib/sources/ign.
+  const useSource = !drape && scene.datumZ !== null;
+  const hasZ = (r: Ribbon): r is Ribbon & { zLine: Vec3[] } => r.zLine !== undefined;
+  const sourced = useSource ? ribbons.filter(hasZ) : [];
+  const draped = useSource ? ribbons.filter((r) => !hasZ(r)) : ribbons;
+
+  const emit = (r: Ribbon, zAt?: (x: number, y: number) => number): void => {
     const { verts, faces } = conformToTerrain(
-      outer,
+      r.outer,
       scene.terrain,
       toGeo,
       sampleZ,
       LAYER_DZ[layer],
-      holes,
+      r.holes,
       tune.conformStep,
+      zAt,
     );
-    if (!faces.length) continue;
+    if (!faces.length) return;
+    // Skirted in both modes. Off the terrain it stops reading as the
+    // containment lib/scene/stack describes and starts reading as deck
+    // thickness, which is what a bridge deck has.
     const skirt = skirtInto(verts, faces, skirtDepth(layer));
     const tri = (t: number[]): Vec3[] => [verts[t[0]], verts[t[1]], verts[t[2]]];
     for (let i = 0; i < skirt; i++) top.push(tri(faces[i]));
     for (let i = skirt; i < faces.length; i++) walls.push(tri(faces[i]));
-  }
+  };
+
+  for (const r of sourced) emit(r, polylineZAt([r.zLine]));
+  if (draped.length) for (const r of unionPolygons(draped)) emit(r);
 }
 
 export function finishRoads(
   scene: SceneData,
-  ribbons: SplitPolygon[],
+  ribbons: Ribbon[],
   toGeo: ToGeo,
   sampleZ: SampleZ,
   tune: Tunables,
+  drape = true,
 ): void {
-  finishRibbons(scene, ribbons, toGeo, sampleZ, 'road', scene.roads, scene.roadWalls, tune);
+  finishRibbons(scene, ribbons, toGeo, sampleZ, 'road', scene.roads, scene.roadWalls, tune, drape);
 }
 
 export function finishRailways(
   scene: SceneData,
-  ribbons: SplitPolygon[],
+  ribbons: Ribbon[],
   toGeo: ToGeo,
   sampleZ: SampleZ,
   tune: Tunables,
+  drape = true,
 ): void {
   finishRibbons(
     scene,
@@ -351,5 +414,6 @@ export function finishRailways(
     scene.railways,
     scene.railwayWalls,
     tune,
+    drape,
   );
 }
