@@ -5,15 +5,17 @@ import { AppError } from '@/lib/errors';
 import { gridFrom } from '@/lib/geo/grid';
 import { verticalEpsgFor } from '@/lib/geo/vertical';
 import { isIfcSchema } from '@/lib/ifc/writer';
-import { LAYER_IDS, newLayerState } from '@/lib/types';
+import { LAYER_IDS, defaultProjectName, newIfcMeta, newLayerState } from '@/lib/types';
 import type {
   Building,
   BuildOptions,
   Grid,
   HeightSource,
+  IfcMeta,
   LayerId,
   LayerXf,
   PropBag,
+  Provider,
   RoadFace,
   SceneData,
   Site,
@@ -346,7 +348,6 @@ const buildOptions = (v: unknown): BuildOptions => {
   const d = DEFAULT_FORM;
   return {
     epsg: str(s.epsg, d.epsg),
-    ifcSchema: isIfcSchema(s.ifcSchema) ? s.ifcSchema : d.ifcSchema,
     defaultHeight: Math.min(200, Math.max(1, num(s.defaultHeight, d.defaultHeight))),
     provider: s.provider === 'osm' || s.provider === 'ign' ? s.provider : d.provider,
     buildings: bool(s.buildings, d.buildings),
@@ -368,7 +369,34 @@ const buildOptions = (v: unknown): BuildOptions => {
   };
 };
 
-const siteMeta = (v: unknown, rect: SiteRect): SiteMeta | null => {
+/**
+ * IfcMeta, walked against newIfcMeta so the fields are exactly the ones the
+ * writer reads.
+ *
+ * `legacy` is the meta itself, because a draft written before this bag existed
+ * carried the two fields it had — projectName and schema — at the top of the
+ * meta instead. Reading them back means a site saved then still reopens under
+ * its own name and its own schema.
+ */
+const ifcMeta = (v: unknown, legacy: Record<string, unknown>): IfcMeta => {
+  const s = isObj(v) ? v : {};
+  const d = newIfcMeta();
+  const schema = s.schema ?? legacy.schema;
+  return {
+    schema: isIfcSchema(schema) ? schema : d.schema,
+    projectName: str(s.projectName, str(legacy.projectName, d.projectName)),
+    projectLongName: str(s.projectLongName, d.projectLongName),
+    projectDescription: str(s.projectDescription, d.projectDescription),
+    projectPhase: str(s.projectPhase, d.projectPhase),
+    siteName: str(s.siteName, d.siteName),
+    siteLongName: str(s.siteLongName, d.siteLongName),
+    siteDescription: str(s.siteDescription, d.siteDescription),
+    siteLandTitle: str(s.siteLandTitle, d.siteLandTitle),
+    author: str(s.author, d.author),
+  };
+};
+
+const siteMeta = (v: unknown, rect: SiteRect, provider: Provider): SiteMeta | null => {
   if (!isObj(v)) return null;
   const lat = num(v.lat, (rect.minLat + rect.maxLat) / 2);
   const lon = num(v.lon, (rect.minLon + rect.maxLon) / 2);
@@ -392,10 +420,16 @@ const siteMeta = (v: unknown, rect: SiteRect): SiteMeta | null => {
     // which is validated and present in every draft — including those written
     // before the meta carried one.
     crsDef: str(v.crsDef, ''),
-    projectName: str(v.projectName, `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`),
-    // A draft written before there was a choice was written as IFC4, so the
-    // default is not a guess — it is what that file actually says.
-    schema: isIfcSchema(v.schema) ? v.schema : 'IFC4',
+    ifc: ifcMeta(v.ifc, v),
+    // A draft written before the meta carried a provider still recorded one on
+    // its form — that is what runBuild was handed — so the caller passes it in
+    // rather than this guessing from the vertical datum. Same shape as the
+    // rect above: the fallback comes from the part of the envelope that always
+    // had the answer.
+    provider: v.provider === 'ign' || v.provider === 'osm' ? v.provider : provider,
+    // No default: an old draft genuinely does not know when its data came down,
+    // and the export omits the property rather than claiming today.
+    fetched: str(v.fetched, ''),
   };
 };
 
@@ -480,7 +514,8 @@ export function parseDraft(text: string): LoadedDraft {
   if (!rect) throw new AppError('err.draftCorrupt');
 
   const st = site(raw.site, rect);
-  const meta = siteMeta(raw.meta, rect);
+  const form = buildOptions(raw.form);
+  const meta = siteMeta(raw.meta, rect, form.provider);
   const crsDef = typeof raw.crsDef === 'string' && raw.crsDef ? raw.crsDef : null;
   if (!st || !meta || !crsDef || !isObj(raw.scene)) throw new AppError('err.draftCorrupt');
   // The envelope's copy wins over anything the embedded meta carried: it is the
@@ -498,10 +533,10 @@ export function parseDraft(text: string): LoadedDraft {
   }
 
   return {
-    name: str(raw.name, meta.projectName),
+    name: str(raw.name, meta.ifc.projectName || defaultProjectName(meta.lat, meta.lon)),
     rect,
     site: st,
-    form: buildOptions(raw.form),
+    form,
     epsgPicked: bool(raw.epsgPicked, false),
     crsDef,
     meta,

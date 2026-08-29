@@ -42,6 +42,12 @@ export type StatusKey =
   | 'status.editCommitted'
   | 'status.undone'
   | 'status.redone'
+  /* The same three for a gesture that touched several elements at once. A
+     separate wording rather than a cleverer parameter: a count cannot be folded
+     into the {name} the singular ones interpolate. */
+  | 'status.editCommittedMany'
+  | 'status.undoneMany'
+  | 'status.redoneMany'
   | 'status.searchUnavailable'
   | 'status.draftSaved'
   | 'status.draftReading'
@@ -110,6 +116,7 @@ export type EditLabelKey =
   | 'edit.height'
   | 'edit.add'
   | 'edit.delete'
+  | 'edit.duplicate'
   | 'edit.reset'
   | 'edit.origin'
   | 'edit.originReset';

@@ -170,6 +170,9 @@ export function ElementEditor(p: ElementEditorProps) {
   // disabled — see selectTarget in lib/viewer/Viewer for why the gizmo refuses
   // the other two modes as well.
   const isLayer = sel.kind === 'layer';
+  // Several elements at once. Only buildings and trees group, so this is never
+  // true beside the two branches above.
+  const many = sel.count > 1;
 
   /* `write` rather than p.onAxis directly, so the project-coordinate row can
      reuse AxisInput's draft/commit behaviour without pretending to be an xf. */
@@ -205,9 +208,21 @@ export function ElementEditor(p: ElementEditorProps) {
         <div>
           <div className="eyebrow">{isLayer ? t('ed.layer') : t('ed.selected')}</div>
           {/* The origin and every layer report a dictionary key rather than a
-              name of their own — the viewer has no language. See ORIGIN_NAME. */}
-          <div className={`editName${isOrigin || isLayer ? ' capFirst' : ''}`} title={sel.id}>
-            {isOrigin || isLayer ? t(sel.name as StringKey) : sel.name}
+              name of their own — the viewer has no language. See ORIGIN_NAME.
+
+              With several selected there is no one name to show, so the count
+              stands in and the ids go on the tooltip. Every field below still
+              reads the anchor — the element clicked last — and writes to all of
+              them; see editables in lib/viewer/Viewer. */}
+          <div
+            className={`editName${isOrigin || isLayer ? ' capFirst' : ''}`}
+            title={sel.ids.join('\n')}
+          >
+            {many
+              ? t('ed.nSelected', { n: sel.count })
+              : isOrigin || isLayer
+                ? t(sel.name as StringKey)
+                : sel.name}
           </div>
         </div>
         {/* The one deselect affordance. There were three — this, a preset in
@@ -392,7 +407,7 @@ export function ElementEditor(p: ElementEditorProps) {
             </label>
           </div>
 
-          {/* No shortcut list under this: G/R/S are on the rail's gizmo
+          {/* No shortcut list under this: G/R/S and D are on the rail's
               tooltips, Esc on the ✕ above, Ctrl+Z on the rail's undo, and Del
               is on the button beside this comment. */}
           <div className="presets">

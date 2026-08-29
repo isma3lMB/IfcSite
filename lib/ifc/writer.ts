@@ -4,7 +4,9 @@ import { treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
 import { TREE_CANOPY_COLOR, TREE_TRUNK_COLOR } from '@/lib/scene/stack';
 import { buildingColors } from '@/lib/scene/xf';
-import type { Building, PropBag, SiteMeta, Tree, Vec2, Vec3 } from '@/lib/types';
+import { DATA_SOURCES, type DataSource, sourceOf } from '@/lib/sources/licence';
+import { DEFAULT_SITE_NAME, defaultProjectName } from '@/lib/types';
+import type { Building, PropBag, Provider, SiteMeta, Tree, Vec2, Vec3 } from '@/lib/types';
 
 /* =====================================================================
    ifc-writer — IFC2X3 / IFC4 / IFC4X3 SPF serialiser
@@ -52,6 +54,27 @@ export const S = (v: string): StrV => ({ __t: 'str', v });
 export const B = (v: boolean): BoolV => ({ __t: 'bool', v });
 export const DERIVED: DerivedV = { __t: 'derived' };
 export const TYPED = (t: string, i: Attr): TypedV => ({ __t: 'typed', type: t, inner: i });
+
+/**
+ * A user-typed attribute, or the `$` an unset one has to be.
+ *
+ * Every string on IfcMeta means "leave it out" when it is empty — an IFC file
+ * with `''` in Description says the description is the empty string, which is
+ * not the same claim as saying nothing. One helper rather than the ternary at
+ * each of the seven optional slots.
+ */
+export const sOrNull = (v: string): Attr => (v ? S(v) : null);
+
+/**
+ * Who wrote the file, as against who the model is about.
+ *
+ * Fixed rather than typed into the panel: the author is a person and varies,
+ * these two are the tool and do not. They go to the STEP header — organization
+ * and originating_system — and to IfcOrganization/IfcApplication wherever the
+ * file carries an owner history.
+ */
+export const ORGANISATION = 'bim-lane';
+export const APPLICATION = 'ifcsite.app';
 
 /* ---------------------------------------------------------------------
    Schemas
@@ -240,11 +263,25 @@ export class IfcFile {
   readonly lines: string[] = [];
   private nextId = 1;
 
+  /**
+   * Extra descriptions for FILE_DESCRIPTION, whose first attribute is a
+   * LIST OF STRING and so takes as many as it is given.
+   *
+   * This is where the data attribution lands, in the first five lines of the
+   * file: a licence notice is no use to anyone if reading it needs an IFC
+   * viewer, and a header is what you see opening the thing in a text editor.
+   * The per-element property sets are the machine-readable half.
+   */
+  readonly description: string[] = [];
+
   readonly caps: SchemaCaps;
 
   constructor(
     public readonly name: string,
     public readonly schema: IfcSchema = 'IFC4',
+    /** FILE_NAME's author list, from IfcMeta.author. Empty stays `('')`, which
+     *  is what this header carried before there was anywhere to type one. */
+    public readonly author: string = '',
   ) {
     this.caps = SCHEMA_CAPS[schema];
   }
@@ -264,12 +301,30 @@ export class IfcFile {
     return [
       'ISO-10303-21;',
       'HEADER;',
-      "FILE_DESCRIPTION(('ViewDefinition [" + this.caps.view + "]'),'2;1');",
+      'FILE_DESCRIPTION((' +
+        ["ViewDefinition [" + this.caps.view + "]", ...this.description]
+          // esc() rather than raw: the attribution lines carry a © and the
+          // accents in "Géoplateforme", and a header is still a STEP string.
+          .map((d) => "'" + esc(d) + "'")
+          .join(',') +
+        "),'2;1');",
+      // author and organization are LIST OF STRING; preprocessor_version and
+      // originating_system are single strings, and both name the tool. esc()
+      // throughout — an author is as likely to carry an accent as the
+      // attribution lines above are.
       "FILE_NAME('" +
         esc(this.name) +
         "','" +
         ts +
-        "',(''),(''),'IFC Site','IFC Site','');",
+        "',('" +
+        esc(this.author) +
+        "'),('" +
+        esc(ORGANISATION) +
+        "'),'" +
+        esc(APPLICATION) +
+        "','" +
+        esc(APPLICATION) +
+        "','');",
       "FILE_SCHEMA(('" + this.caps.fileSchema + "'));",
       'ENDSEC;',
       'DATA;',
@@ -312,6 +367,13 @@ export class ContextModel {
   private readonly off: Vec3;
   private readonly base: Vec3;
   private readonly elements: Ref[] = [];
+  /** Which data source each element came from, accumulated as they are written
+   *  and flushed once per source in build(). See credit(). */
+  private readonly credits = new Map<DataSource, Ref[]>();
+  /** Which provider the scene was built from, for sourceOf. */
+  private readonly provider: Provider;
+  /** The build date, or '' when a draft predates it being recorded. */
+  private readonly fetched: string;
 
   private readonly o3: Ref;
   private readonly dz: Ref;
@@ -327,43 +389,60 @@ export class ContextModel {
   private black: Ref | null = null;
 
   constructor(o: SiteMeta) {
-    this.f = new IfcFile('context.ifc', o.schema);
+    // The schema, the names and the authorship, all from one bag — see IfcMeta.
+    const a = o.ifc;
+    this.f = new IfcFile('context.ifc', a.schema, a.author);
     this.caps = this.f.caps;
     this.origin = o.origin;
     this.off = o.exportOffset;
     this.base = o.projectBase;
+    this.provider = o.provider;
+    this.fetched = o.fetched;
     const f = this.f;
     const caps = this.caps;
 
-    /* Ownership, where the schema insists on it. IFC2X3 declares
-       IfcRoot.OwnerHistory mandatory, so `$` there is not a file that happens
-       to say nothing about its author — it is an invalid one, and validators
-       and the stricter importers treat it as such. IFC4 made the attribute
-       optional and this file has always left it out, so nothing is emitted
-       there and that output is unchanged.
+    /* Ownership, where the schema insists on it or the user has claimed it.
 
-       One instance, shared by every root entity. The content is the only honest
-       thing available: no user is signed in, so the person is unnamed and the
-       organisation is the application itself. ChangeAction .ADDED. and a
-       creation date are what the schema requires to be present. */
-    this.owner = caps.ownerHistory
-      ? (() => {
-          const person = f.add('IfcPerson', [null, null, null, null, null, null, null, null]);
-          const org = f.add('IfcOrganization', [null, S('IFC Site'), null, null, null]);
-          const pao = f.add('IfcPersonAndOrganization', [person, org, null]);
-          const app = f.add('IfcApplication', [org, S('1.0'), S('IFC Site'), S('IFCSITE')]);
-          return f.add('IfcOwnerHistory', [
-            pao,
-            app,
-            null,
-            E('ADDED'),
-            null,
-            null,
-            null,
-            I(Math.floor(Date.now() / 1000)),
-          ]);
-        })()
-      : null;
+       IFC2X3 declares IfcRoot.OwnerHistory mandatory, so `$` there is not a file
+       that happens to say nothing about its author — it is an invalid one, and
+       validators and the stricter importers treat it as such. IFC4 made the
+       attribute optional and this file left it out, which is why the second
+       clause is here: someone who types their name into the export panel expects
+       it in the file whatever the schema, and with the field blank an IFC4
+       export is entity-for-entity what it always was.
+
+       One instance, shared by every root entity. The person is the typed author
+       and nothing else — no user is signed in, so a given name would be a guess
+       — and the organisation is the tool. ChangeAction .ADDED. and a creation
+       date are what the schema requires to be present. */
+    this.owner =
+      caps.ownerHistory || a.author
+        ? (() => {
+            const person = f.add('IfcPerson', [
+              null,
+              sOrNull(a.author),
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+            ]);
+            const org = f.add('IfcOrganization', [null, S(ORGANISATION), null, null, null]);
+            const pao = f.add('IfcPersonAndOrganization', [person, org, null]);
+            const app = f.add('IfcApplication', [org, S('1.0'), S(APPLICATION), S('IFCSITE')]);
+            return f.add('IfcOwnerHistory', [
+              pao,
+              app,
+              null,
+              E('ADDED'),
+              null,
+              null,
+              null,
+              I(Math.floor(Date.now() / 1000)),
+            ]);
+          })()
+        : null;
 
     /* ---- the local project coordinate system --------------------------
        Site coordinates p become model coordinates q as q = R(-th)·p + L.
@@ -431,11 +510,15 @@ export class ContextModel {
     this.project = f.add('IfcProject', [
       S(ifcGuid()),
       this.owner,
-      S(o.projectName || 'Site context'),
+      // Name, Description, ObjectType, LongName, Phase — all but ObjectType are
+      // the panel's. The fallback is applied here rather than stamped into the
+      // meta at build time so that moving the site moves the name with it; see
+      // defaultProjectName.
+      S(a.projectName || defaultProjectName(o.lat, o.lon)),
+      sOrNull(a.projectDescription),
       null,
-      null,
-      null,
-      null,
+      sOrNull(a.projectLongName),
+      sOrNull(a.projectPhase),
       [this.ctx],
       units,
     ]);
@@ -480,12 +563,12 @@ export class ContextModel {
     this.site = f.add('IfcSite', [
       S(ifcGuid()),
       this.owner,
-      S('Site'),
-      null,
+      S(a.siteName || DEFAULT_SITE_NAME),
+      sOrNull(a.siteDescription),
       null,
       this.sitePlacement,
       null,
-      null,
+      sOrNull(a.siteLongName),
       E('ELEMENT'),
       // RefLatitude/RefLongitude/RefElevation all describe the same point — the
       // origin marker — and are informational: the authoritative placement is
@@ -500,7 +583,7 @@ export class ContextModel {
       dms(originLat),
       dms(originLon),
       R(off[2]),
-      null,
+      sOrNull(a.siteLandTitle),
       null,
     ]);
     f.add('IfcRelAggregates', [S(ifcGuid()), this.owner, null, null, this.project, [this.site]]);
@@ -697,6 +780,57 @@ export class ContextModel {
   }
 
   /**
+   * Note that this element's geometry came from `src`, for the licence property
+   * set flushed in build().
+   *
+   * Recorded rather than written on the spot because every element from one
+   * source gets a byte-identical property set, and
+   * IfcRelDefinesByProperties.RelatedObjects is a SET in all three schemas — so
+   * one set and one relationship can serve every OSM element in the file.
+   * Written per element the way ePset_SiteContext is, a site with two thousand
+   * buildings would carry some fourteen thousand entities saying the same
+   * sentence over and over.
+   *
+   * A null source is hand-drawn geometry, which has no third-party licence:
+   * `Source: drawn` in its ePset_SiteContext is the whole truth about it, and
+   * an attribution there would be a claim about someone else's data that the
+   * file has no business making.
+   */
+  private credit(el: Ref, src: DataSource | null): void {
+    if (!src) return;
+    const els = this.credits.get(src);
+    if (els) els.push(el);
+    else this.credits.set(src, [el]);
+  }
+
+  /**
+   * One ePset_License, as a property set the caller then relates to whatever it
+   * likes.
+   *
+   * Its own builder rather than a widened pset(): the values here want types
+   * pset() does not emit — IfcText for an attribution that can run past
+   * IfcLabel's nominal 255 characters once several sources are joined, and
+   * IfcIdentifier for the URL — and pset() is what every existing export's
+   * ePset_SiteContext goes through, so it is left byte-for-byte as it was.
+   *
+   * The `e` prefix is this file's convention for a set that extends the schema
+   * rather than one buildingSMART publishes, the same as ePset_ProjectedCRS.
+   */
+  private licencePset(rows: [string, Attr][]): Ref {
+    const f = this.f;
+    const singles = rows.map(([k, v]) =>
+      f.add('IfcPropertySingleValue', [S(k), null, v, null]),
+    );
+    return f.add('IfcPropertySet', [
+      S(ifcGuid()),
+      this.owner,
+      S('ePset_License'),
+      null,
+      singles,
+    ]);
+  }
+
+  /**
    * One tessellated body, in whatever the schema can express — the shape a tree
    * or a draped surface is, without the caller having to know which schema it
    * is writing for. Returns the item to hand to style() and the
@@ -819,7 +953,11 @@ export class ContextModel {
     const alpha = transparency > 0 ? transparency : undefined;
     this.style(solid, wall, alpha);
     if (capSolid) this.style(capSolid, cap, alpha);
-    this.pset(el, 'Pset_SiteContext', b.props);
+    this.pset(el, 'ePset_SiteContext', b.props);
+    // Hand-drawn footprints carry no source licence — see credit(). The marker
+    // is the one lib/viewer/Viewer stamps when it commits a drawn ring, rather
+    // than b.src, which is the height's provenance and not the geometry's.
+    this.credit(el, b.props.Source === 'drawn' ? null : sourceOf('vector', this.provider));
     this.elements.push(el);
     return el;
   }
@@ -881,7 +1019,11 @@ export class ContextModel {
     // to paint the whole proxy one colour.
     this.style(trunkFs, TREE_TRUNK_COLOR, alpha);
     this.style(canopyFs, xf.color ?? TREE_CANOPY_COLOR, alpha);
-    this.pset(el, 'Pset_SiteContext', t.props);
+    this.pset(el, 'ePset_SiteContext', t.props);
+    // Always OSM when it was fetched at all: BD TOPO has no individual trees, so
+    // lib/build/run queries Overpass for them under both providers. This is the
+    // element that makes an IGN export a two-licence file.
+    this.credit(el, t.src === 'user' ? null : sourceOf('trees', this.provider));
     this.elements.push(el);
     return el;
   }
@@ -916,6 +1058,7 @@ export class ContextModel {
     props?: PropBag,
     transparency?: number,
     offset?: Vec3,
+    src?: DataSource,
   ): Ref | null {
     const f = this.f;
     if (!verts.length || !faces.length) return null;
@@ -954,7 +1097,13 @@ export class ContextModel {
       E(pre),
     ]);
     if (color !== undefined && color !== null) this.style(fs, color, transparency);
-    if (props) this.pset(el, 'Pset_SiteContext', props);
+    if (props) this.pset(el, 'ePset_SiteContext', props);
+    // Passed in rather than derived here: a merged surface has no per-record
+    // provenance to read, and lib/ifc/emit already knows whether it is handing
+    // over terrain, the roadway or a theme layer — which is exactly the
+    // distinction sourceOf needs and the one this method has deliberately
+    // forgotten by the time it is called.
+    this.credit(el, src ?? null);
     this.elements.push(el);
     return el;
   }
@@ -970,6 +1119,76 @@ export class ContextModel {
         this.site,
       ]);
     }
+    this.attribute();
     return this.f.toString();
+  }
+
+  /**
+   * The data attribution, in the three places it has to be.
+   *
+   * OSM's ODbL and IGN's Licence Ouverte both make the credit a condition of
+   * use, and an IFC is a deliverable that leaves this app and gets passed on —
+   * so the notice has to travel inside the file rather than living on the page
+   * that produced it. The OSMF guidelines say as much for a medium nobody
+   * browses: the attribution belongs "within the data or metadata".
+   *
+   * Driven off what was actually written, not off the provider, because those
+   * are not the same list. An IGN export with trees in it owes ODbL as well as
+   * the Licence Ouverte, and a build with the terrain switched off owes nothing
+   * to whoever supplies the elevation.
+   */
+  private attribute(): void {
+    if (!this.credits.size) return;
+    const f = this.f;
+    const used = [...this.credits.keys()].map((k) => DATA_SOURCES[k]);
+
+    // Per source: one property set, one relationship, every element from it.
+    for (const [src, els] of this.credits) {
+      const l = DATA_SOURCES[src];
+      const ps = this.licencePset([
+        ['Source', TYPED('IfcLabel', S(l.source))],
+        ['License', TYPED('IfcLabel', S(l.licence))],
+        ['Attribution', TYPED('IfcText', S(l.attribution))],
+        ['LicenseUrl', TYPED('IfcIdentifier', S(l.url))],
+        // Omitted rather than guessed when a draft predates the field being
+        // recorded — see SiteMeta.fetched. The Licence Ouverte asks for the date
+        // of the last update of the information reused, and a wrong date is a
+        // worse answer than none.
+        ...(this.fetched
+          ? ([['Retrieved', TYPED('IfcLabel', S(this.fetched))]] as [string, Attr][])
+          : []),
+      ]);
+      f.add('IfcRelDefinesByProperties', [S(ifcGuid()), this.owner, null, null, els, ps]);
+    }
+
+    // The whole notice once more on IfcSite, so a reader that opens the site's
+    // properties and nothing else still sees every source the model draws on.
+    const notice = used.map((l) => l.attribution).join(' ');
+    const site = this.licencePset([
+      ['Source', TYPED('IfcLabel', S(used.map((l) => l.source).join('; ')))],
+      ['License', TYPED('IfcLabel', S([...new Set(used.map((l) => l.licence))].join('; ')))],
+      ['Attribution', TYPED('IfcText', S(notice))],
+      // Deduped, like License above: the three IGN datasets share one licence
+      // and one URL, and a summary that repeats it three times reads as three
+      // different permissions rather than one.
+      [
+        'LicenseUrl',
+        TYPED('IfcText', S([...new Set(used.map((l) => l.url))].join(' '))),
+      ],
+      ...(this.fetched
+        ? ([['Retrieved', TYPED('IfcLabel', S(this.fetched))]] as [string, Attr][])
+        : []),
+    ]);
+    f.add('IfcRelDefinesByProperties', [
+      S(ifcGuid()),
+      this.owner,
+      null,
+      null,
+      [this.site],
+      site,
+    ]);
+
+    // And in the header, where it is readable without an IFC viewer at all.
+    this.f.description.push(notice);
   }
 }

@@ -2,6 +2,7 @@
 
 import { Notes } from '@/components/notes';
 import { useT } from '@/lib/i18n/context';
+import { DATA_SOURCES, type SourceLicence } from '@/lib/sources/licence';
 
 export type InfoOverlayProps = {
   open: boolean;
@@ -11,6 +12,29 @@ export type InfoOverlayProps = {
 /** Not a dictionary key: it is the one string on this surface that is the same
  *  in every language. */
 const REPO_URL = 'https://github.com/isma3lMB/IfcSite';
+
+/**
+ * The credits, in the order the pipeline uses them.
+ *
+ * DATA_SOURCES covers what reaches the IFC. Nominatim never does — it answers
+ * the place search and nothing it returns is written to the file — but ODbL
+ * asks a work that *displays* OSM data to credit it, and a searched-for place
+ * name is displayed data, so it is credited here and not there. The basemap
+ * tiles are attributed by Leaflet itself, in the corner of the map.
+ */
+const CREDITS: SourceLicence[] = [
+  DATA_SOURCES.osm,
+  DATA_SOURCES.terrarium,
+  DATA_SOURCES.bdtopo,
+  DATA_SOURCES.rgealti,
+  DATA_SOURCES.pci,
+  {
+    source: 'Nominatim',
+    licence: 'ODbL 1.0',
+    url: 'https://www.openstreetmap.org/copyright',
+    attribution: '© OpenStreetMap contributors.',
+  },
+];
 
 /**
  * What used to be the page header and the footer notes. Full-bleed viewers left
@@ -59,6 +83,20 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
             overflow ancestor. Only the prose below scrolls. */}
         <div className="infoBody">
           <Notes />
+          <div className="credits">
+            <h2>{t('info.credits')}</h2>
+            <p>{t('info.creditsLead')}</p>
+            <ul>
+              {CREDITS.map((c) => (
+                <li key={c.source}>
+                  <a href={c.url} target="_blank" rel="noopener noreferrer">
+                    {c.source}
+                  </a>
+                  <span> — {c.licence}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
           <div className="infoFoot">
             <p>{t('info.openSource')}</p>
             <a

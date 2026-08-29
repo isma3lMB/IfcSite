@@ -40,6 +40,31 @@ export const IconOptions = () => (
   </Svg>
 );
 
+/* The wrench, for the settings the *file* carries rather than the ones the build
+   does. It has to be told apart from IconOptions above at a glance, since the
+   two panels open in the same session and one is not the other.
+
+   The one icon here not drawn on the 16 grid: it is public/wrench.svg, which is
+   a 24-grid path, so it keeps its own viewBox rather than being redrawn a third
+   of a pixel at a time. The stroke is 1.95, which is 1.3 at this scale — the
+   same weight as everything above. Caps are square like the rest and it makes no
+   difference: the path is closed, so it has no ends. */
+export const IconWrench = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.95}
+    strokeLinecap="square"
+    strokeLinejoin="miter"
+  >
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
+  </svg>
+);
+
 /* A magnifying glass — the one pictogram for "find a place" that needs no
    caption of its own. */
 export const IconSearch = () => (
@@ -182,6 +207,18 @@ export const IconScale = () => (
   <Svg>
     <rect x="2.5" y="7.5" width="6" height="6" />
     <path d="M9.6 6.4 14 2M14 2h-4M14 2v4" />
+  </Svg>
+);
+
+/* Two squares, the back one drawn only where it shows — an L hugging the front
+   square's corner rather than a whole rect behind it. Two full outlines crossing
+   at 1.3 px is a lattice at this size, and the copy has to read as the thing in
+   front. Distinct from IconBox, which is one volume seen in projection, and from
+   IconScale above, whose square is anchored to an arrow instead. */
+export const IconDuplicate = () => (
+  <Svg>
+    <rect x="2.2" y="6.2" width="7.6" height="7.6" />
+    <path d="M6.2 6.2V2.4h7.4v7.4H9.8" />
   </Svg>
 );
 

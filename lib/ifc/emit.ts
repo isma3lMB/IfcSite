@@ -1,5 +1,6 @@
 import { ContextModel } from '@/lib/ifc/writer';
 import { layerAlpha, layerColor } from '@/lib/scene/layers';
+import { sourceOf } from '@/lib/sources/licence';
 import type { IfcStats, SceneData, SiteMeta, Vec3 } from '@/lib/types';
 
 /**
@@ -28,6 +29,12 @@ export function emitIFC(
       layerColor(scene, 'terrain'),
       undefined,
       1 - layerAlpha(scene, 'terrain'),
+      // No offset: terrain is not a movable layer (see MOVABLE_LAYERS).
+      undefined,
+      // Whose elevation this is, for the licence property set. Resolved here
+      // rather than in the writer because only this call site knows which of
+      // the merged surfaces it is handing over.
+      sourceOf('terrain', meta.provider),
     );
   }
 
@@ -63,6 +70,7 @@ export function emitIFC(
       undefined,
       1 - layerAlpha(scene, 'roads'),
       scene.layers.roads.offset,
+      sourceOf('vector', meta.provider),
     );
   }
 
@@ -86,6 +94,7 @@ export function emitIFC(
       undefined,
       1 - layerAlpha(scene, 'railways'),
       scene.layers.railways.offset,
+      sourceOf('vector', meta.provider),
     );
   }
 
@@ -113,6 +122,9 @@ export function emitIFC(
       s.props,
       1 - layerAlpha(scene, layer),
       scene.layers[layer].offset,
+      // The theme layers only exist on the IGN path, so the tier alone settles
+      // it: parcels are the cadastre, the rest are BD TOPO.
+      sourceOf(layer, meta.provider),
     );
   }
 
