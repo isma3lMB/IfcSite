@@ -5,6 +5,7 @@ import {
   IconBox,
   IconDrafts,
   IconDrawSite,
+  IconDuplicate,
   IconLayers,
   IconMeasure,
   IconMeasureArea,
@@ -52,6 +53,7 @@ export type ToolRailProps = {
   onZoom: () => void;
   onDrawTool: (tool: DrawTool | null) => void;
   onMode: (m: GizmoMode) => void;
+  onDuplicate: () => void;
   onUndo: () => void;
   onRedo: () => void;
 };
@@ -160,6 +162,18 @@ export function ToolRail(p: ToolRailProps) {
             on: p.gizmoMode === 'scale',
             disabled: translateOnly,
             onClick: () => p.onMode('scale'),
+          },
+          // In this group rather than one of its own — it acts on the selection,
+          // which is what the three above have in common — but it is a command,
+          // not a mode, so it never takes a pressed state. Disabled with nothing
+          // selected, and for the origin and the layers, which are not records
+          // there is anything to copy.
+          {
+            key: 'dup',
+            icon: <IconDuplicate />,
+            tip: t('ed.duplicate'),
+            disabled: !p.selection || translateOnly,
+            onClick: p.onDuplicate,
           },
         ],
         [

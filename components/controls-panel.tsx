@@ -4,7 +4,16 @@ import { useState } from 'react';
 import { CrsField } from '@/components/crs-field';
 import { LAYER_ICON } from '@/components/icons';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  SELECT_CONTENT,
+  SELECT_ITEM,
+  SELECT_TRIGGER,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import {
   DEFAULT_TUNABLES,
@@ -17,30 +26,14 @@ import { rectCentre, rectSize } from '@/lib/geo/rect';
 import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
 import { useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
-import { IFC_SCHEMAS } from '@/lib/ifc/writer';
 import type {
   BuildOptions,
   FormPatch,
-  IfcSchema,
   LayerId,
   Provider,
   SiteRect,
   TerrainAccuracy,
 } from '@/lib/types';
-
-/*
- * Provider labels are longer than the 330px dock, so the closed
- * trigger ellipsises on one line and the open list — free to grow past the dock
- * — carries the full text. The shadcn defaults leave the selected label as a
- * flex box, where the clamp is inert and the text is cut with no ellipsis at
- * all; block + truncate is what puts the "…" back. cn() is tailwind-merge, so
- * passing the same utility group here drops the default instead of stacking.
- */
-const SELECT_TRIGGER =
-  'ctl-input w-full *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate';
-const SELECT_CONTENT = 'w-auto min-w-(--anchor-width) max-w-[min(92vw,26rem)]';
-/* Wraps only once a label is too long for the cap above — a phone, in practice. */
-const SELECT_ITEM = 'font-mono text-[13px] **:whitespace-normal';
 
 /**
  * The layer's glyph, on an Include row.
@@ -153,11 +146,6 @@ export function ControlsPanel(p: ControlsPanelProps) {
     osm: t('ctl.sourceOsm'),
     
   };
-  const schemaItems: Record<IfcSchema, string> = {
-    IFC2X3: t('ctl.ifcSchema2x3'),
-    IFC4: t('ctl.ifcSchema4'),
-    IFC4X3: t('ctl.ifcSchema4x3'),
-  };
   const accuracyItems: Record<TerrainAccuracy, string> = {
     coarse: t('ctl.accuracyCoarse'),
     standard: t('ctl.accuracyStandard'),
@@ -202,44 +190,16 @@ export function ControlsPanel(p: ControlsPanelProps) {
           bar the moment there is one, and stating it twice is what made the
           old flow bar suppress its own copy by hand. */}
 
+      {/* The CRS is a build input: changing it reprojects every coordinate, so
+          the scene on screen goes stale and this panel says so. The IFC schema
+          used to sit under it and is not one — nothing is fetched and nothing
+          moves — so it has gone to the wrench beside Download, with the rest of
+          what the file says about itself. See IfcMeta in lib/types. */}
       <CrsField
         rect={p.rect}
         value={p.form.epsg}
         onChange={(epsg) => p.onChange({ epsg })}
       />
-
-      {/* Beside the CRS rather than down by Download, because it belongs to the
-          same question — what the file says about itself — and because it is a
-          setting you pick once. It applies to the model already open: no build
-          input changes, so nothing is re-fetched and the scene does not go
-          stale. See onFormChange in components/ifc-site. */}
-      <div className="field">
-        <label className="eyebrow block mb-1.5" htmlFor="ifcSchema">
-          {t('ctl.ifcSchema')}
-        </label>
-        <Select
-          items={schemaItems}
-          value={p.form.ifcSchema}
-          onValueChange={(v) => p.onChange({ ifcSchema: v as IfcSchema })}
-        >
-          <SelectTrigger id="ifcSchema" className={SELECT_TRIGGER}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className={SELECT_CONTENT}>
-            {IFC_SCHEMAS.map((v) => (
-              <SelectItem key={v} value={v} className={SELECT_ITEM}>
-                {schemaItems[v]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {/* Only under IFC2X3, and only because it is a surprise: the schema has
-            no tessellation, so every mesh goes out as boundary representation
-            and the file is several times the size. Nothing is lost from it. */}
-        {p.form.ifcSchema === 'IFC2X3' && (
-          <div className="fieldHint">{t('ctl.ifcSchemaBrepHint')}</div>
-        )}
-      </div>
 
       <div className="field">
         <label className="eyebrow block mb-1.5">{t('ctl.verticalDatum')}</label>

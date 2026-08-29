@@ -19,7 +19,7 @@ import {
 import { osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
 import { terrariumGrid } from '@/lib/sources/terrain';
 import { finishRailways, finishRoads } from '@/lib/scene/push';
-import { emptyScene } from '@/lib/types';
+import { emptyScene, newIfcMeta } from '@/lib/types';
 import { paint } from '@/lib/ui/yield';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
@@ -198,11 +198,17 @@ export async function runBuild(
     verticalDatum: scene.datumZ === null ? null : VERTICAL_DATUMS[opts.provider].name,
     verticalDatumEpsg: scene.datumZ === null ? null : VERTICAL_DATUMS[opts.provider].epsg,
     crsDef: crs.def,
-    projectName: `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
-    // Seeded from the form, then owned by the meta: the options panel writes
-    // later changes straight in here rather than through a rebuild, since the
-    // schema decides how the scene is written and not what is in it.
-    schema: opts.ifcSchema,
+    // Blank, not seeded from the form: the schema, the names and the authorship
+    // are the user's and survive a rebuild, so components/ifc-site stamps the
+    // bag it has been holding straight into this meta once the build lands. An
+    // untouched bag writes the file this wrote before it existed — see IfcMeta.
+    ifc: newIfcMeta(),
+    provider: opts.provider,
+    // The build's own date, for the Licence Ouverte's "date de la dernière mise
+    // à jour" — see SiteMeta.fetched. Stamped here rather than per request:
+    // the terrain is already down and the vectors follow within seconds, so to
+    // the day this is the date every source was queried.
+    fetched: new Date().toISOString().slice(0, 10),
   };
 
   let tagged = 0;

@@ -11,7 +11,7 @@ import {
   parseDraft,
   toDraft,
 } from '@/lib/io/draft';
-import { emptyScene } from '@/lib/types';
+import { defaultProjectName, emptyScene, newIfcMeta } from '@/lib/types';
 import type { SiteMeta, Site, SiteRect } from '@/lib/types';
 
 /* -------------------------------------------------------------------------
@@ -44,8 +44,9 @@ const META: SiteMeta = {
   verticalDatum: null,
   verticalDatumEpsg: null,
   crsDef: CRS_DEFS['2154'].def,
-  projectName: 'Test site',
-  schema: 'IFC4',
+  ifc: { ...newIfcMeta(), projectName: 'Test site' },
+  provider: 'ign',
+  fetched: '2026-02-14',
 };
 
 const draft = (): Draft =>
@@ -242,9 +243,54 @@ describe('parseDraft', () => {
       expect(out.meta.crsDef).toBe(CRS_DEFS['2154'].def);
     });
 
+    /* The attribution the export has to carry travels with the draft: an IFC
+       written from a reopened site must still name its sources, and must still
+       report when the data actually came down rather than when the button was
+       pressed the second time. */
+    it('round-trips the provider and the fetch date', () => {
+      const out = parseDraft(text({}));
+      expect(out.meta.provider).toBe('ign');
+      expect(out.meta.fetched).toBe('2026-02-14');
+    });
+
+    /* A draft written before the meta carried a provider still recorded one on
+       its form — that is what runBuild was handed. */
+    it('recovers the provider from the form when the meta has none', () => {
+      const { provider: _p, ...bare } = META;
+      const form = { ...DEFAULT_FORM, provider: 'ign', tune: { ...DEFAULT_TUNABLES } };
+      expect(parseDraft(text({ meta: bare, form })).meta.provider).toBe('ign');
+    });
+
+    /* An old draft genuinely does not know when its data was fetched, and the
+       export omits the property rather than claiming today. */
+    it('leaves the fetch date empty rather than inventing one', () => {
+      const { fetched: _f, ...bare } = META;
+      expect(parseDraft(text({ meta: bare })).meta.fetched).toBe('');
+    });
+
     it('falls back to the project name when the draft has no name', () => {
-      expect(parseDraft(text({ name: undefined })).name).toBe(META.projectName);
-      expect(parseDraft(text({ name: 42 })).name).toBe(META.projectName);
+      expect(parseDraft(text({ name: undefined })).name).toBe(META.ifc.projectName);
+      expect(parseDraft(text({ name: 42 })).name).toBe(META.ifc.projectName);
+    });
+
+    /* With no name typed into the IFC panel either, the fallback is the same
+       one the writer puts on IfcProject — so Drafts and the file agree. */
+    it('falls back to the coordinates when the project name is blank too', () => {
+      const meta = { ...META, ifc: newIfcMeta() };
+      expect(parseDraft(text({ name: undefined, meta })).name).toBe(
+        defaultProjectName(META.lat, META.lon),
+      );
+    });
+
+    /* The two fields IfcMeta absorbed sat at the top of the meta before it
+       existed. A site saved then has to reopen under its own name and schema. */
+    it('migrates a draft that carried projectName and schema on the meta', () => {
+      const { ifc: _i, ...bare } = META;
+      const legacy = { ...bare, projectName: 'Older site', schema: 'IFC2X3' };
+      const out = parseDraft(text({ meta: legacy })).meta.ifc;
+      expect(out.projectName).toBe('Older site');
+      expect(out.schema).toBe('IFC2X3');
+      expect(out.author).toBe('');
     });
 
     it('repairs a poisoned tunable rather than rejecting the file', () => {
@@ -256,7 +302,7 @@ describe('parseDraft', () => {
 
     it('reads a missing form back as the defaults', () => {
       const out = parseDraft(text({ form: undefined }));
-      expect(out.form.ifcSchema).toBe(DEFAULT_FORM.ifcSchema);
+      expect(out.form.epsg).toBe(DEFAULT_FORM.epsg);
       expect(out.form.tune).toEqual(DEFAULT_TUNABLES);
     });
 

@@ -1,8 +1,11 @@
 'use client';
 
+import type { ReactNode, RefObject } from 'react';
+import { IconWrench } from '@/components/icons';
+import { IfcFlyout } from '@/components/ifc-flyout';
 import { type Step, buildStep } from '@/lib/ui/step';
 import { useT } from '@/lib/i18n/context';
-import type { SiteRect } from '@/lib/types';
+import type { IfcMeta, SiteRect } from '@/lib/types';
 import type { DrawTool } from '@/lib/viewer/Viewer';
 
 export type StatusBarProps = {
@@ -20,6 +23,17 @@ export type StatusBarProps = {
   onClearMeasures: () => void;
   onBuild: () => void;
   onDownload: () => void;
+  /* What the exported file says about itself, and the wrench that opens it.
+     The panel lives here rather than beside the rail's flyouts because it hangs
+     off Download — see IfcFlyout. */
+  ifc: IfcMeta;
+  ifcOpen: boolean;
+  ifcBtnRef: RefObject<HTMLButtonElement | null>;
+  defaultProjectName: string;
+  onToggleIfc: () => void;
+  onIfc: (patch: Partial<IfcMeta>) => void;
+  onResetIfc: () => void;
+  onCloseIfc: () => void;
 };
 
 /**
@@ -43,15 +57,57 @@ export function StatusBar(p: StatusBarProps) {
   const clearable = measuring && p.measureCount > 0;
 
   // 'draw' with no tool armed leaves nothing to draw: the next thing to do is a
-  // rail button beside the map it acts on. Returning null rather than an empty
-  // element matters now that the bar is shrink-wrapped — a bordered .floating
-  // box with no content in it would sit at the bottom of the window as a stray
-  // chip. The measure tools cannot reach that branch — the rail only offers them
-  // once there is a scene, which is past 'draw'.
+  // rail button beside the map it acts on, so there is nothing for this row to
+  // say. It used to matter more than it does — the bar was a bordered surface,
+  // and an empty one sat at the foot of the window as a stray chip. Now that it
+  // is a bare layout row an empty one would be invisible, and this is only here
+  // so the DOM says so too. The measure tools cannot reach this branch — the
+  // rail only offers them once there is a scene, which is past 'draw'.
   if (step === 'draw' && !p.drawTool) return null;
 
+  /* Download, with the wrench pinned to its top-right corner and the panel that
+     wrench opens hanging off the same box.
+
+     A badge on the button rather than a sibling beside it: these settings are
+     about the file Download writes and nothing else, and a separate round button
+     in the row would read as a third action. Yellow because it is the one thing
+     here that is neither of the two actions — see .barChip.
+
+     A function rather than a constant because the two branches below hand it a
+     different button: Download is the secondary action while the model is stale
+     and the primary one once it is not. Written once all the same — a second copy
+     is the one that gets forgotten when the panel grows a prop. */
+  const withIfcChip = (download: ReactNode) => (
+    <div className="barChipWrap">
+      {download}
+      <button
+        ref={p.ifcBtnRef}
+        type="button"
+        className={`barChip${p.ifcOpen ? ' on' : ''}`}
+        title={t('ifc.title')}
+        aria-label={t('ifc.title')}
+        aria-expanded={p.ifcOpen}
+        aria-controls="ifcFlyout"
+        onClick={p.onToggleIfc}
+      >
+        <IconWrench />
+      </button>
+      {p.ifcOpen && (
+        <IfcFlyout
+          ifc={p.ifc}
+          defaultProjectName={p.defaultProjectName}
+          onChange={p.onIfc}
+          onReset={p.onResetIfc}
+          onClose={p.onCloseIfc}
+        />
+      )}
+    </div>
+  );
+
   return (
-    <div className="statusbar floating">
+    // No .floating: the bar is a layout row, not a surface. Its buttons carry
+    // their own — see .statusbar .btn-* in globals.css.
+    <div className="statusbar">
       {clearable && (
         <button type="button" className="btn-ghost" onClick={p.onClearMeasures}>
           {t('bar.measureClear', { n: p.measureCount })}
@@ -85,11 +141,15 @@ export function StatusBar(p: StatusBarProps) {
       <div className="barActions">
         {step === 'sited' && (
           <>
-            {p.hasScene && (
-              <button type="button" className="btn-ghost" onClick={p.onDownload}>
-                {t('ctl.download')}
-              </button>
-            )}
+            {/* Only where Download is — there is no SiteMeta to edit until a
+                build has produced one. */}
+            {p.hasScene &&
+              withIfcChip(
+                <button type="button" className="btn-ghost" onClick={p.onDownload}>
+                  <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
+                  {t('ctl.download')}
+                </button>,
+              )}
             <button type="button" className="btn-primary" onClick={p.onBuild}>
               {p.hasScene ? t('bar.rebuild') : t('ctl.build')}
             </button>
@@ -107,9 +167,12 @@ export function StatusBar(p: StatusBarProps) {
             <button type="button" className="btn-ghost" onClick={p.onBuild}>
               {t('bar.rebuild')}
             </button>
-            <button type="button" className="btn-primary" onClick={p.onDownload}>
-              {t('ctl.download')}
-            </button>
+            {withIfcChip(
+              <button type="button" className="btn-primary" onClick={p.onDownload}>
+                <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
+                {t('ctl.download')}
+              </button>,
+            )}
           </>
         )}
       </div>

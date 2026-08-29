@@ -6,7 +6,12 @@ import { LAYER_ICON, IconEye, IconEyeOff } from '@/components/icons';
 import { useT } from '@/lib/i18n/context';
 import type { StringKey } from '@/lib/i18n/context';
 import type { LayerId } from '@/lib/types';
-import { type LayerNode, layerSelId } from '@/lib/viewer/Viewer';
+import { type LayerNode, type SelectMode, layerSelId } from '@/lib/viewer/Viewer';
+
+/** What a click on a row means, read off its modifiers — the same reading the
+ *  3D view makes of a click on the model. See initPicking. */
+const modeOf = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): SelectMode =>
+  e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'remove' : 'replace';
 
 /**
  * How tall one leaf row is, in pixels, and how many the scroller shows.
@@ -32,12 +37,12 @@ const OVERSCAN = 6;
  */
 function ItemList({
   items,
-  selectedId,
+  selected,
   onSelect,
 }: {
   items: { id: string; name: string }[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
+  selected: ReadonlySet<string>;
+  onSelect: (id: string, mode: SelectMode) => void;
 }) {
   const [top, setTop] = useState(0);
 
@@ -58,11 +63,14 @@ function ItemList({
             <button
               key={it.id}
               type="button"
-              className={`treeItem${it.id === selectedId ? ' on' : ''}`}
+              className={`treeItem${selected.has(it.id) ? ' on' : ''}`}
               style={{ height: ROW_H }}
               title={it.id}
-              aria-current={it.id === selectedId}
-              onClick={() => onSelect(it.id)}
+              aria-current={selected.has(it.id)}
+              // The same modifiers the 3D view reads, so a row is one more way
+              // to reach an element — including the ones buried inside another,
+              // where no click on the model can land.
+              onClick={(e) => onSelect(it.id, modeOf(e))}
             >
               {it.name}
             </button>
@@ -75,11 +83,12 @@ function ItemList({
 
 export type ModelTreeProps = {
   nodes: LayerNode[];
-  /** The Selection.id currently in the inspector, so the tree can mark its own
-   *  row — layers and elements share one id namespace (see layerSelId). */
-  selectedId: string | null;
+  /** Every id in the inspector, so the tree can mark its own rows — layers and
+   *  elements share one id namespace (see layerSelId). More than one only ever
+   *  for elements; the origin and the layers do not group. */
+  selectedIds: string[];
   onSelectLayer: (id: LayerId) => void;
-  onSelectItem: (id: string) => void;
+  onSelectItem: (id: string, mode: SelectMode) => void;
   onLayerColor: (id: LayerId, hex: number, commit: boolean) => void;
   onLayerVisible: (id: LayerId, on: boolean) => void;
   onClose: () => void;
@@ -127,6 +136,10 @@ export function ModelTree(p: ModelTreeProps) {
       ),
     [p.nodes, q],
   );
+
+  /* A set, because the leaf list asks this per rendered row and a multi-selection
+     can hold hundreds. Rebuilt only when the selection itself changes. */
+  const selectedIds = useMemo(() => new Set(p.selectedIds), [p.selectedIds]);
 
   if (!p.nodes.length)
     return (
@@ -181,7 +194,7 @@ export function ModelTree(p: ModelTreeProps) {
           const items = filtered.get(n.id) ?? [];
           const expandable = n.items.length > 0;
           const isOpen = expandable && open.has(n.id);
-          const selected = p.selectedId === layerSelId(n.id);
+          const selected = selectedIds.has(layerSelId(n.id));
           const Icon = LAYER_ICON[n.id];
 
           return (
@@ -256,7 +269,7 @@ export function ModelTree(p: ModelTreeProps) {
 
               {isOpen &&
                 (items.length ? (
-                  <ItemList items={items} selectedId={p.selectedId} onSelect={p.onSelectItem} />
+                  <ItemList items={items} selected={selectedIds} onSelect={p.onSelectItem} />
                 ) : (
                   <p className="treeNote">{t('tree.noMatch')}</p>
                 ))}

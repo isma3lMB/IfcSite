@@ -187,7 +187,31 @@ function SelectScrollDownButton({
   )
 }
 
+
+/*
+ * The three class groups every Select on this page is dressed with.
+ *
+ * Provider labels are longer than the 330px dock, so the closed trigger
+ * ellipsises on one line and the open list — free to grow past the dock —
+ * carries the full text. The shadcn defaults leave the selected label as a flex
+ * box, where the clamp is inert and the text is cut with no ellipsis at all;
+ * block + truncate is what puts the "…" back. cn() is tailwind-merge, so passing
+ * the same utility group at the call site drops the default instead of stacking.
+ *
+ * Here rather than in the panel that first needed them: the options flyout and
+ * the IFC flyout both dress selects, and two copies of these strings is two
+ * things to keep in step.
+ */
+const SELECT_TRIGGER =
+  'ctl-input w-full *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate'
+const SELECT_CONTENT = 'w-auto min-w-(--anchor-width) max-w-[min(92vw,26rem)]'
+/* Wraps only once a label is too long for the cap above — a phone, in practice. */
+const SELECT_ITEM = 'font-mono text-[13px] **:whitespace-normal'
+
 export {
+  SELECT_CONTENT,
+  SELECT_ITEM,
+  SELECT_TRIGGER,
   Select,
   SelectContent,
   SelectGroup,
