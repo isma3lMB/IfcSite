@@ -27,6 +27,13 @@ export const en = {
   'info.openSource':
     'IFC Site is an open source project. The whole pipeline — the Overpass and IGN queries, the geometry, the IFC writer — is on GitHub, and open to issues and pull requests.',
   'info.github': 'View the source on GitHub',
+  /* The credits block. The rows themselves — dataset names, licence names and
+     URLs — are proper nouns and do not translate; they live in the same
+     DATA_SOURCES table the IFC writer reads, so the page and the file cannot
+     disagree about whose data this is. */
+  'info.credits': 'Data sources and licences',
+  'info.creditsLead':
+    'This tool is built on public data that is free to use on one condition: the credit travels with it. Every IFC it exports carries these terms per element, in an ePset_License property set, so the attribution reaches whoever you send the model to.',
   'ui.options': 'Options',
   'ui.originMarker': 'Show the model origin',
   'ui.projection': 'Orthographic view',
@@ -78,7 +85,7 @@ export const en = {
   /* ---- status bar: the one place anything is stated ---- */
   'bar.site': 'Site',
   'bar.origin': 'Origin',
-  'bar.rebuild': 'Rebuild sheet',
+  'bar.rebuild': 'Rebuild model',
   'bar.stale': 'Site moved since the last build — rebuild before exporting.',
   'bar.presenting': 'Presentation — press Esc to exit.',
   'bar.drawHeight': 'H (m)',
@@ -98,6 +105,34 @@ export const en = {
   'bar.areaHintPoints': '{n} corners — the first corner or Enter closes, Esc cancels.',
   'bar.measureClear': 'Clear ({n})',
 
+  /* ---- the IFC panel: everything the exported file says about itself, off the
+     wrench beside Download. None of it is a build input — see IfcMeta. ---- */
+  'ifc.title': 'IFC file',
+  'ifc.lead':
+    'What the file says about itself. None of it is rebuilt — the model on screen is re-serialised as you type.',
+  'ifc.schema': 'IFC schema',
+  'ifc.schema2x3': 'IFC2X3 — older readers',
+  'ifc.schema4': 'IFC4 — default',
+  'ifc.schema4x3': 'IFC4X3 — infrastructure',
+  'ifc.schemaBrepHint':
+    'IFC2X3 has no tessellation, so terrain, roads and trees export as boundary representation — the same model, in a file several times the size.',
+  'ifc.project': 'Project',
+  'ifc.projectName': 'Name',
+  'ifc.projectLongName': 'Long name',
+  'ifc.projectDescription': 'Description',
+  'ifc.projectPhase': 'Phase',
+  'ifc.site': 'Site',
+  'ifc.siteName': 'Name',
+  'ifc.siteLongName': 'Long name',
+  'ifc.siteDescription': 'Description',
+  'ifc.siteLandTitle': 'Land title number',
+  'ifc.authorship': 'Authorship',
+  'ifc.author': 'Author',
+  'ifc.authorHint':
+    'The organisation and the originating software are fixed at bim-lane and ifcsite.app.',
+  'ifc.blankHint': 'A field left blank is left out of the file.',
+  'ifc.reset': 'Reset',
+
   /* ---- controls ---- */
   'ctl.findPlace': 'Find a place',
   'ctl.findPlacePlaceholder': 'Street, town, postcode, or lat, lon…',
@@ -111,12 +146,6 @@ export const en = {
   'ctl.crsError': 'CRS index unavailable — automatic UTM still works.',
   'ctl.crsNone': 'No match.',
   'ctl.crsValidHere': '{n} valid at this site',
-  'ctl.ifcSchema': 'IFC schema',
-  'ctl.ifcSchema2x3': 'IFC2X3 — older readers',
-  'ctl.ifcSchema4': 'IFC4 — default',
-  'ctl.ifcSchema4x3': 'IFC4X3 — infrastructure',
-  'ctl.ifcSchemaBrepHint':
-    'IFC2X3 has no tessellation, so terrain, roads and trees export as boundary representation — the same model, in a file several times the size.',
   'ctl.verticalDatum': 'Vertical datum',
   'ctl.verticalDatumNone': 'None — flat',
   'ctl.verticalDatumHint':
@@ -174,6 +203,9 @@ export const en = {
   'ctl.advConformStep': 'Drape step',
   'ctl.advConformStepHint':
     'How closely roads and surfaces follow the ground between terrain posts. Finer is truer and heavier.',
+  'ctl.advDrape': 'Drape onto terrain',
+  'ctl.advDrapeHint':
+    'Ticked, a layer is conformed to the ground. Unticked, it keeps the elevation BD TOPO surveyed for it, so a bridge stays above what it crosses. Layers whose source carries no elevation stay draped.',
   'ctl.advGeometry': 'Geometry defaults',
   'ctl.advStoreyHeight': 'Storey height',
   'ctl.advStoreyHeightHint':
@@ -185,7 +217,7 @@ export const en = {
   'ctl.advOrbitCycleHint':
     'Time the camera takes to circle the site once. Longer reads as a camera move, shorter as a spin. Takes effect mid-orbit.',
 
-  'ctl.build': 'Build site',
+  'ctl.build': 'Build model',
   'ctl.building': 'Building…',
   'ctl.download': 'Download IFC',
 
@@ -208,11 +240,16 @@ export const en = {
 
   /* ---- element editor ---- */
   'ed.selected': 'Selected element',
+  /* Stands in for the name when there is no single element to name. Ctrl+click
+     adds to the selection and Shift+click takes out; the panel's fields then
+     show the last one clicked and write to all of them. */
+  'ed.nSelected': '{n} elements',
   /* The gizmo modes are rail tooltips now, and a tooltip is where a keyboard
      shortcut belongs — it is the only surface that has room for it. */
   'ed.move': 'Move (G)',
   'ed.rotate': 'Rotate (R)',
   'ed.scale': 'Scale (S)',
+  'ed.duplicate': 'Duplicate (D)',
   'ed.colour': 'Colour',
   'ed.defaultColour': 'Default colour',
   'ed.opacity': 'Opacity',
@@ -222,6 +259,9 @@ export const en = {
   'ed.deleteTitle': 'Delete (Del)',
   'ed.drawnName': 'Drawn building',
   'ed.drawnTreeName': 'Drawn tree',
+  /* Appended to the name of whatever was copied, so the model tree lists the
+     pair beside each other rather than twice under one name. */
+  'ed.copySuffix': '(copy)',
   'ed.position': 'Position offset (m)',
   'ed.rotation': 'Rotation (°)',
   'ed.scaleLabel': 'Scale',
@@ -249,7 +289,7 @@ export const en = {
     'Moves the whole layer, and the exported IFC carries the same offset. Roads, tracks and draped surfaces were cut onto the terrain, so an offset — a vertical one above all — lifts them off the ground or sinks them into it.',
 
   /* ---- model tree ---- */
-  'tree.title': 'Model tree',
+  'tree.title': 'Model layers',
   'tree.empty': 'Build a sheet to see its layers.',
   'tree.filter': 'Filter elements…',
   'tree.noMatch': 'Nothing matches.',
@@ -302,6 +342,9 @@ export const en = {
   'status.editCommitted': '{label} — {name}. Ctrl+Z to undo.',
   'status.undone': 'Undone: {label} — {name}.',
   'status.redone': 'Redone: {label} — {name}.',
+  'status.editCommittedMany': '{label} — {n} elements. Ctrl+Z to undo.',
+  'status.undoneMany': 'Undone: {label} — {n} elements.',
+  'status.redoneMany': 'Redone: {label} — {n} elements.',
   'status.searchUnavailable': 'Place search unavailable ({detail}) — pan the map instead.',
   'status.draftSaved': 'Saved “{name}”.',
   'status.draftReading': 'Reading “{name}”…',
@@ -342,6 +385,7 @@ export const en = {
   'edit.height': 'Height',
   'edit.add': 'New building',
   'edit.delete': 'Delete',
+  'edit.duplicate': 'Duplicate',
   'edit.reset': 'Reset element',
   'edit.origin': 'Move origin',
   'edit.originReset': 'Origin recentred',

@@ -53,10 +53,12 @@ import { MOVABLE_LAYERS } from '@/lib/scene/layers';
 import { useTheme } from '@/lib/theme/context';
 import { isOutsideFrance } from '@/lib/sources/ign';
 import type { Place } from '@/lib/sources/nominatim';
+import { defaultProjectName, newIfcMeta } from '@/lib/types';
 import type {
   BuildOptions,
   FormPatch,
   GizmoMode,
+  IfcMeta,
   IfcStats,
   LayerId,
   SceneData,
@@ -88,6 +90,16 @@ const originLabelOf = (m: SiteMeta): string =>
   ).toFixed(1)}`;
 
 /**
+ * What to call the document when nobody has saved it under a name yet.
+ *
+ * The project name if one has been typed into the IFC panel, and otherwise the
+ * same coordinates the writer would put on IfcProject — so the name Drafts
+ * offers and the name inside the file are one thing, not two that drift.
+ */
+const docName = (m: SiteMeta | null): string | null =>
+  m ? m.ifc.projectName || defaultProjectName(m.lat, m.lon) : null;
+
+/**
  * How long the chrome stays up after the pointer stops, while presenting.
  *
  * Long enough to reach the button that ends the mode from anywhere on screen,
@@ -95,6 +107,10 @@ const originLabelOf = (m: SiteMeta): string =>
  * the model for the length of a meeting.
  */
 const CHROME_IDLE_MS = 2500;
+
+/** One array, so the tree's `selectedIds` prop is referentially stable while
+ *  nothing is selected — a fresh `[]` each render would rebuild its Set. */
+const EMPTY_IDS: string[] = [];
 
 /**
  * What the confirm card is asking about.
@@ -176,6 +192,11 @@ export function IfcSite() {
       saved site has to work from a cold start with nothing drawn yet. */
   const fileOpenRef = useRef(false);
   const fileBtnRef = useRef<HTMLButtonElement>(null);
+  /** And the fifth, which is the odd one out: its button is in the status bar
+      rather than on the rail, because it belongs to Download. It is in the same
+      table all the same — at most one panel should ever be out. */
+  const ifcOpenRef = useRef(false);
+  const ifcBtnRef = useRef<HTMLButtonElement>(null);
   /** And for presentation, which Escape has to be able to leave — it outranks
       every flyout above, all of which are hidden while it runs. */
   const presentingRef = useRef(false);
@@ -226,6 +247,20 @@ export function IfcSite() {
       store is what is true, and every mutation re-reads it. */
   const [fileOpen, setFileOpenState] = useState(false);
   const [slots, setSlots] = useState<SlotMeta[]>([]);
+  /** The IFC panel, and what it edits.
+
+      Held at app level rather than read off metaRef because it has to outlive a
+      build: the schema, the names and the authorship are properties of the
+      document and never depended on the geometry, so a rebuild carries them
+      forward — unlike projectBase/projectAngle, which are measured against a
+      site the rebuild has just re-derived and are deliberately zeroed with it.
+      runBuildNow stamps this bag into the meta it is handed. */
+  const [ifcOpen, setIfcOpenState] = useState(false);
+  const [ifc, setIfc] = useState<IfcMeta>(newIfcMeta);
+  /** The stamp above happens inside a callback that must not re-create itself on
+      every keystroke, so it reads the bag through a ref rather than closing over
+      it. Kept in step below. */
+  const ifcRef = useRef(ifc);
   /** Matches the viewer's own default; the marker is opt-in. */
   const [showOrigin, setShowOrigin] = useState(false);
   /** Also the viewer's default. Held here rather than reported back, like the
@@ -443,6 +478,7 @@ export function IfcSite() {
       height: drawHeight,
       name: t('ed.drawnName'),
       treeName: t('ed.drawnTreeName'),
+      copyName: t('ed.copySuffix'),
     });
   }, [drawHeight, t]);
 
@@ -609,6 +645,7 @@ export function IfcSite() {
         if (presentingRef.current) onPresent(false);
         else if (infoOpenRef.current) closeInfo();
         else if (fileOpenRef.current) closeFile();
+        else if (ifcOpenRef.current) closeIfc();
         else if (optionsOpenRef.current) closeOptions();
         else if (searchOpenRef.current) closeSearch();
         else if (treeOpenRef.current) closeTree();
@@ -630,6 +667,12 @@ export function IfcSite() {
         const tool = drawToolRef.current;
         if (tool === 'measure' || tool === 'measureArea') viewerRef.current?.undoMeasure();
         else viewerRef.current?.deleteSelected();
+      } else if (e.key === 'd' || e.key === 'D') {
+        // Straight on the ref, like deleteSelected above: the viewer knows
+        // whether anything duplicable is selected, and this effect holds no
+        // state that could go stale. Plain D rather than Ctrl+D — the browser
+        // owns that one, and the Ctrl branch above returns before reaching here.
+        viewerRef.current?.duplicateSelected();
       } else if (e.key === 'g' || e.key === 'G') applyMode('translate');
       else if (e.key === 'r' || e.key === 'R') applyMode('rotate');
       else if (e.key === 's' || e.key === 'S') applyMode('scale');
@@ -644,6 +687,8 @@ export function IfcSite() {
     if (viewerRef.current?.setMode(m) === false) return;
     setGizmoMode(m);
   }, []);
+
+  const onDuplicate = useCallback(() => viewerRef.current?.duplicateSelected(), []);
 
   /* Re-read the tree from the viewer, on the viewer's own onLayers signal.
      Derived rather than pushed: React holds no scene, and a node list rebuilt
@@ -699,6 +744,25 @@ export function IfcSite() {
     emitterRef.current?.markDirty();
   }, []);
 
+  /* The same write-through as writePlacement above, and for the same reason: the
+     emitter holds this very meta object, so putting the patch into it and marking
+     dirty is the whole path to the download. Nothing on screen changes — the
+     schema decides how the scene is written, not what is in it — so there is no
+     viewer call here either. The ref keeps runBuildNow's stamp in step. */
+  const onIfc = useCallback((patch: Partial<IfcMeta>) => {
+    // Off the ref rather than inside a setIfc updater: the write-through and the
+    // markDirty are side effects, and an updater is called more than once.
+    const next = { ...ifcRef.current, ...patch };
+    ifcRef.current = next;
+    setIfc(next);
+    const m = metaRef.current;
+    if (!m) return;
+    m.ifc = next;
+    emitterRef.current?.markDirty();
+  }, []);
+
+  const onResetIfc = useCallback(() => onIfc(newIfcMeta()), [onIfc]);
+
   const onProjectBase = useCallback(
     (i: number, v: number) => {
       if (!Number.isFinite(v)) return;
@@ -751,6 +815,7 @@ export function IfcSite() {
       search: { open: searchOpenRef, set: setSearchOpenState, btn: searchBtnRef },
       tree: { open: treeOpenRef, set: setTreeOpenState, btn: treeBtnRef },
       file: { open: fileOpenRef, set: setFileOpenState, btn: fileBtnRef },
+      ifc: { open: ifcOpenRef, set: setIfcOpenState, btn: ifcBtnRef },
     }),
     [],
   );
@@ -789,10 +854,12 @@ export function IfcSite() {
   const closeSearch = useCallback(() => closeFlyout('search'), [closeFlyout]);
   const closeTree = useCallback(() => closeFlyout('tree'), [closeFlyout]);
   const closeFile = useCallback(() => closeFlyout('file'), [closeFlyout]);
+  const closeIfc = useCallback(() => closeFlyout('ifc'), [closeFlyout]);
   const toggleOptions = useCallback(() => toggleFlyout('options'), [toggleFlyout]);
   const toggleSearch = useCallback(() => toggleFlyout('search'), [toggleFlyout]);
   const toggleTree = useCallback(() => toggleFlyout('tree'), [toggleFlyout]);
   const toggleFile = useCallback(() => toggleFlyout('file'), [toggleFlyout]);
+  const toggleIfc = useCallback(() => toggleFlyout('ifc'), [toggleFlyout]);
 
   /* The fifth way a flyout closes, after its own ✕, Escape, its rail button and
      another flyout opening: a click that lands anywhere else.
@@ -828,7 +895,13 @@ export function IfcSite() {
         return;
       }
       const el = e.target instanceof Element ? e.target : null;
-      if (!el || !el.closest('.app') || el.closest('.railZone')) return;
+      // The rail zone is exempt because the buttons that open four of these
+      // panels are in it — a handler that fired on one of them would close the
+      // panel just in time for the click to toggle it straight back open. The
+      // status bar is exempt for the same reason and only that one: it holds the
+      // fifth panel's wrench.
+      if (!el || !el.closest('.app') || el.closest('.railZone') || el.closest('.statusbar'))
+        return;
       for (const name of Object.keys(flyouts) as FlyoutName[]) {
         if (flyouts[name].open.current) setFlyout(name, false);
       }
@@ -913,18 +986,15 @@ export function IfcSite() {
     // rectangle you may draw next and says nothing about a scene already built.
     if (patch.tune && Object.keys(patch.tune).some((k) => SCENE_TUNABLES.has(k as keyof Tunables)))
       setSiteDirty((d) => d || hasScene);
-    // The schema is an export parameter, not a build input — nothing has to be
-    // re-fetched and no coordinate moves — so it reaches an open model the way
-    // the origin marker's own fields do: straight into the live SiteMeta, then
-    // re-serialise. Deliberately not one of the siteDirty conditions above: the
-    // scene on screen is still exactly what the next build would produce.
-    if (patch.ifcSchema) {
-      const m = metaRef.current;
-      if (m) {
-        m.schema = patch.ifcSchema;
-        emitterRef.current?.markDirty();
-      }
-    }
+    // Draping decides where a layer's geometry sits, so flipping one is as much
+    // a build input as a tunable — and unlike the Include checkboxes beside it,
+    // there is no way to tell from the viewer that the scene on screen was built
+    // the other way.
+    if (patch.drape) setSiteDirty((d) => d || hasScene);
+    // The IFC schema used to need a third clause here, because it travelled on
+    // this form and was not a build input. It is on IfcMeta now and reaches the
+    // open model through onIfc — so everything left in this callback dirties the
+    // site, which is what a build input means.
     setForm((f) => {
       // `tune` is re-spread after the shallow merge: the panel sends one field
       // at a time, so {...f, ...patch} alone would put a one-key object where
@@ -999,6 +1069,11 @@ export function IfcSite() {
     }
 
     metaRef.current = res.meta;
+    // The file's own settings are the user's and outlive the scene: runBuild
+    // hands back a blank bag (see run.ts) and this is where the one the panel
+    // has been editing goes back on. Before setSource below, so the first
+    // serialisation of the new scene already carries them.
+    res.meta.ifc = ifcRef.current;
     sceneRef.current = res.scene;
     siteRef.current = res.site;
     crsDefRef.current = res.crsDef;
@@ -1135,6 +1210,10 @@ export function IfcSite() {
         // against, so they still mean what they meant.
         setProjectBase(d.meta.projectBase);
         setProjectAngle(d.meta.projectAngle);
+        // Likewise from the draft: the file's own settings were saved with it,
+        // and the panel has to show what the reopened document actually says.
+        setIfc(d.meta.ifc);
+        ifcRef.current = d.meta.ifc;
         setDrawHeight(d.form.defaultHeight);
 
         // The same scene object reaches both, exactly as a build's does — that
@@ -1208,7 +1287,7 @@ export function IfcSite() {
   );
 
   const onExportDraft = useCallback(() => {
-    const name = draftNameRef.current ?? metaRef.current?.projectName ?? 'site';
+    const name = draftNameRef.current ?? docName(metaRef.current) ?? 'site';
     const d = collectDraft(name);
     if (!d) return;
     const file = `${safeFileStem(name, 'site')}${DRAFT_EXT}`;
@@ -1465,6 +1544,7 @@ export function IfcSite() {
                mount-only key handler reads. */
             onDrawTool={(tool) => viewerRef.current?.setDrawMode(tool)}
             onMode={applyMode}
+            onDuplicate={onDuplicate}
             onUndo={() => viewerRef.current?.undo()}
             onRedo={() => viewerRef.current?.redo()}
           />
@@ -1476,7 +1556,7 @@ export function IfcSite() {
               hasScene={hasScene}
               slots={slots}
               currentName={draftNameRef.current}
-              suggestedName={metaRef.current?.projectName ?? ''}
+              suggestedName={docName(m) ?? ''}
               onSave={onSaveSlot}
               onOpenSlot={onOpenSlot}
               onRenameSlot={onRenameSlot}
@@ -1505,9 +1585,9 @@ export function IfcSite() {
           {treeOpen && view === '3d' && (
             <ModelTree
               nodes={layerNodes}
-              selectedId={selection?.id ?? null}
+              selectedIds={selection?.ids ?? EMPTY_IDS}
               onSelectLayer={onSelectLayer}
-              onSelectItem={(id) => viewerRef.current?.select(id)}
+              onSelectItem={(id, mode) => viewerRef.current?.select(id, mode)}
               onLayerColor={onLayerColor}
               onLayerVisible={onLayerVisible}
               onClose={closeTree}
@@ -1566,6 +1646,16 @@ export function IfcSite() {
           onClearMeasures={onClearMeasures}
           onBuild={onBuild}
           onDownload={onDownload}
+          ifc={ifc}
+          ifcOpen={ifcOpen}
+          ifcBtnRef={ifcBtnRef}
+          /* The placeholder the name field shows, which is what the file will
+             actually say with it left blank. */
+          defaultProjectName={m ? defaultProjectName(m.lat, m.lon) : ''}
+          onToggleIfc={toggleIfc}
+          onIfc={onIfc}
+          onResetIfc={onResetIfc}
+          onCloseIfc={closeIfc}
         />
 
         <SiteReadout

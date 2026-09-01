@@ -33,7 +33,7 @@ Then, in the app:
    `lat, lon` pair. Or just pan the map.
 2. **Draw the site** — click two opposite corners, or drag. The rectangle *is* the site
    definition; nothing is selected until you draw one.
-3. **Build site** — watch the status line. A first build in a French town takes a few
+3. **Build model** — watch the status line. A first build in a French town takes a few
    seconds.
 4. **Download IFC** — the file lands as `IFCSITE_<lon>_<lat>.ifc`.
 
@@ -144,7 +144,7 @@ before 1 m, and the panel tells you the grid you will actually get:
 - **Local project placement**: give that origin your project's own coordinates and turn the
   axes to its grid. It becomes the IFC site placement; the georeferencing is untouched.
 - **Undo/redo**, 100 deep, one command per gesture.
-- **Model tree** — every layer and element, with visibility, colour and a filter.
+- **Model layers** — every layer and element, with visibility, colour and a filter.
 - **Measure** distance and area, snapping to vertices, midpoints and edges.
 
 ### Drafts

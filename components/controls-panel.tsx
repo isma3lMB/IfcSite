@@ -4,7 +4,16 @@ import { useState } from 'react';
 import { CrsField } from '@/components/crs-field';
 import { LAYER_ICON } from '@/components/icons';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  SELECT_CONTENT,
+  SELECT_ITEM,
+  SELECT_TRIGGER,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import {
   DEFAULT_TUNABLES,
@@ -15,32 +24,17 @@ import {
 import { ACCURACY_CELL, gridSize } from '@/lib/geo/grid';
 import { rectCentre, rectSize } from '@/lib/geo/rect';
 import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
-import { useT } from '@/lib/i18n/context';
+import { type StringKey, useT } from '@/lib/i18n/context';
 import { terrariumN } from '@/lib/sources/terrain';
-import { IFC_SCHEMAS } from '@/lib/ifc/writer';
 import type {
   BuildOptions,
+  DrapeLayer,
   FormPatch,
-  IfcSchema,
   LayerId,
   Provider,
   SiteRect,
   TerrainAccuracy,
 } from '@/lib/types';
-
-/*
- * Provider labels are longer than the 330px dock, so the closed
- * trigger ellipsises on one line and the open list — free to grow past the dock
- * — carries the full text. The shadcn defaults leave the selected label as a
- * flex box, where the clamp is inert and the text is cut with no ellipsis at
- * all; block + truncate is what puts the "…" back. cn() is tailwind-merge, so
- * passing the same utility group here drops the default instead of stacking.
- */
-const SELECT_TRIGGER =
-  'ctl-input w-full *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate';
-const SELECT_CONTENT = 'w-auto min-w-(--anchor-width) max-w-[min(92vw,26rem)]';
-/* Wraps only once a label is too long for the cap above — a phone, in practice. */
-const SELECT_ITEM = 'font-mono text-[13px] **:whitespace-normal';
 
 /**
  * The layer's glyph, on an Include row.
@@ -114,6 +108,48 @@ function TuneRow(q: {
 }
 
 /**
+ * The boolean sibling of TuneRow, for the one advanced group that is not a
+ * number.
+ *
+ * Reuses the `.check` row the Include group is built from rather than inventing
+ * a switch: these tick a layer the same way those do, and a second control
+ * idiom inside one panel would be the only thing distinguishing them. What it
+ * adds over a bare `<label className="check">` is the `.field dimmed` wrapper
+ * and `aria-disabled`, so a disabled row reads the same as a disabled TuneRow
+ * beside it.
+ */
+function TuneToggle(q: {
+  label: string;
+  icon: LayerId;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="check" aria-disabled={q.disabled || undefined}>
+      <Checkbox
+        checked={q.checked}
+        disabled={q.disabled}
+        onCheckedChange={(v) => q.onChange(v === true)}
+      />
+      <Glyph id={q.icon} />
+      {q.label}
+    </label>
+  );
+}
+
+/** The drape rows, in the order the Include group lists the same layers, with
+ *  the LayerId each one's glyph and label come from. DrapeLayer is keyed in the
+ *  form's vocabulary; LAYER_ICON is keyed in the scene's. */
+const DRAPE_ROWS: { key: DrapeLayer; icon: LayerId; label: StringKey }[] = [
+  { key: 'roads', icon: 'roads', label: 'ctl.roads' },
+  { key: 'railways', icon: 'railways', label: 'ctl.railways' },
+  { key: 'veg', icon: 'vegetation', label: 'ctl.veg' },
+  { key: 'water', icon: 'water', label: 'ctl.water' },
+  { key: 'parcels', icon: 'parcel', label: 'ctl.parcels' },
+];
+
+/**
  * Everything that describes *how* to build, as a flyout off the rail's first
  * button. These are settings you touch once before a build and then leave alone,
  * which is a poor reason to hold 330 px of the window open for the rest of the
@@ -152,11 +188,6 @@ export function ControlsPanel(p: ControlsPanelProps) {
     ign: t('ctl.sourceIgn'),
     osm: t('ctl.sourceOsm'),
     
-  };
-  const schemaItems: Record<IfcSchema, string> = {
-    IFC2X3: t('ctl.ifcSchema2x3'),
-    IFC4: t('ctl.ifcSchema4'),
-    IFC4X3: t('ctl.ifcSchema4x3'),
   };
   const accuracyItems: Record<TerrainAccuracy, string> = {
     coarse: t('ctl.accuracyCoarse'),
@@ -202,44 +233,16 @@ export function ControlsPanel(p: ControlsPanelProps) {
           bar the moment there is one, and stating it twice is what made the
           old flow bar suppress its own copy by hand. */}
 
+      {/* The CRS is a build input: changing it reprojects every coordinate, so
+          the scene on screen goes stale and this panel says so. The IFC schema
+          used to sit under it and is not one — nothing is fetched and nothing
+          moves — so it has gone to the wrench beside Download, with the rest of
+          what the file says about itself. See IfcMeta in lib/types. */}
       <CrsField
         rect={p.rect}
         value={p.form.epsg}
         onChange={(epsg) => p.onChange({ epsg })}
       />
-
-      {/* Beside the CRS rather than down by Download, because it belongs to the
-          same question — what the file says about itself — and because it is a
-          setting you pick once. It applies to the model already open: no build
-          input changes, so nothing is re-fetched and the scene does not go
-          stale. See onFormChange in components/ifc-site. */}
-      <div className="field">
-        <label className="eyebrow block mb-1.5" htmlFor="ifcSchema">
-          {t('ctl.ifcSchema')}
-        </label>
-        <Select
-          items={schemaItems}
-          value={p.form.ifcSchema}
-          onValueChange={(v) => p.onChange({ ifcSchema: v as IfcSchema })}
-        >
-          <SelectTrigger id="ifcSchema" className={SELECT_TRIGGER}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className={SELECT_CONTENT}>
-            {IFC_SCHEMAS.map((v) => (
-              <SelectItem key={v} value={v} className={SELECT_ITEM}>
-                {schemaItems[v]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {/* Only under IFC2X3, and only because it is a surprise: the schema has
-            no tessellation, so every mesh goes out as boundary representation
-            and the file is several times the size. Nothing is lost from it. */}
-        {p.form.ifcSchema === 'IFC2X3' && (
-          <div className="fieldHint">{t('ctl.ifcSchemaBrepHint')}</div>
-        )}
-      </div>
 
       <div className="field">
         <label className="eyebrow block mb-1.5">{t('ctl.verticalDatum')}</label>
@@ -508,6 +511,32 @@ export function ControlsPanel(p: ControlsPanelProps) {
             format={(v) => `${n(v)} m`}
             onChange={(conformStep) => setTune({ conformStep })}
           />
+
+          {/* Ticked means draped, which is what every one of these layers did
+              before the group existed. Unticking asks for the elevation the
+              source geometry carries instead — a bridge deck at its surveyed
+              height rather than flattened onto the ground it crosses.
+
+              IGN-gated, and not merely as a courtesy: OSM ways are 2D, so there
+              would be nothing to fall back to. The layers whose BD TOPO
+              geometry turns out to be flat as well are handled at build time
+              rather than here — that cannot be known before the fetch, so they
+              stay draped and say so in the element editor's z_source. */}
+          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advDrape')}</span>
+
+          <div className="field dimmed ign-only" aria-disabled={!ign}>
+            {DRAPE_ROWS.map((r) => (
+              <TuneToggle
+                key={r.key}
+                label={t(r.label)}
+                icon={r.icon}
+                checked={p.form.drape[r.key]}
+                disabled={!ign}
+                onChange={(v) => p.onChange({ drape: { ...p.form.drape, [r.key]: v } })}
+              />
+            ))}
+            <div className="fieldHint">{t('ctl.advDrapeHint')}</div>
+          </div>
 
           {/* None of these three is provider-gated: each was written down twice,
               once for OSM and once for BD TOPO, and now is not. */}

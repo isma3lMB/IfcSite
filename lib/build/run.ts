@@ -1,7 +1,6 @@
 import proj4 from 'proj4';
 import { sanitizeTunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
-import type { SplitPolygon } from '@/lib/geo/boolean';
 import { resolveCRS } from '@/lib/geo/crs';
 import { ACCURACY_CELL } from '@/lib/geo/grid';
 import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
@@ -18,8 +17,8 @@ import {
 } from '@/lib/sources/ign';
 import { osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
 import { terrariumGrid } from '@/lib/sources/terrain';
-import { finishRailways, finishRoads } from '@/lib/scene/push';
-import { emptyScene } from '@/lib/types';
+import { finishRailways, finishRoads, type Ribbon } from '@/lib/scene/push';
+import { emptyScene, newIfcMeta } from '@/lib/types';
 import { paint } from '@/lib/ui/yield';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
@@ -198,17 +197,23 @@ export async function runBuild(
     verticalDatum: scene.datumZ === null ? null : VERTICAL_DATUMS[opts.provider].name,
     verticalDatumEpsg: scene.datumZ === null ? null : VERTICAL_DATUMS[opts.provider].epsg,
     crsDef: crs.def,
-    projectName: `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
-    // Seeded from the form, then owned by the meta: the options panel writes
-    // later changes straight in here rather than through a rebuild, since the
-    // schema decides how the scene is written and not what is in it.
-    schema: opts.ifcSchema,
+    // Blank, not seeded from the form: the schema, the names and the authorship
+    // are the user's and survive a rebuild, so components/ifc-site stamps the
+    // bag it has been holding straight into this meta once the build lands. An
+    // untouched bag writes the file this wrote before it existed — see IfcMeta.
+    ifc: newIfcMeta(),
+    provider: opts.provider,
+    // The build's own date, for the Licence Ouverte's "date de la dernière mise
+    // à jour" — see SiteMeta.fetched. Stamped here rather than per request:
+    // the terrain is already down and the vectors follow within seconds, so to
+    // the day this is the date every source was queried.
+    fetched: new Date().toISOString().slice(0, 10),
   };
 
   let tagged = 0;
   let capped = false;
-  let roadRibbons: SplitPolygon[] = [];
-  let railwayRibbons: SplitPolygon[] = [];
+  let roadRibbons: Ribbon[] = [];
+  let railwayRibbons: Ribbon[] = [];
 
   try {
     if (ign) {
@@ -274,6 +279,12 @@ export async function runBuild(
         LAYER_IFC_NAME[key],
         tune,
         onStatus,
+        // A ThemeKey is not a DrapeLayer: the theme list spells the cadastral
+        // layer 'parcel' where the form spells it 'parcels', and 'hedge' has no
+        // drape flag at all because a hedge is a prism that already keeps its
+        // surveyed height. Mapped here rather than by renaming either side —
+        // both spellings are load-bearing elsewhere.
+        key === 'parcel' ? opts.drape.parcels : key === 'hedge' ? true : opts.drape[key],
       );
     } catch {
       skipped.push(label);
@@ -287,8 +298,8 @@ export async function runBuild(
     onStatus('status.buildingRoads');
     await paint();
   }
-  finishRoads(scene, roadRibbons, toGeo, sampleZ, tune);
-  finishRailways(scene, railwayRibbons, toGeo, sampleZ, tune);
+  finishRoads(scene, roadRibbons, toGeo, sampleZ, tune, opts.drape.roads);
+  finishRailways(scene, railwayRibbons, toGeo, sampleZ, tune, opts.drape.railways);
 
   if (opts.trees) {
     onStatus('status.queryingTrees');

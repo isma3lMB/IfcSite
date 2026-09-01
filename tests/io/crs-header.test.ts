@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emitIFC } from '@/lib/ifc/emit';
 import { VERTICAL_DATUMS } from '@/lib/geo/vertical';
-import { emptyScene, type SiteMeta } from '@/lib/types';
+import { emptyScene, newIfcMeta, type SiteMeta } from '@/lib/types';
 
 /**
  * What the georeferencing header says, per data source.
@@ -16,7 +16,8 @@ const meta = (over: Partial<SiteMeta>): SiteMeta => ({
   epsg: 'EPSG:25831', crsName: 'ETRS89 / UTM zone 31N', geodeticDatum: 'ETRS89',
   verticalDatum: null, verticalDatumEpsg: null,
   crsDef: '+proj=utm +zone=31 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
-  projectName: 'test', schema: 'IFC4',
+  ifc: { ...newIfcMeta(), projectName: 'test' },
+  provider: 'osm', fetched: '2026-01-01',
   ...over,
 });
 
@@ -54,7 +55,7 @@ describe('IfcProjectedCRS', () => {
      pset the buildingSMART georeferencing guidance defines. */
   it('carries the same code through the IFC2X3 property set', () => {
     const { text } = emitIFC(emptyScene(), meta({
-      schema: 'IFC2X3',
+      ifc: { ...newIfcMeta(), schema: 'IFC2X3' },
       verticalDatum: VERTICAL_DATUMS.osm.name,
       verticalDatumEpsg: VERTICAL_DATUMS.osm.epsg,
     }));

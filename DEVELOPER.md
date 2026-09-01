@@ -169,8 +169,10 @@ The single stateful component. It owns:
   the map is actually laid out; `fitBounds` against a `display:none` container frames
   against zero size.
 - **Global keyboard**: `Ctrl/Cmd+Z / Y / Shift+Z` for undo/redo (deferring to native undo
-  inside text fields), `W/E/R` for translate/rotate/scale, and `Escape` unwinding
-  outermost-first — info card, then a drawing gesture, then the 3D selection.
+  inside text fields), `G/R/S` for translate/rotate/scale, `D` to duplicate the selected
+  buildings and trees, `Del` to remove them, and `Escape` unwinding outermost-first — info
+  card, then a drawing gesture, then the 3D selection. All three act on the whole selection,
+  which is what makes them one undo step over however many elements.
 - **Provider coupling**: switching to IGN forces EPSG:2154 (Lambert-93, the datum IGN
   publishes in); switching away clears the IGN-only layers, which have no OSM equivalent.
 - **CRS follows the site.** Each new rectangle selects the best system for where it landed
@@ -198,7 +200,7 @@ long each is true for, which is what let two of the three stop being permanent c
 
 | Component | Lifetime |
 | --- | --- |
-| [status-bar.tsx](components/status-bar.tsx) | The two actions, plus the height field while a draw tool is armed. Shrink-wrapped and centred on the window (`grid-column: 1 / -1; justify-self: center`, so the element editor opening does not slide it). Returns `null` when it would be empty — a bordered `.floating` box with nothing in it would sit there as a stray chip. |
+| [status-bar.tsx](components/status-bar.tsx) | The two actions, plus the height field while a draw tool is armed, plus the wrench chip beside Download that opens `ifc-flyout`. Shrink-wrapped and centred on the window (`grid-column: 1 / -1; justify-self: center`, so the element editor opening does not slide it). **Not a `.floating` surface**, unlike every other cluster on the overlay: two buttons in a bordered tray read as one toolbar where these are two separate ends to the sequence, so the row is bare and each button carries its own square outline and shadow (`.statusbar .btn-*`). Returns `null` when it would be empty. |
 | [site-readout.tsx](components/site-readout.tsx) | Standing facts: site size, buildings, entities, file size, origin. Bottom-right corner of the same grid row as the bar, as text rather than a panel, with `pointer-events: none` — a corner of the map that cannot be dragged because a number is lying on it is a worse trade than the number. |
 | [status-toast.tsx](components/status-toast.tsx) | What just happened. Floats over the stage above the bar and fades on its own. |
 
@@ -231,13 +233,14 @@ agree — the bar offers Rebuild in the same step the toast calls the scene stal
 | [stage.tsx](components/stage.tsx) | The two viewer hosts. Both stay mounted; the map is an overlay toggled with `display`, never unmounted. `StageHud` holds the compass (also permanently mounted — the viewer is handed the element once, on mount) plus the legend and hint. |
 | [brand-chip.tsx](components/brand-chip.tsx) | What is left of the masthead: the wordmark and the Map/3D switch, shrink-wrapped into the top-left corner. It used to be a strip across the whole window carrying a readout and three utility buttons as well — a bar between the user and the viewer for the sake of two controls. The readout moved to the status bar and the utilities to the opposite corner. |
 | [util-chip.tsx](components/util-chip.tsx) | The opposite corner: compass host, origin-marker toggle, orthographic toggle, presentation mode, theme toggle, info and the language select. Icon-only, so every label is a tooltip — and each is written as *what pressing it does*, not as the state it is in. |
-| [tool-rail.tsx](components/tool-rail.tsx) | The vertical rail: pan/select, draw site, zoom to site, the box/polygon/tree draw tools, the two measure tools, the three gizmo modes, undo/redo, and the four flyout buttons (search, options, model tree, drafts). Icon-only and stateless — every button is a callback into `ifc-site`, and what is *offered* is derived from `view`, `hasScene`, `rect` and `selection` rather than stored. |
-| [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, IFC schema, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections. Every one is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
+| [tool-rail.tsx](components/tool-rail.tsx) | The vertical rail: pan/select, draw site, zoom to site, the box/polygon/tree draw tools, the two measure tools, the three gizmo modes and Duplicate, undo/redo, and the four flyout buttons (search, options, model tree, drafts). Icon-only and stateless — every button is a callback into `ifc-site`, and what is *offered* is derived from `view`, `hasScene`, `rect` and `selection` rather than stored. |
+| [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections, plus a **Drape onto terrain** group of five per-layer checkboxes (IGN-only, dimmed under OSM, since OSM ways are 2D and there would be nothing to fall back to). Every tunable is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
 | [crs-field.tsx](components/crs-field.tsx) | The projected CRS, as a searchable list of the systems valid where the site actually is. It carries its own loading rather than sitting in the dock, because the list is a function of a rectangle drawn on the other side of the app — and it is inert until there is one, since a CRS list has nothing to be evaluated against and any choice made early is one the first rectangle invalidates. The hint line doubles as the loading and failure channel. |
 | [search-flyout.tsx](components/search-flyout.tsx) | The place search on its own rail button rather than folded into Options — finding a place is the first thing you do, before there is anything to configure. It opens on arrival while no rectangle exists and collapses to an icon the moment one does. |
+| [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
 | [file-flyout.tsx](components/file-flyout.tsx) | Drafts. Save into this browser, list/open/rename/delete the slots, open a dropped or picked `.ifcsite.json`, export one. **Save and Export are deliberately not synonyms** and the copy says so: Save keeps a site in this browser, Export writes a file you can move. Slot rows are sized and dated from `SlotMeta` alone (see §14) — `Intl.RelativeTimeFormat` in the *active* language, not the browser's. |
-| [model-tree.tsx](components/model-tree.tsx) | The scene by layer: visibility, colour and a filter, with the leaves under each layer. **Windowed** — `ROW_H = 24` and ten visible rows, because a scene is capped at four thousand buildings and four thousand DOM rows is a panel that stutters on every expand. Keep `ROW_H` in step with `.treeItem` in [globals.css](app/globals.css); the row is a fixed height there for exactly this reason. |
-| [element-editor.tsx](components/element-editor.tsx) | The selection panel, in four shapes depending on *what* is selected: an element (name, colour, opacity, height, X/Y/Z position/rotation/scale with a uniform-scale lock, reset, delete), a layer (colour, opacity and an offset applied to every element in it at once), the origin marker (its projected position, plus the local project placement — coordinates and angle, typed rather than dragged, and outside the undo history), or nothing. |
+| [model-tree.tsx](components/model-tree.tsx) | The scene by layer: visibility, colour and a filter, with the leaves under each layer. **Windowed** — `ROW_H = 24` and ten visible rows, because a scene is capped at four thousand buildings and four thousand DOM rows is a panel that stutters on every expand. Keep `ROW_H` in step with `.treeItem` in [globals.css](app/globals.css); the row is a fixed height there for exactly this reason. Rows take the same Ctrl/Shift modifiers as a click in the 3D view, and highlight the whole selection rather than one row — which is the only way to reach an element buried inside another. |
+| [element-editor.tsx](components/element-editor.tsx) | The selection panel, in four shapes depending on *what* is selected: an element (name, colour, opacity, height, X/Y/Z position/rotation/scale with a uniform-scale lock, reset, delete), a layer (colour, opacity and an offset applied to every element in it at once), the origin marker (its projected position, plus the local project placement — coordinates and angle, typed rather than dragged, and outside the undo history), or nothing. With several elements selected it keeps the element shape, showing the anchor's values under a `{n} elements` header; writing any field applies it to all of them. |
 | [confirm-card.tsx](components/confirm-card.tsx) | A yes/no card for the one decision `Ctrl+Z` cannot take back: rebuilding or opening a draft over hand-drawn elements, which are not in any source and cannot be re-fetched. Not `window.confirm` — a native dialog is styled by the browser, sits outside the app's language, and cannot say how many buildings are about to go. It stacks above the info overlay because it is the only thing here that blocks. |
 | [colour-field.tsx](components/colour-field.tsx) | The colour swatch, its own module because the element editor and the model tree both need it — and the live/commit split below is exactly the part that would go wrong if the second one were written again from scratch. |
 | [status-line.tsx](components/status-line.tsx) | Renders a `StatusState` — a *key plus params*, a `BuildSummary`, or an error. The closing summary is composed from clauses here, not stored as one template, because the clauses order differently in French. |
@@ -339,10 +342,34 @@ threshold, InstancedMesh trees, and an undo stack keyed on live mesh state.
   the gizmo never latches onto context.
 - **Picking**: `pointerdown` records the position and whether the gizmo was hovered;
   `pointerup` ignores the event if the pointer travelled more than 5 px — that was an orbit.
+- **Multi-selection**: `selection` is an array and `selected` is a getter for its last
+  entry — the *anchor*, whose values the panel shows. Ctrl/Cmd+click toggles an element in
+  and out, Shift+click takes one out, a plain click replaces; a miss only clears when no
+  modifier is down. Note that OrbitControls binds left-drag + ctrl/meta/shift to pan, which
+  costs nothing here because the 5 px guard has already rejected anything that travelled.
+  Only buildings and trees group — the origin and the layers are not records.
+  With two or more selected the gizmo attaches to `selPivot` at the middle of them instead
+  of to a mesh, and `dragFromPivot` carries its delta down through world space (the two
+  layer groups carry different offsets, so a local-space delta would not survive a mixed
+  selection). One element keeps the old direct attach, and with it the element's own local
+  axes. A non-uniform scale across elements at differing rotations is a shear an `Xf` cannot
+  hold; `decompose` approximates. Every panel write loops over `editables()`, which is
+  coherent because an `Xf` is an offset from each element's own centroid.
 - **Undo/redo**: each command is a before/after snapshot of one `Xf` record (100-deep). The
   data is small and plain, so inverse-command machinery buys nothing; what matters is that
   one gesture produces exactly one command — hence `beginEdit()` on `dragging-changed` true
-  and `commitEdit()` on false. A new edit truncates the redo branch.
+  and `commitEdit()` on false. A new edit truncates the redo branch. Draw, delete and
+  duplicate are the exception to the snapshot shape: they are `life`/`treeLife` commands
+  carrying the record itself, so an undo restores it at the index it left. A gesture over
+  several elements folds its parts into one `multi` command, replayed in reverse for an
+  undo so a batch delete's indices stay meaningful; `replaying` stops each child selecting
+  itself as it goes.
+- **Duplicate** (`duplicateSelected`) copies a building or tree through
+  [lib/scene/duplicate.ts](lib/scene/duplicate.ts). The copy lands *on* the original and the
+  insert selects it, so the gizmo is on the copy and the first drag separates the pair. It is
+  marked `src: 'user'` — a copy is hand-made work, so `drawnCount`
+  counts it and a rebuild warns before discarding it. The id comes off `drawSeq`, never off
+  the source's, so `select()` and the model tree stay unambiguous.
 - `applyXf` writes data → mesh, `readMeshInto` reads mesh → data after a drag, clamping
   scale to `MIN_SCALE` (no mirroring: a negative scale would flip ring winding).
 - `frameCamera` preserves the user's orbit direction across rebuilds and rescales near/far
@@ -525,6 +552,7 @@ A five-result search. Explicitly a convenience — the caller reports failure an
 | [rings.ts](lib/geo/rings.ts) | Pure ring arithmetic, free of three.js so the IFC serialiser does not pull in a renderer. `dedupe`, `signedArea`, `ensureCCW` (IFC profiles need CCW outer curves — skip it and half the buildings render inverted), `clipToBox` (Sutherland–Hodgman against the site square: one BD TOPO forest polygon near Fontainebleau is 3539 vertices spanning 4 km), `densify` (split long edges so a drape has stations to follow the ground between — elevation is only ever looked up *at vertices*, so a 200 m road segment across a valley otherwise dives clean under the terrain), `ringCentre`. |
 | [grid.ts](lib/geo/grid.ts) | `gridSampler` — elevation lookup that interpolates the DEM lattice over the *same* two triangles the terrain mesh is drawn from, rather than bilinearly. A bilinear value sags below those triangles on a twisted cell, so anything placed with it sinks into the ground the user actually sees. Both providers return one. |
 | [mesh.ts](lib/geo/mesh.ts) | The parts that genuinely need three: `triangulate` (three's own earcut), `drape` (a clipped ring onto terrain, lifted by `dz` against z-fighting), `prismInto` (extrude into shared arrays for merged layers; the base comes from a per-*point* callback, not a number, so the underside can follow the terrain — point rather than index because the ring is reordered and deduplicated inside), `treeProxy` (a 6-sided trunk and canopy cone, ~24 triangles, returned as two separate parts — they are two colours, and a style attaches to a whole item). |
+| [sourcez.ts](lib/geo/sourcez.ts) | Elevation from the source geometry rather than the DEM, for a layer whose drape has been turned off. `zLineFrom` pulls the third ordinate out of a BD TOPO ring into local metres and returns `null` when there is none — which doubles as the "does this feature carry elevation" test, since the answer varies per layer and cannot be known before the fetch. A position is kept only if `plausibleZ` accepts it: BD TOPO's nodata sentinel is exactly `-1000` and is finite, so `isFinite` alone lets it through and it drags a ribbon corner a kilometre down. The band is deliberately wide — real altitudes here go negative (−2.3 m water near Bordeaux), so "reject negatives" would delete true data. `polylineZAt` answers a query at a local XY off the nearest point of those lines, interpolating along the segment and clamping past either end; nearest-point rather than per-vertex because the ring being sampled is not the polyline being sampled from — a carriageway's outline is offset half a width sideways and carries arc and clip corners no source position corresponds to. Segments are bucketed on a uniform grid, and the search widens a ring of cells at a time until the best distance found is inside the ring already searched. Pure: no projection, no fetch, no terrain. |
 | [euler.ts](lib/geo/euler.ts) | `xfAxes` — an XYZ Euler as the local Z and X unit vectors `IfcAxis2Placement3D` wants, expanded in closed form from three's own `'XYZ'` branch so the serialiser stays renderer-free. Returns `null` when unrotated, which keeps unedited files small. |
 
 ### The CRS index
@@ -630,6 +658,57 @@ The ribbon is then cut on the terrain's own triangles by `conformToTerrain` and 
 solid by `skirtInto`, exactly like water or vegetation, so elevation is sampled across the
 surface rather than only at its boundary. A carriageway runs to 13 m wide, and a face held
 flat across that width cuts into the hillside on any cross-slope.
+
+**Draping is per layer, and can be turned off.** `BuildOptions.drape` carries one flag each
+for roads, railways, vegetation, water and parcels — all on by default, which is what every
+one of them did before the flags existed. Off, the layer takes the elevation its own source
+geometry carries instead of the DEM's, so a bridge deck stays above what it crosses rather
+than being flattened onto it. BD TOPO ships `troncon_de_route` and `troncon_de_voie_ferree`
+as 3D linestrings whose Z is the carriageway surface in the same NGF datum RGE ALTI is in;
+[sourcez.ts](lib/geo/sourcez.ts) lifts that out (`zLineFrom`) and answers elevation queries
+off it (`polylineZAt`, nearest point on the centreline, bucketed on a uniform grid).
+`conformToTerrain` takes it as an optional `zAt` and skips the lattice along with the drape —
+a source-Z ring already carries its own longitudinal profile, and conforming would only put
+it back on the ground.
+
+Three things about it are load-bearing:
+
+- **The fallback is per feature and per vertex, not per layer.** Source Z is used only under
+  IGN, only when `scene.datumZ !== null` (the same guard a building's surveyed
+  `altitude_minimale_sol` takes — an absolute altitude means nothing in a model that is not in
+  absolute altitudes), and only where the position actually carries an elevation. Anything
+  else drapes as before. A surface built with the flag off records which way it went in
+  `props.z_source`, the same job `height_source` does on a building — otherwise a no-op toggle
+  is indistinguishable from a broken one. Measured against the live WFS: `troncon_de_route`,
+  `troncon_de_voie_ferree` and `surface_hydrographique` are 3D and the flag does real work;
+  `zone_de_vegetation` is 2D, so that toggle is a genuine no-op and says so.
+- **3D is not the same as populated, and this one bites.** BD TOPO writes exactly `-1000` into
+  a position it has no altimetry for. It is finite, so it passes a plain `isFinite` check, and
+  one of them left in a road ribbon puts a corner 1160 m under a site at +160 m and hangs a
+  spike off the model down to it. Sparse and clustered rather than uniform — 21 of 5077 road
+  vertices around Lyon in a single feature, 18 of 1369 rail vertices in two, none at all around
+  Paris or Grenoble — so it shows up as a handful of spikes rather than a layer that visibly
+  collapses. `plausibleZ` in [sourcez.ts](lib/geo/sourcez.ts) rejects it against a band far
+  wider than the sentinel needs, because a real altitude here **can be negative**:
+  `surface_hydrographique` returns −2.3 m near Bordeaux. Do not tighten it to "no negatives",
+  and do not clamp against the terrain — both start deleting true data. A rejected position is
+  dropped, not defaulted, so `polylineZAt` interpolates a straight line in Z across the gap
+  from the neighbours that do have one; a line left with under two survivors drapes instead.
+  The `altitude_minimale_sol` *attribute* buildings read is clean by comparison — unknown comes
+  back as `null`, which the existing `!= null` guard already handles.
+- **`finishRibbons` drops the cross-road union for the ribbons it has Z for.** That union
+  merges carriageways overlapping in plan, and its premise is that one DEM decides the
+  elevation at any XY. An overpass and the road beneath it overlap in plan and are ten metres
+  apart, so a merged region could hold only one of the two answers — and losing the bridge is
+  the one thing the flag exists to prevent. `pushRoadway` already unions each road's own
+  quads and arcs before pushing, so a single road is still one ribbon and a roundabout still
+  keeps its island; what is given up is the merge *between* distinct roads, which can hairline
+  z-fight where two meet at grade. Ribbons with no Z go through the union in the same pass.
+- **The centreline has to be carried, not recovered.** By the time `finishRibbons` sees a
+  ribbon, every vertex has been offset half a width sideways, arcs have been cut into the
+  bends and the lot has been clipped to the site box — nothing in the outline maps back to a
+  source position. Hence `Ribbon = SplitPolygon & { zLine?: Vec3[] }`, and hence the sampler
+  being nearest-point rather than per-vertex: the invented corners have to get an answer too.
 
 Two notes on the boolean layer, both learned the hard way. `polygon-clipping`'s sweep line
 throws on coordinates that are the same point reached by different arithmetic, so

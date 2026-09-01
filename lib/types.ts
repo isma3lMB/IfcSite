@@ -140,6 +140,21 @@ export const LAYER_IDS = [
 export type LayerId = (typeof LAYER_IDS)[number];
 
 /**
+ * The layers that reach the scene as a flat skin conformed onto the terrain,
+ * and so the layers a drape can be turned off for. Hedges are absent on
+ * purpose: they are prisms that already keep their surveyed `hauteur`, and only
+ * their base is draped, so there is nothing here for them to gain.
+ *
+ * Named in the FORM's vocabulary (`veg`, `parcels`), not LayerId's
+ * (`vegetation`, `parcel`), because that is what BuildOptions.drape is keyed on
+ * and what the options panel reads. See the Glyph helper in
+ * components/controls-panel for the bridge between the two spellings.
+ */
+export const DRAPE_LAYERS = ['roads', 'railways', 'veg', 'water', 'parcels'] as const;
+
+export type DrapeLayer = (typeof DRAPE_LAYERS)[number];
+
+/**
  * Per-layer edits that have nowhere else to live.
  *
  * `color` is only ever read for the layers with no per-record colour store —
@@ -257,6 +272,74 @@ export const emptyScene = (): SceneData => ({
   layers: newLayerState(),
 });
 
+/**
+ * Everything the exported file says about itself that the user chooses, as
+ * against the geometry the build produces.
+ *
+ * One bag rather than a field each on SiteMeta because they share a lifetime and
+ * a rule: none of them is an input to runBuild. Nothing is re-fetched and no
+ * coordinate moves when one changes, so they reach an already-open model by
+ * being written into the live meta and re-serialised — the same route the origin
+ * marker's own fields take. That is also why they survive a rebuild: they are
+ * properties of the document, not measurements of the site.
+ *
+ * Every string is '' by default, meaning "leave it out". Two of them have a
+ * fallback rather than being omitted — see defaultProjectName and
+ * DEFAULT_SITE_NAME — so a bag nobody has touched writes the file this wrote
+ * before any of these fields existed.
+ */
+export type IfcMeta = {
+  /**
+   * Which IFC schema Download writes.
+   *
+   * IFC4 is what this wrote before it could write anything else, and the one
+   * most readers do best with. IFC2X3 is there for the older ones, IFC4X3 for
+   * infrastructure work.
+   */
+  schema: IfcSchema;
+  projectName: string;
+  projectLongName: string;
+  projectDescription: string;
+  projectPhase: string;
+  siteName: string;
+  siteLongName: string;
+  siteDescription: string;
+  siteLandTitle: string;
+  /** Goes to the STEP header's author list and, where a file carries one, to
+   *  IfcOwnerHistory's person. The organisation beside it is not a field —
+   *  see ORGANISATION in lib/ifc/writer, which is fixed. */
+  author: string;
+};
+
+export const newIfcMeta = (): IfcMeta => ({
+  schema: 'IFC4',
+  projectName: '',
+  projectLongName: '',
+  projectDescription: '',
+  projectPhase: '',
+  siteName: '',
+  siteLongName: '',
+  siteDescription: '',
+  siteLandTitle: '',
+  author: '',
+});
+
+/**
+ * The name an unnamed project takes.
+ *
+ * Applied at write time rather than stamped into the meta at build time: a name
+ * derived from where the site is would otherwise become an explicit value, and
+ * moving the site would leave the old coordinates behind in the file. Here
+ * because the writer, the draft loader and the panel's placeholder all need to
+ * agree on the same one.
+ */
+export const defaultProjectName = (lat: number, lon: number): string =>
+  `Context ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+
+/** IfcSite.Name when the field is blank. Exported so the panel's placeholder and
+ *  the writer cannot drift apart. */
+export const DEFAULT_SITE_NAME = 'Site';
+
 /** Everything the IFC writer needs that is not geometry. */
 export type SiteMeta = {
   origin: Vec2;
@@ -302,17 +385,35 @@ export type SiteMeta = {
    * and a second copy of its position is a second thing to keep in step.
    */
   crsDef: string;
-  projectName: string;
   /**
-   * Which IFC schema the file is written against.
-   *
-   * Here rather than only on BuildOptions because SiteMeta is the writer's whole
-   * input, and because nothing about the schema is a build input: no source is
-   * re-queried and no coordinate moves, so switching it re-serialises the scene
-   * already on screen. The options panel writes it into the live meta and marks
-   * the emitter dirty, the same path the origin marker's own fields take.
+   * The schema, the names and the authorship — everything about the file that
+   * is a choice rather than a measurement. See IfcMeta, which explains why they
+   * travel together and why none of them costs a rebuild.
    */
-  schema: IfcSchema;
+  ifc: IfcMeta;
+  /**
+   * Which provider the scene was built from.
+   *
+   * Here rather than only on BuildOptions because the writer has to credit the
+   * data it is writing, and this is the writer's whole input — see sourceOf in
+   * lib/sources/licence, which turns this plus the kind of element into the
+   * dataset whose licence the file must carry. Note it does not answer the
+   * question for every element: trees are OSM under both providers.
+   */
+  provider: Provider;
+  /**
+   * When the data was pulled, as YYYY-MM-DD.
+   *
+   * IGN's Licence Ouverte 2.0 asks for the source name and "la date de la
+   * dernière mise à jour de l'Information réutilisée", so the export has to be
+   * able to say when it fetched. On the meta rather than taken at write time
+   * because a draft reopened months later has to still report when its data
+   * actually came down, not when the button was pressed.
+   *
+   * Empty means unknown — a draft written before this existed — and the
+   * property is then omitted rather than guessed at.
+   */
+  fetched: string;
 };
 
 export type Provider = 'osm' | 'ign';
@@ -326,15 +427,16 @@ export type ViewTab = 'map' | '3d';
  */
 export type TerrainAccuracy = 'coarse' | 'standard' | 'fine' | 'max';
 
+/**
+ * What a build is about: where, from whom, and with what in it.
+ *
+ * The IFC schema used to sit here too, between the CRS and the default height.
+ * It has moved to IfcMeta, because it never answered this question — nothing is
+ * fetched or reprojected when it changes, and a scene built under one schema is
+ * exactly the scene the next build would produce under another.
+ */
 export type BuildOptions = {
   epsg: string;
-  /**
-   * Which IFC schema Download writes. Sits here, with the settings a session
-   * keeps, so it is remembered and travels in a draft — but it is not an input
-   * to runBuild the way the CRS is: nothing is re-fetched when it changes, and
-   * the scene on screen does not go stale. See SiteMeta.schema.
-   */
-  ifcSchema: IfcSchema;
   defaultHeight: number;
   provider: Provider;
   buildings: boolean;
@@ -346,6 +448,11 @@ export type BuildOptions = {
   veg: boolean;
   water: boolean;
   parcels: boolean;
+  /** Per layer: conform onto the DEM (true, and the default), or take elevation
+   *  from the source geometry's own Z (false). Off falls back to draping for
+   *  any feature whose source carries no Z, which is most of them outside the
+   *  BD TOPO road and rail centrelines — see lib/geo/sourcez. */
+  drape: Record<DrapeLayer, boolean>;
   /** Pipeline limits and geometry fallbacks. Nested rather than flattened in
    *  beside the rest so the fields above stay the things a build is *about* —
    *  where, from whom, with what in it — and the knobs stay knobs. See

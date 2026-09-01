@@ -7,6 +7,7 @@ import { gridFrom, gridLattice, gridSize } from '@/lib/geo/grid';
 import { prismInto, skirtInto } from '@/lib/geo/mesh';
 import { rectArea, sameRect } from '@/lib/geo/rect';
 import { clipToBox, dedupe, densify } from '@/lib/geo/rings';
+import { polylineZAt, zLineFrom } from '@/lib/geo/sourcez';
 import {
   ALTI_MAX as ALTI_MEMO_MAX,
   DATUM_MAX,
@@ -16,7 +17,7 @@ import {
   memo,
   trimMemo,
 } from '@/lib/sources/cache';
-import { pushBuilding, pushRoadway } from '@/lib/scene/push';
+import { pushBuilding, pushRoadway, type Ribbon } from '@/lib/scene/push';
 import { LAYER_DZ, SURFACE_COLOR, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
@@ -460,15 +461,15 @@ export async function parseIGN(
 ): Promise<{
   tagged: number;
   over: boolean;
-  roadRibbons: SplitPolygon[];
-  railwayRibbons: SplitPolygon[];
+  roadRibbons: Ribbon[];
+  railwayRibbons: Ribbon[];
 }> {
   const box = site;
   const inSite = (x: number, y: number) => Math.abs(x) <= site.halfX && Math.abs(y) <= site.halfY;
   let tagged = 0;
   let over = false;
-  const roadRibbons: SplitPolygon[] = [];
-  const railwayRibbons: SplitPolygon[] = [];
+  const roadRibbons: Ribbon[] = [];
+  const railwayRibbons: Ribbon[] = [];
 
   if (wantBuildings) {
     onStatus('status.fetchingIgnBuildings');
@@ -574,7 +575,19 @@ export async function parseIGN(
         // That test kept a whole 5 km troncon for one vertex inside, and dropped
         // a road crossing the site cleanly with every vertex outside it — routine
         // on a small site, where a straight run spans the box in one segment.
-        pushRoadway(roadRibbons, r.map((c): Vec2 => toLocal(c[0], c[1])), w, site);
+        //
+        // troncon_de_route is a 3D linestring and its Z is the carriageway
+        // surface in NGF — the same datum RGE ALTI is in. Carried alongside the
+        // 2D ring so finishRoads can use it INSTEAD of the terrain when the
+        // user has turned this layer's drape off; null when the feature came
+        // back flat, which puts it back on the draped path.
+        pushRoadway(
+          roadRibbons,
+          r.map((c): Vec2 => toLocal(c[0], c[1])),
+          w,
+          site,
+          zLineFrom(r, toLocal),
+        );
       }
     }
   }
@@ -600,7 +613,13 @@ export async function parseIGN(
         tune.railTrackWidth,
       );
       for (const r of geoRings(f.geometry)) {
-        pushRoadway(railwayRibbons, r.map((c): Vec2 => toLocal(c[0], c[1])), w, site);
+        pushRoadway(
+          railwayRibbons,
+          r.map((c): Vec2 => toLocal(c[0], c[1])),
+          w,
+          site,
+          zLineFrom(r, toLocal),
+        );
       }
     }
   }
@@ -613,6 +632,14 @@ export async function parseIGN(
  * site rectangle, then conform onto the terrain as a flat skin. Hedges are the
  * exception — they arrive as centrelines and get buffered into prisms that
  * keep their surveyed height.
+ *
+ * `drape` false asks for the ring's own source Z instead of the terrain, the
+ * same option roads have. Hedges ignore it: their base is draped but their
+ * hauteur is surveyed already, so there is nothing to recover. Expect it to be
+ * a no-op on the area layers in practice — zone_de_vegetation,
+ * surface_hydrographique and the cadastral parcels are usually flat 2D rings,
+ * unlike the road and rail centrelines — which is why the fallback below is
+ * per feature and why the surface records which way it went.
  */
 export async function fetchThemeLayer(
   scene: SceneData,
@@ -624,6 +651,7 @@ export async function fetchThemeLayer(
   layerName: string,
   tune: Tunables,
   onStatus?: StatusFn,
+  drape = true,
 ): Promise<number> {
   const L = IGN_LAYERS[key];
   const hx = site.halfX;
@@ -650,6 +678,11 @@ export async function fetchThemeLayer(
     const g = toGeo(p[0], p[1]);
     return sampleZ(g[1], g[0]) + L.dz!;
   };
+
+  // Same guard the roads take, and the same one a building's surveyed
+  // altitude_minimale_sol takes above: a source Z is an absolute NGF altitude
+  // and only means anything once the model itself is in absolute altitudes.
+  const wantSource = !drape && scene.datumZ !== null;
 
   for (const f of feats) {
     const p = f.properties || {};
@@ -699,6 +732,20 @@ export async function fetchThemeLayer(
       }
 
       const holes = part.holes.map((h) => dedupe(h.map((c): Vec2 => toLocal(c[0], c[1]))));
+      // Built from the UNCLIPPED source rings, and it has to be: clipToBox cuts
+      // new corners in on the site boundary that no source position corresponds
+      // to, and the outer alone would leave an island's interior lofting from
+      // the wrong side of it. Sampling nearest-point rather than per-vertex is
+      // what lets those invented corners get an answer at all — see
+      // lib/geo/sourcez. A ring bounds an area, so its interior lofts from its
+      // boundary: exact for water, which is level, an interpolation for a
+      // forest on a slope.
+      const zLines = wantSource
+        ? [part.ring, ...part.holes]
+            .map((r) => zLineFrom(r, toLocal))
+            .filter((z): z is Vec3[] => z !== null)
+        : [];
+      const zAt = zLines.length ? polylineZAt(zLines) : undefined;
       // Two clippers on purpose. With no holes the site box is four half-planes
       // and Sutherland-Hodgman is the whole job, which is what all but a handful
       // of features take. With holes the outer and the holes have to be cut
@@ -726,6 +773,7 @@ export async function fetchThemeLayer(
           L.dz!,
           piece.holes,
           tune.conformStep,
+          zAt,
         );
         if (!faces.length) continue;
         // Close the drape into a solid that reaches under the terrain, so the
@@ -742,7 +790,11 @@ export async function fetchThemeLayer(
           color: L.color,
           type: L.ifc!,
           layer,
-          props,
+          // Which way the elevation actually came out, alongside the source's
+          // own attributes. Same job height_source does on a building: a drape
+          // turned off against a layer that ships no Z is a no-op, and without
+          // this the user has no way to tell that from a toggle that failed.
+          props: drape ? props : { ...props, z_source: zAt ? 'source' : 'terrain' },
           name: p.nature ? String(p.nature) : p.idu ? String(p.idu) : layerName,
         });
         n++;

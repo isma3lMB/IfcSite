@@ -31,8 +31,20 @@ export function triangulate(ring: Vec2[], holes: Vec2[][] = []): number[][] {
  * A clipped local ring onto the terrain, lifted by dz so coplanar context
  * layers do not z-fight with each other or with the ground. Clipping happens in
  * local metres, so the z lookup has to go back through the inverse projection.
+ *
+ * `zAt` short-circuits that round trip for a layer whose elevation comes from
+ * its own source geometry rather than from the DEM — see lib/geo/sourcez. It
+ * already speaks local metres, so reprojecting out to lat/lon only to hand back
+ * a local-space answer would be pure proj4 cost. `dz` still applies either way.
  */
-export function drape(ring: Vec2[], toGeo: ToGeo, sampleZ: SampleZ, dz: number): Vec3[] {
+export function drape(
+  ring: Vec2[],
+  toGeo: ToGeo,
+  sampleZ: SampleZ,
+  dz: number,
+  zAt?: (x: number, y: number) => number,
+): Vec3[] {
+  if (zAt) return ring.map((p): Vec3 => [p[0], p[1], zAt(p[0], p[1]) + dz]);
   return ring.map((p): Vec3 => {
     const [lo, la] = toGeo(p[0], p[1]);
     return [p[0], p[1], sampleZ(la, lo) + dz];

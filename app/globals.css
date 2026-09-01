@@ -599,7 +599,16 @@ html.dark {
      editor happen to leave, so they do not slide sideways when the editor opens.
      That it shares the row with the readout without either knowing the other's
      width holds because the readout is clamped to a corner block (see below);
-     as a full-width line it used to run underneath these buttons. */
+     as a full-width line it used to run underneath these buttons.
+
+     Not a .floating surface, unlike every other cluster on this overlay. Two
+     buttons in a bordered tray read as a toolbar — one thing with parts — where
+     Download and Rebuild are two separate ends to the sequence, and the tray
+     also had to be wide enough for a height field that is only there while a
+     draw tool is armed. Stripped to a layout row they stand on their own, and
+     each carries the surface the tray used to lend it. No padding and no
+     min-height for the same reason: there is no box left to inset anything
+     from, and nothing to hold open when the row is short. */
   .statusbar {
     grid-row: 3;
     grid-column: 1 / -1;
@@ -609,8 +618,28 @@ html.dark {
     align-items: center;
     gap: 14px;
     flex-wrap: nowrap;
-    padding: 6px 12px;
-    min-height: 46px;
+    /* Only to outrank .siteReadout, the one overlay sibling drawn after this
+       one. The bar itself never reaches the corner the readout sits in, but the
+       IFC flyout opening upward off it can — and the readout is bare text with
+       a shadow, so an overlap would show straight through the panel. */
+    z-index: 1;
+  }
+  /* What the tray used to provide, moved onto the things that needed it.
+
+     Square, where .btn-primary/.btn-ghost are pills by default: a pill was worth
+     it inside a bordered panel, where the two roundnesses nested. Alone over the
+     viewer the button *is* the panel, and `--radius: 0` is what every other
+     surface in here is — so these join them rather than staying the one rounded
+     thing on screen. Both fills are already opaque and both carry an ink border,
+     so the shadow is all that is left to lift them off the map.
+
+     Scoped to the bar rather than to .barActions: the measure tool's Clear
+     button sits in the same row outside that group, and one of three buttons
+     still wearing a pill is worse than none of them. */
+  .statusbar .btn-primary,
+  .statusbar .btn-ghost {
+    border-radius: 0;
+    box-shadow: 0 4px 16px var(--color-shadow);
   }
 
   /* ---- site readout ----
@@ -798,16 +827,24 @@ html.dark {
     color: var(--color-ink);
   }
 
+  /* 12, not the 8 this was inside the tray: two bordered surfaces sitting on the
+     viewer need more air between them than two labels sharing one panel did, and
+     the wrench badge overhangs Download's right edge by 5 of it. */
   .barActions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
     flex: none;
   }
   /* These size to their label here; .btn-primary/.btn-ghost are full-width by
-     default because they were born in a 330 px sidebar. */
+     default because they were born in a 330 px sidebar. inline-flex for the
+     same reason as .fileActions: Download carries a mark before its label, and
+     a block button would leave the two off each other's centre line. */
   .barActions .btn-primary,
   .barActions .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     width: auto;
     padding: 10px 18px;
     white-space: nowrap;
@@ -815,6 +852,101 @@ html.dark {
   .barActions .btn-ghost {
     padding: 10px 14px;
   }
+  /* ---- the IFC panel, off the wrench on Download ----
+     The wrapper is the Download button's own box: the wrench is pinned to its
+     top-right corner and the panel hangs off the same anchor, so both track the
+     button whichever of the bar's two arrangements is up.
+
+     The flyout is the one that is not the rail's, so it is the one that has to
+     undo .flyout's rail geometry: all four offsets are reset, and it opens
+     *upward* from the button instead of sideways from a column. */
+  .barChipWrap {
+    position: relative;
+    display: flex;
+  }
+  /* Overhanging the corner by 5px rather than tucked inside it: held clear of
+     the outline it reads as belonging to the button without covering its label,
+     and on a square corner that overhang is the whole shape of a badge. Round
+     against a square button on purpose — round is chrome and square is a surface
+     everywhere else in here, and .iconBtn is the same disc.
+
+     Yellow because it is neither of the two actions the bar is for, and
+     yellow is what this palette says "not a button" with — the same pair the
+     view tabs and every :hover in here use. Inverting to ink on press matches
+     .iconBtn, so a pressed chip reads the same wherever it is. */
+  .barChip {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    z-index: 1;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: var(--color-yellow);
+    color: var(--color-on-yellow);
+    border: 1px solid var(--color-ink);
+    border-radius: 100px;
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+  /* The set draws at 16; this is a 20px disc with a 1px rule round it. */
+  .barChip svg {
+    width: 12px;
+    height: 12px;
+  }
+  .barChip:hover,
+  .barChip.on {
+    background: var(--color-ink);
+    color: var(--color-on-ink);
+  }
+  .ifcFlyout {
+    position: absolute;
+    top: auto;
+    left: auto;
+    bottom: calc(100% + 10px);
+    right: 0;
+    width: 320px;
+    /* The bar is centred and shrink-wrapped, so a 320px panel hanging off it
+       can reach either edge of a narrow window before the panel is the thing
+       that is too wide. */
+    max-width: min(92vw, calc(100vw - 32px));
+    max-height: min(60vh, 520px);
+  }
+  /* The three blocks of attributes. A rule above each rather than a heading in
+     bold: the eyebrow is already the panel's section voice, and nine fields in
+     one column need the grouping to be visible from further away than a word. */
+  .ifcGroup {
+    padding-top: 12px;
+    margin-top: 4px;
+    border-top: 1px solid var(--color-line-soft);
+  }
+  .ifcGroupHead {
+    display: block;
+    margin-bottom: 10px;
+    color: var(--color-ink-soft);
+  }
+  .ifcFoot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 12px;
+    margin-top: 4px;
+    border-top: 1px solid var(--color-ink);
+  }
+  /* Sizes to its label, like every other button that shares a row — see
+     .fileActions and .barActions, which override the same full-width default. */
+  .ifcFoot .btn-ghost {
+    width: auto;
+    flex: none;
+    padding: 7px 12px;
+  }
+
   /* Not information, but the bar is the only horizontal surface left — and the
      field only exists while a footprint tool is armed. */
   .barHeight {
@@ -823,12 +955,19 @@ html.dark {
     gap: 6px;
     flex: none;
   }
+  /* The one thing left in this row that is bare text. With the tray gone it sits
+     straight on the viewer, so it takes the same halo .siteReadout uses to stay
+     legible over a basemap — the input beside it needs nothing, being opaque and
+     ink-bordered already. */
   .barHeight > span {
     font: 600 10px/1 var(--font-mono);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-ink-soft);
     white-space: nowrap;
+    text-shadow:
+      0 1px 1px var(--color-surface),
+      0 0 4px var(--color-surface);
   }
   .barHeight .ctl-input {
     width: 74px;
@@ -956,6 +1095,19 @@ html.dark {
     width: auto;
     padding: 11px 18px;
     white-space: nowrap;
+  }
+
+  /* The real IFC mark, on the two surfaces that are specifically about the IFC
+     file: the Options header and Download. Transparent PNG, so it sits on the
+     ink fill and on a light surface alike — no plate needed. The ® in the
+     artwork is a speck at this size and is not meant to be read; the knot is.
+     Not in components/icons.tsx: that file is deliberately hand-drawn 16px
+     currentColor SVG, and this is neither monochrome nor ours to redraw. */
+  .ifcLogo {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    object-fit: contain;
   }
 
   .mark {
@@ -1647,6 +1799,43 @@ html.dark {
     padding: 1px 5px;
     border-radius: 3px;
   }
+
+  /* ---- credits ----
+     Sits between the notes and the footer, and borrows the notes' type scale so
+     it reads as more of the same prose rather than as a legal box bolted on.
+     Single column, unlike .notes: the list is short and two columns would leave
+     an orphan row beside a gap. */
+  .credits {
+    font-size: 13px;
+    color: var(--color-ink-soft);
+    line-height: 1.7;
+    margin-top: 12px;
+    padding-top: 18px;
+    border-top: 1px solid var(--color-ink);
+  }
+  .credits h2 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .credits p {
+    margin: 0 0 10px;
+  }
+  .credits ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    /* Wraps to as many columns as fit rather than being pinned at one: at the
+       card's full width six rows in a single file is a lot of empty right. */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 22px;
+  }
+  .credits a {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
 }
 
 /* Outside the layer: an animation name is resolved against the whole document,
@@ -1873,14 +2062,13 @@ html.dark {
     max-height: 52%;
   }
 
-  /* Row 4, and tight. The gap and padding here are folded in from what used to
-     be a separate max-width: 520px block: the bar is wanted tight from the
-     moment the dock appears, and two overlapping phone tiers is the kind of
-     thing the rest of this file avoids. */
+  /* Row 4, and tight. The gap here is folded in from what used to be a separate
+     max-width: 520px block: the bar is wanted tight from the moment the dock
+     appears, and two overlapping phone tiers is the kind of thing the rest of
+     this file avoids. */
   .statusbar {
     grid-row: 4;
     gap: 10px;
-    padding: 6px 10px;
   }
   .barActions .btn-primary,
   .barActions .btn-ghost {
@@ -1928,6 +2116,18 @@ html.dark {
   .statusToast .toastX {
     width: 32px;
     height: 32px;
+  }
+  /* 26, not the 32 above: this one overhangs a button corner, and past about
+     this size it stops reading as a badge and starts covering the label. */
+  .barChip {
+    top: -7px;
+    right: -7px;
+    width: 26px;
+    height: 26px;
+  }
+  .barChip svg {
+    width: 15px;
+    height: 15px;
   }
   /* Width only. The leaf list is windowed on a fixed 24px row (ROW_H in
      components/model-tree), so anything taller than the row it sits in would

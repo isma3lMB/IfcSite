@@ -19,6 +19,7 @@ import {
   styledOf,
   writeStyle,
 } from '@/lib/scene/layers';
+import { duplicateBuilding, duplicateTree } from '@/lib/scene/duplicate';
 import { BUILDING_CAP, defaultTreeDims, pushBuilding, pushTree } from '@/lib/scene/push';
 import {
   DRAW_ORDER,
@@ -113,8 +114,19 @@ export type Selection = {
    * height do not apply and the editor does not offer them.
    */
   kind: 'building' | 'tree' | 'origin' | 'layer';
-  /** For a layer, the prefixed form — see layerSelId. */
+  /** The anchor's id — the element picked last, and the one every field below
+   *  describes. For a layer, the prefixed form; see layerSelId. */
   id: string;
+  /**
+   * Every selected id, oldest pick first, the anchor last.
+   *
+   * The model tree highlights all of them, and an edit made on the panel applies
+   * to all of them. Always exactly one entry for the origin and for a layer,
+   * neither of which groups.
+   */
+  ids: string[];
+  /** `ids.length`, carried so the panel's header does not have to count. */
+  count: number;
   /**
    * The label. A dictionary key rather than a sentence for the origin and for
    * every layer, since neither has a name of its own that the viewer could
@@ -132,6 +144,14 @@ export type Selection = {
   /** The source-derived side colour, shown in the swatch when xf.color is null. */
   defaultColor: number;
 };
+
+/**
+ * What a `select` call does to whatever is already held.
+ *
+ * The names of the three modifier states in the 3D view: a plain click
+ * replaces, Ctrl+click toggles, Shift+click takes out.
+ */
+export type SelectMode = 'replace' | 'add' | 'remove';
 
 /** The id reported for the origin marker — it has no Building behind it. */
 export const ORIGIN_ID = '__origin__';
@@ -270,6 +290,10 @@ type Target =
  * 'life' is a building entering or leaving the scene. It holds the record
  * itself, so an undo restores the very same object — with its ring, colour and
  * transform intact — at the index it came from.
+ *
+ * 'multi' is one gesture that touched several elements. It exists so that
+ * "one gesture, one command" survives a multi-selection: dragging six buildings
+ * has to come back in one Ctrl+Z, not six.
  */
 type Cmd =
   | {
@@ -312,6 +336,45 @@ type Cmd =
        * LayerXf and travel in before/after above.
        */
       styles: { rec: Styled; before: Style; after: Style }[];
+    }
+  | {
+      label: EditLabelKey;
+      kind: 'multi';
+      /**
+       * The children, in the order they were applied.
+       *
+       * Replayed forward for 'after' and in reverse for 'before', which is what
+       * keeps the indices on a batch of 'life' commands meaningful: deleting
+       * three buildings takes them highest-index-first, so putting them back has
+       * to run lowest-index-first.
+       */
+      cmds: Cmd[];
+      /** How many elements the gesture touched, for the status line — the
+       *  viewer cannot compose "3 elements" itself. */
+      count: number;
+    };
+
+/** A uniform view onto one element that has an xf and a height — building or
+ *  tree. See Viewer.editables. */
+type Editable = {
+  xf: Xf;
+  getH: () => number;
+  setH: (h: number) => void;
+  apply: () => void;
+  paint: () => void;
+  rebuild: () => void;
+};
+
+/** One element's state at the start of an open gesture. See Viewer.pending. */
+type Pending =
+  | { kind: 'building'; b: Building; before: Xf; beforeH: number }
+  | { kind: 'tree'; t: Tree; before: Xf; beforeH: number }
+  | { kind: 'origin'; before: Vec3 }
+  | {
+      kind: 'layer';
+      id: LayerId;
+      before: LayerXf;
+      styles: { rec: Styled; before: Style }[];
     };
 
 /**
@@ -507,6 +570,9 @@ export class Viewer {
   private drawSeq = 0;
   private drawTreeName = 'Tree';
   private drawTreeSeq = 0;
+  /** What a duplicate's name gets appended to it. Same rule as the two names
+   *  above: nothing under lib/viewer may compose translated text. */
+  private copySuffix = '(copy)';
   /** Where a rectangle drag started; null unless one is in progress. */
   private rectAnchor: THREE.Vector3 | null = null;
   /**
@@ -580,7 +646,45 @@ export class Viewer {
    *  own to recolour the way a building does, and tinting their materials would
    *  fight the colour being edited. */
   private readonly layerBox: THREE.Box3Helper;
-  private selected: Target | null = null;
+  /**
+   * What is selected, in the order it was picked.
+   *
+   * A list rather than one target so several buildings and trees can be edited
+   * at once — see setTargets. The origin marker and the layer groups are not
+   * records and never join a group: a list holding one of those is always
+   * length 1.
+   */
+  private selection: Target[] = [];
+  /**
+   * The anchor: the element picked last.
+   *
+   * Everything that has to name *one* element reads this — the values the panel
+   * shows, the swatch's default colour, the origin and layer branches that only
+   * ever apply to a selection of one. Everything that acts on the selection
+   * reads `selection` instead.
+   */
+  private get selected(): Target | null {
+    return this.selection.length ? this.selection[this.selection.length - 1] : null;
+  }
+  /** The gizmo's stand-in while more than one element is selected: it has no
+   *  mesh of its own to attach to, and a group has no single local frame. */
+  private readonly selPivot = new THREE.Object3D();
+  /** Each selected object's pose in the pivot's frame, captured when a drag
+   *  starts and replayed against the pivot's new matrix on every change. */
+  private dragLocals: { obj: THREE.Object3D; local: THREE.Matrix4 }[] = [];
+  /** Scratch for dragFromPivot, which runs per element per frame of a drag. */
+  private readonly mScratch = new THREE.Matrix4();
+  private readonly mInv = new THREE.Matrix4();
+  /**
+   * Set while several elements are inserted or replayed as one gesture.
+   *
+   * insertBuilding, insertTree and the two applyXfCmds each show what they just
+   * changed by selecting it — the right courtesy for one element, and wrong for
+   * six, where it would leave the last one alone in a selection the gesture had
+   * held all of. Both batch paths (applyMultiCmd and duplicateSelected) raise
+   * this and select the whole set themselves at the end.
+   */
+  private batching = false;
   /** false while the 2D map covers the viewport — nothing to draw behind it. */
   private active = false;
   private raf = 0;
@@ -596,17 +700,15 @@ export class Viewer {
     index: -1,
     limit: 100,
   };
-  private pending:
-    | { kind: 'building'; b: Building; before: Xf; beforeH: number }
-    | { kind: 'tree'; t: Tree; before: Xf; beforeH: number }
-    | { kind: 'origin'; before: Vec3 }
-    | {
-        kind: 'layer';
-        id: LayerId;
-        before: LayerXf;
-        styles: { rec: Styled; before: Style }[];
-      }
-    | null = null;
+  /**
+   * The open gesture, one part per selected element.
+   *
+   * An array rather than a single snapshot so that a drag on several elements
+   * still commits as one command — see commitEdit, which folds however many
+   * parts changed into a single 'multi'. Empty means no gesture is open, which
+   * is the guard beginEdit reads.
+   */
+  private pending: Pending[] = [];
 
   constructor(host: HTMLElement, cb: ViewerCallbacks) {
     this.host = host;
@@ -694,10 +796,22 @@ export class Viewer {
     this.gizmo.setSpace('local');
     this.gizmo.addEventListener('dragging-changed', (e) => {
       this.controls.enabled = !e.value; // or OrbitControls fights the drag
-      if (e.value) this.beginEdit(); // one drag == one undo step
-      else this.commitEdit(MODE_LABEL[this.gizmo.getMode() as GizmoMode] || 'edit.move');
+      if (e.value) {
+        this.beginEdit(); // one drag == one undo step
+        this.captureDragLocals();
+      } else {
+        this.commitEdit(MODE_LABEL[this.gizmo.getMode() as GizmoMode] || 'edit.move');
+        this.dragLocals = [];
+        // The elements have moved, so the middle of them has too. Re-centred at
+        // the end of the gesture rather than during it: moving the pivot while
+        // the gizmo is holding it would fight the drag.
+        this.syncPivot();
+      }
     });
     this.gizmo.addEventListener('objectChange', () => {
+      // Several selected: the gizmo is holding the pivot, not any one element,
+      // so the gesture reaches the elements as a delta off it.
+      if (this.selection.length > 1) return this.dragFromPivot();
       const t = this.selected;
       if (!t) return;
       if (t.kind === 'origin') {
@@ -741,7 +855,15 @@ export class Viewer {
     // instead — see .measureLayer in globals.css for where that sits.
     this.measure = createMeasureLayer();
     host.appendChild(this.measure.dom);
-    this.sceneGL.add(this.originMarker, this.pivotGhost, this.draft.group, this.measure.group);
+    // The selection pivot goes on the scene for the same reason as the gizmo it
+    // stands in for: disposeGroup clears contentGroup on every rebuild.
+    this.sceneGL.add(
+      this.originMarker,
+      this.pivotGhost,
+      this.selPivot,
+      this.draft.group,
+      this.measure.group,
+    );
 
     // Same reason again — and it is drawn round contentGroup's children, so
     // being one of them would make it enclose itself.
@@ -832,6 +954,15 @@ export class Viewer {
   private updateMarkers(): void {
     if (this.originMarker.visible) this.scaleToScreen(this.originMarker, ORIGIN_PX);
     const t = this.selected;
+    // With several selected the ghost marks the shared centre the group turns
+    // about, on world axes — which is the frame the gizmo is on there too.
+    if (this.selection.length > 1) {
+      this.pivotGhost.visible = true;
+      this.pivotGhost.position.copy(this.selPivot.position);
+      this.pivotGhost.quaternion.identity();
+      this.scaleToScreen(this.pivotGhost, PIVOT_PX);
+      return;
+    }
     // The ghost tracks the mesh's own frame, rotation included, so it reads as
     // the element's local axes rather than as a second copy of the world's.
     this.pivotGhost.visible = t?.kind === 'building';
@@ -1511,14 +1642,16 @@ export class Viewer {
     return !this.hidden.has(id);
   }
 
-  /** True when the current selection lives under the given layer — a building
-   *  or a tree under their fixed category, or the layer group itself. */
+  /** True when anything selected lives under the given layer — a building or a
+   *  tree under their fixed category, or the layer group itself. */
   private selectionIn(id: LayerId): boolean {
-    const t = this.selected;
-    if (!t) return false;
-    if (t.kind === 'building') return id === 'buildings';
-    if (t.kind === 'tree') return id === 'trees';
-    return t.kind === 'layer' && t.id === id;
+    return this.selection.some((t) =>
+      t.kind === 'building'
+        ? id === 'buildings'
+        : t.kind === 'tree'
+          ? id === 'trees'
+          : t.kind === 'layer' && t.id === id,
+    );
   }
 
   /** Show or hide a whole category. Purely a view toggle — kept off LayerXf so
@@ -2009,8 +2142,9 @@ export class Viewer {
     this.layersChanged();
     // Show what just came back — a building reappearing off-screen with nothing
     // selected is an undo the user cannot see. Unless a footprint tool is armed,
-    // where the gizmo would land on the ground the next corner is aimed at.
-    if (!this.drawTool) this.selectTarget({ kind: 'building', obj: mesh, b });
+    // where the gizmo would land on the ground the next corner is aimed at, or a
+    // compound command is mid-replay and will select the whole batch at the end.
+    if (!this.drawTool && !this.batching) this.selectTarget({ kind: 'building', obj: mesh, b });
   }
 
   private detachBuilding(b: Building): void {
@@ -2018,7 +2152,10 @@ export class Viewer {
     if (!s) return;
     const i = s.buildings.indexOf(b);
     if (i >= 0) s.buildings.splice(i, 1);
-    if (this.selected?.kind === 'building' && this.selected.b === b) this.selectTarget(null);
+    // Out of the selection rather than clearing it: with several selected,
+    // deleting one must leave the rest in hand.
+    if (this.selection.some((t) => t.kind === 'building' && t.b === b))
+      this.setTargets(this.selection.filter((t) => !(t.kind === 'building' && t.b === b)));
     this.removeBuildingMesh(b);
     this.cb.onCount(s.buildings.length);
     this.layersChanged();
@@ -2061,7 +2198,7 @@ export class Viewer {
     // add into — a lit roof would clip before the tint became legible. A coloured
     // silhouette reads at any brightness, so the emissive is only a faint
     // supporting wash for the faces.
-    const sel = this.selected?.kind === 'building' && this.selected.obj === mesh;
+    const sel = this.isSelectedObj(mesh);
 
     // Transparency, on the same terms as the context surfaces above: a solid
     // drawn below 1 must not write depth, or it hides what it is meant to be
@@ -2178,7 +2315,7 @@ export class Viewer {
     s.trees.splice(Math.min(index, s.trees.length), 0, t);
     const group = this.addTreeMesh(t);
     this.layersChanged();
-    if (!this.drawTool) this.selectTarget({ kind: 'tree', obj: group, t });
+    if (!this.drawTool && !this.batching) this.selectTarget({ kind: 'tree', obj: group, t });
   }
 
   private detachTree(t: Tree): void {
@@ -2186,7 +2323,9 @@ export class Viewer {
     if (!s) return;
     const i = s.trees.indexOf(t);
     if (i >= 0) s.trees.splice(i, 1);
-    if (this.selected?.kind === 'tree' && this.selected.t === t) this.selectTarget(null);
+    // Same as detachBuilding: narrow the selection, don't drop it.
+    if (this.selection.some((s) => s.kind === 'tree' && s.t === t))
+      this.setTargets(this.selection.filter((s) => !(s.kind === 'tree' && s.t === t)));
     this.removeTreeMesh(t);
     this.layersChanged();
   }
@@ -2216,7 +2355,7 @@ export class Viewer {
     const [trunk, canopy] = group.children as THREE.Mesh[];
     // Selection reads as a faint emissive wash, the same supporting role it
     // plays on a building — see paintMesh.
-    const sel = this.selected?.kind === 'tree' && this.selected.obj === group;
+    const sel = this.isSelectedObj(group);
     const a = t.xf.opacity;
     const order = a < 1 ? DRAW_ORDER.GHOST_FRONT : DRAW_ORDER.TREE;
 
@@ -2240,56 +2379,235 @@ export class Viewer {
     return group ? { kind: 'tree', obj: group, t: group.userData.tree as Tree } : null;
   }
 
-  private selectTarget(t: Target | null): void {
-    const prev = this.selected;
-    this.selected = t;
-    if (prev?.kind === 'building' && prev.obj !== t?.obj && prev.obj.parent)
-      this.paintMesh(prev.obj, prev.b);
-    if (prev?.kind === 'tree' && prev.obj !== t?.obj && prev.obj.parent)
-      this.paintTreeMesh(prev.obj, prev.t);
-    if (prev?.kind === 'origin' && t?.kind !== 'origin') setMarkerActive(this.originMarker, false);
+  /** Every selected element, oldest pick first. */
+  private targets(): Target[] {
+    return this.selection;
+  }
 
-    if (t) {
-      // Terrain has no offset to drag (see MOVABLE_LAYERS), and a layer with no
-      // geometry has nothing to drag it by — the tree filters those out, but an
-      // undo replaying an old command could still ask for one.
-      const draggable =
-        t.kind !== 'layer' || (MOVABLE_LAYERS.has(t.id) && t.obj.children.length > 0);
-      if (draggable) this.gizmo.attach(t.obj);
-      else this.gizmo.detach();
+  /** Whether an object is part of the selection — what the two paint methods
+   *  ask, since a highlight is no longer a question about one target. */
+  private isSelectedObj(o: THREE.Object3D): boolean {
+    return this.selection.some((t) => t.obj === o);
+  }
+
+  /** Where in the selection an object sits, or -1. Compared on the object
+   *  rather than on the record: an undo can hand back an equal-looking Target
+   *  built fresh around the same mesh. */
+  private indexOfTarget(t: Target): number {
+    return this.selection.findIndex((s) => s.obj === t.obj);
+  }
+
+  /**
+   * Replace the selection wholesale. Every other selection call routes here.
+   *
+   * Only buildings and trees group: the origin marker and the layer groups are
+   * not records — there is no ring to recolour, no height to set, nothing a
+   * second one of them could be edited alongside.
+   *
+   * A list that mixes the two is resolved in favour of the newest pick, which is
+   * always last: Ctrl+clicking a building with the origin selected means the
+   * building, not a refusal to do anything.
+   */
+  private setTargets(list: Target[]): void {
+    const last = list.length ? list[list.length - 1] : null;
+    const next = !last
+      ? []
+      : last.kind === 'origin' || last.kind === 'layer'
+        ? [last]
+        : list.filter((t) => t.kind === 'building' || t.kind === 'tree');
+    const prev = this.selection;
+    this.selection = next;
+
+    // Repaint whatever left, before the new set is painted in: an element can
+    // appear in both lists, and repainting it as deselected afterwards would
+    // leave the outline off the thing that is still selected.
+    for (const p of prev) {
+      if (next.some((t) => t.obj === p.obj)) continue;
+      if (p.kind === 'building' && p.obj.parent) this.paintMesh(p.obj, p.b);
+      else if (p.kind === 'tree' && p.obj.parent) this.paintTreeMesh(p.obj, p.t);
+      else if (p.kind === 'origin') setMarkerActive(this.originMarker, false);
+    }
+
+    for (const t of next) {
       if (t.kind === 'building') this.paintMesh(t.obj, t.b);
       else if (t.kind === 'tree') this.paintTreeMesh(t.obj, t.t);
-      else if (t.kind === 'layer') {
-        // Same reasoning as the origin below — a layer translates and nothing
-        // else, so the other two modes are not the user's to pick here. Turning
-        // is a separate promise about the source data being mis-georeferenced,
-        // and scaling a draped ribbon would tear it off the terrain outright.
-        if (draggable && this.gizmo.getMode() !== 'translate') {
-          this.gizmo.setMode('translate');
-          this.cb.onMode('translate');
-        }
-      } else {
-        setMarkerActive(this.originMarker, true);
-        // A point has nothing to turn or stretch, so the mode is not the user's
-        // to pick while it is selected — say so rather than leaving dead buttons.
-        if (this.gizmo.getMode() !== 'translate') {
-          this.gizmo.setMode('translate');
-          this.cb.onMode('translate');
-        }
-      }
-    } else this.gizmo.detach();
+      else if (t.kind === 'origin') setMarkerActive(this.originMarker, true);
+    }
 
+    this.attachGizmo();
     this.syncLayerBox();
-    this.cb.onSelect(this.selectionOf(t));
+    this.cb.onSelect(this.selectionOf());
     this.syncHistory();
   }
 
-  private selectionOf(t: Target | null): Selection | null {
+  /**
+   * Put the gizmo on the selection.
+   *
+   * One element keeps the old behaviour exactly — the gizmo goes on the mesh
+   * itself, so setSpace('local') gives the element's own axes. Two or more get
+   * the pivot instead: a group has no local frame of its own, and world axes are
+   * the honest answer rather than borrowing whichever element happened to be
+   * clicked last.
+   */
+  private attachGizmo(): void {
+    const list = this.selection;
+    if (!list.length) {
+      this.gizmo.detach();
+      return;
+    }
+
+    if (list.length > 1) {
+      this.syncPivot();
+      this.gizmo.attach(this.selPivot);
+      return;
+    }
+
+    const t = list[0];
+    // Terrain has no offset to drag (see MOVABLE_LAYERS), and a layer with no
+    // geometry has nothing to drag it by — the tree filters those out, but an
+    // undo replaying an old command could still ask for one.
+    const draggable =
+      t.kind !== 'layer' || (MOVABLE_LAYERS.has(t.id) && t.obj.children.length > 0);
+    if (draggable) this.gizmo.attach(t.obj);
+    else this.gizmo.detach();
+
+    // A layer translates and nothing else. Turning one is a separate promise
+    // about the source data being mis-georeferenced, and scaling a draped ribbon
+    // would tear it off the terrain outright. The origin is a point, so it has
+    // nothing to turn or stretch either — say so rather than leaving dead
+    // buttons on the rail.
+    const translateOnly = t.kind === 'origin' || (t.kind === 'layer' && draggable);
+    if (translateOnly && this.gizmo.getMode() !== 'translate') {
+      this.gizmo.setMode('translate');
+      this.cb.onMode('translate');
+    }
+  }
+
+  /**
+   * Park the pivot at the middle of the selection.
+   *
+   * World positions, not local ones: buildings and trees hang off different
+   * layer groups, and those groups carry offsets of their own, so an average of
+   * raw `position`s would sit somewhere neither layer is. Identity rotation and
+   * scale — the pivot only ever carries the delta of the gesture in progress.
+   */
+  private syncPivot(): void {
+    const list = this.selection;
+    if (!list.length) return;
+    const mid = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    for (const t of list) {
+      t.obj.getWorldPosition(p);
+      mid.add(p);
+    }
+    this.selPivot.position.copy(mid.divideScalar(list.length));
+    this.selPivot.quaternion.identity();
+    this.selPivot.scale.set(1, 1, 1);
+    this.selPivot.updateMatrixWorld(true);
+  }
+
+  /**
+   * Freeze each selected object's pose in the pivot's frame, for the drag about
+   * to start.
+   *
+   * Captured once at the start rather than derived per frame, because the pivot
+   * is what the gizmo is moving: read afresh each frame, every element would be
+   * measured against a pivot that had already carried it.
+   */
+  private captureDragLocals(): void {
+    this.dragLocals = [];
+    if (this.selection.length < 2) return;
+    this.selPivot.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(this.selPivot.matrixWorld).invert();
+    for (const t of this.selection) {
+      // Ancestors included: a layer group's own offset sits between the mesh and
+      // the world, and a stale one would put the whole layer's elements in the
+      // wrong frame for the entire gesture.
+      t.obj.updateWorldMatrix(true, false);
+      this.dragLocals.push({
+        obj: t.obj,
+        local: new THREE.Matrix4().multiplyMatrices(inv, t.obj.matrixWorld),
+      });
+    }
+  }
+
+  /**
+   * Carry the pivot's new pose down onto everything selected.
+   *
+   * The whole conversion runs in world space, then back through each object's
+   * own parent, because the selection can span layer groups: buildings hang off
+   * layerGroup('buildings') and trees off layerGroup('trees'), and each of those
+   * carries its own offset. Composing matrices is also what makes a rotation of
+   * the group swing its members around the centre rather than spin each in
+   * place.
+   *
+   * One caveat, and it is inherent rather than incidental: a non-uniform scale
+   * applied across elements sitting at different rotations is a shear, and an Xf
+   * holds pos/rot/scale with nowhere to put one. decompose returns the closest
+   * pose it can. Translation, rotation and uniform scale are all exact.
+   */
+  private dragFromPivot(): void {
+    if (!this.dragLocals.length) return;
+    this.selPivot.updateMatrixWorld(true);
+
+    for (const { obj, local } of this.dragLocals) {
+      this.mScratch.multiplyMatrices(this.selPivot.matrixWorld, local);
+      if (obj.parent) {
+        obj.parent.updateWorldMatrix(true, false);
+        this.mScratch.premultiply(this.mInv.copy(obj.parent.matrixWorld).invert());
+      }
+      this.mScratch.decompose(obj.position, obj.quaternion, obj.scale);
+    }
+
+    // Mesh -> data, through the same readers a single-element drag uses, so the
+    // clamping and the centre/baseZ arithmetic have one home.
+    for (const t of this.selection) {
+      if (t.kind === 'building') this.readMeshInto(t.obj, t.b.xf);
+      else if (t.kind === 'tree') this.readTreeMeshInto(t.obj, t.t.xf);
+    }
+
+    const a = this.selected;
+    if (a?.kind === 'building') this.cb.onTransform(cloneXf(a.b.xf), a.b.h);
+    else if (a?.kind === 'tree') this.cb.onTransform(cloneXf(a.t.xf), a.t.h);
+    this.cb.onDirty();
+  }
+
+  private selectTarget(t: Target | null): void {
+    this.setTargets(t ? [t] : []);
+  }
+
+  /** Ctrl+click: in if it was out, out if it was in. */
+  private toggleTarget(t: Target): void {
+    const i = this.indexOfTarget(t);
+    if (i < 0) return this.setTargets([...this.selection, t]);
+    this.setTargets(this.selection.filter((_, j) => j !== i));
+  }
+
+  /** Shift+click: out, or nothing if it was never in. */
+  private removeTarget(t: Target): void {
+    const i = this.indexOfTarget(t);
+    if (i >= 0) this.setTargets(this.selection.filter((_, j) => j !== i));
+  }
+
+  /**
+   * The React-facing view of the selection.
+   *
+   * The values are the anchor's — one element's colour, height and transform,
+   * because that is what the panel's fields can show — while `ids` and `count`
+   * describe the whole set, which is what the model tree highlights and what the
+   * panel's header reports. Writing any field applies it to every id; see
+   * editables.
+   */
+  private selectionOf(): Selection | null {
+    const t = this.selected;
     if (!t) return null;
+    const ids = this.selection.map((s) => this.idOf(s));
     if (t.kind === 'origin')
       return {
         kind: 'origin',
         id: ORIGIN_ID,
+        ids,
+        count: 1,
         name: ORIGIN_NAME,
         xf: originXf(this.originOffset),
         h: 0,
@@ -2300,6 +2618,8 @@ export class Viewer {
       return {
         kind: 'layer',
         id: layerSelId(t.id),
+        ids,
+        count: 1,
         name: LAYER_LABEL[t.id],
         xf: layerXf(t.id, l ?? { color: null, opacity: null, offset: [0, 0, 0] }),
         h: 0,
@@ -2310,6 +2630,8 @@ export class Viewer {
       return {
         kind: 'tree',
         id: t.t.id,
+        ids,
+        count: ids.length,
         name: t.t.name,
         xf: cloneXf(t.t.xf),
         h: t.t.h,
@@ -2318,11 +2640,20 @@ export class Viewer {
     return {
       kind: 'building',
       id: t.b.id,
+      ids,
+      count: ids.length,
       name: t.b.name,
       xf: cloneXf(t.b.xf),
       h: t.b.h,
       defaultColor: defaultColors(t.b).wall,
     };
+  }
+
+  /** The id a target reports to React — the same namespace `select` reads. */
+  private idOf(t: Target): string {
+    if (t.kind === 'building') return t.b.id;
+    if (t.kind === 'tree') return t.t.id;
+    return t.kind === 'origin' ? ORIGIN_ID : layerSelId(t.id);
   }
 
   private buildingTarget(mesh: THREE.Mesh | null | undefined): Target | null {
@@ -2603,9 +2934,27 @@ export class Viewer {
       const tHit = this.shown('trees')
         ? this.raycaster.intersectObjects(this.treeMeshes, true)[0]
         : undefined;
-      if (tHit && (!bHit || tHit.distance < bHit.distance))
-        this.selectTarget(this.treeTarget(tHit.object.userData.treeRoot as THREE.Group));
-      else this.selectTarget(this.buildingTarget(bHit?.object as THREE.Mesh | undefined));
+      const hit =
+        tHit && (!bHit || tHit.distance < bHit.distance)
+          ? this.treeTarget(tHit.object.userData.treeRoot as THREE.Group)
+          : this.buildingTarget(bHit?.object as THREE.Mesh | undefined);
+
+      // Ctrl adds and removes, Shift only removes. metaKey rides with ctrlKey
+      // the way the undo shortcut already handles it.
+      //
+      // Note that OrbitControls binds left-drag + ctrl/meta/shift to pan, so a
+      // modifier is held over a camera gesture as often as over a pick. Nothing
+      // extra is needed for that: the CLICK_PX guard above has already sent
+      // every gesture that travelled home.
+      const add = e.ctrlKey || e.metaKey;
+      const sub = e.shiftKey;
+      if (!hit) {
+        // A miss with a modifier down is an aim that fell off the building, not
+        // an instruction to drop everything held.
+        if (!add && !sub) this.selectTarget(null);
+      } else if (add) this.toggleTarget(hit);
+      else if (sub) this.removeTarget(hit);
+      else this.selectTarget(hit);
     });
 
     // Closing on a double-click means the second click has already been taken
@@ -2674,7 +3023,14 @@ export class Viewer {
     return true;
   }
 
-  select(id: string | null): void {
+  /**
+   * Select by id — the model tree's route in.
+   *
+   * `mode` mirrors the modifiers the 3D view reads: 'add' toggles, 'remove'
+   * takes out. Both are ignored for the origin and the layers, which do not
+   * group, and for an id that resolves to nothing.
+   */
+  select(id: string | null, mode: SelectMode = 'replace'): void {
     if (id === null) return this.selectTarget(null);
     const layer = layerIdOf(id);
     if (layer) return this.selectLayer(layer);
@@ -2685,11 +3041,17 @@ export class Viewer {
     const mesh = this.shown('buildings')
       ? this.buildingMeshes.find((m) => (m.userData.building as Building).id === id)
       : undefined;
-    if (mesh) return this.selectTarget(this.buildingTarget(mesh));
-    const group = this.shown('trees')
-      ? this.treeMeshes.find((g) => (g.userData.tree as Tree).id === id)
-      : undefined;
-    this.selectTarget(this.treeTarget(group));
+    const group =
+      !mesh && this.shown('trees')
+        ? this.treeMeshes.find((g) => (g.userData.tree as Tree).id === id)
+        : undefined;
+    const t = mesh ? this.buildingTarget(mesh) : this.treeTarget(group);
+    // An id that resolves to nothing — a hidden layer's row — clears a plain
+    // select, but must not empty a selection being added to.
+    if (!t) return mode === 'replace' ? this.selectTarget(null) : undefined;
+    if (mode === 'add') return this.toggleTarget(t);
+    if (mode === 'remove') return this.removeTarget(t);
+    this.selectTarget(t);
   }
 
   /* ---- the model origin ----------------------------------------------
@@ -2751,7 +3113,7 @@ export class Viewer {
   private clearHistory(): void {
     this.edits.stack.length = 0;
     this.edits.index = -1;
-    this.pending = null;
+    this.pending = [];
     this.syncHistory();
   }
 
@@ -2759,31 +3121,33 @@ export class Viewer {
     this.cb.onHistory(this.edits.index >= 0, this.edits.index < this.edits.stack.length - 1);
   }
 
+  /** One part per selected element, so however many the gesture goes on to
+   *  touch, they are all measured from where they stood when it opened. */
   beginEdit(): void {
-    const t = this.selected;
-    if (this.pending || !t) return;
-    if (t.kind === 'layer') {
-      const l = this.layerState(t.id);
-      if (!l) return;
-      // The per-record colours are snapshotted here rather than at the moment a
-      // stamp writes them, because a colour drag arrives as a stream of live
-      // previews and only the first of them still sees the originals. One pass
-      // over the layer per gesture, not per keystroke — the guard above is what
-      // makes that true.
-      this.pending = {
-        kind: 'layer',
-        id: t.id,
-        before: cloneLayerXf(l),
-        styles: styledOf(this.scene!, t.id).map((rec) => ({ rec, before: readStyle(rec) })),
-      };
-      return;
+    if (this.pending.length || !this.selection.length) return;
+    for (const t of this.selection) {
+      if (t.kind === 'layer') {
+        const l = this.layerState(t.id);
+        if (!l) continue;
+        // The per-record colours are snapshotted here rather than at the moment
+        // a stamp writes them, because a colour drag arrives as a stream of live
+        // previews and only the first of them still sees the originals. One pass
+        // over the layer per gesture, not per keystroke — the guard above is
+        // what makes that true.
+        this.pending.push({
+          kind: 'layer',
+          id: t.id,
+          before: cloneLayerXf(l),
+          styles: styledOf(this.scene!, t.id).map((rec) => ({ rec, before: readStyle(rec) })),
+        });
+      } else if (t.kind === 'origin') {
+        this.pending.push({ kind: 'origin', before: this.originOffset.toArray() as Vec3 });
+      } else if (t.kind === 'building') {
+        this.pending.push({ kind: 'building', b: t.b, before: cloneXf(t.b.xf), beforeH: t.b.h });
+      } else {
+        this.pending.push({ kind: 'tree', t: t.t, before: cloneXf(t.t.xf), beforeH: t.t.h });
+      }
     }
-    this.pending =
-      t.kind === 'origin'
-        ? { kind: 'origin', before: this.originOffset.toArray() as Vec3 }
-        : t.kind === 'building'
-          ? { kind: 'building', b: t.b, before: cloneXf(t.b.xf), beforeH: t.b.h }
-          : { kind: 'tree', t: t.t, before: cloneXf(t.t.xf), beforeH: t.t.h };
   }
 
   /**
@@ -2802,60 +3166,85 @@ export class Viewer {
     this.syncHistory();
     this.layersChanged();
     this.cb.onDirty();
-    this.cb.onStatus('status.editCommitted', { label: cmd.label, name });
+    this.report('status.editCommitted', 'status.editCommittedMany', cmd, name);
   }
 
-  commitEdit(label: EditLabelKey): void {
-    const p = this.pending;
-    if (!p) return;
-    this.pending = null;
+  /** The status line for a command, in its one-element and its many-element
+   *  wording. A count cannot be folded into a name, so the two are separate
+   *  keys rather than one with a cleverer parameter. */
+  private report(one: StatusKey, many: StatusKey, cmd: Cmd, name: string): void {
+    if (cmd.kind === 'multi') this.cb.onStatus(many, { label: cmd.label, n: cmd.count });
+    else this.cb.onStatus(one, { label: cmd.label, name });
+  }
 
+  /**
+   * Close the open gesture.
+   *
+   * Every part that actually changed becomes a command; the parts that did not
+   * are dropped, which is what stops a click on a gizmo handle, or a typed value
+   * re-entered unchanged, from landing on the stack. What survives is pushed as
+   * a single entry — one command when one element moved, a 'multi' when several
+   * did — because the promise the stack makes is one gesture, one Ctrl+Z.
+   */
+  commitEdit(label: EditLabelKey): void {
+    const parts = this.pending;
+    if (!parts.length) return;
+    this.pending = [];
+
+    const cmds: Cmd[] = [];
+    for (const p of parts) {
+      const c = this.cmdOf(p, label);
+      if (c) cmds.push(c);
+    }
+    if (!cmds.length) return;
+    if (cmds.length === 1) return this.pushCmd(cmds[0], this.cmdName(cmds[0]));
+    this.pushCmd({ label, kind: 'multi', cmds, count: cmds.length }, '');
+  }
+
+  /** One closed part as a command, or null when nothing about it moved. */
+  private cmdOf(p: Pending, label: EditLabelKey): Cmd | null {
     if (p.kind === 'origin') {
       const after = this.originOffset.toArray() as Vec3;
-      if (p.before.every((v, i) => v === after[i])) return;
-      this.pushCmd({ label, kind: 'origin', before: p.before, after }, ORIGIN_NAME);
-      return;
+      if (p.before.every((v, i) => v === after[i])) return null;
+      return { label, kind: 'origin', before: p.before, after };
     }
 
     if (p.kind === 'layer') {
       const l = this.layerState(p.id);
-      if (!l) return;
+      if (!l) return null;
       const after = cloneLayerXf(l);
       const styles = p.styles
         .map((x) => ({ rec: x.rec, before: x.before, after: readStyle(x.rec) }))
         .filter((x) => !sameStyle(x.before, x.after));
-      if (sameLayerXf(p.before, after) && !styles.length) return;
-      this.pushCmd(
-        { label, kind: 'layer', id: p.id, before: p.before, after, styles },
-        LAYER_LABEL[p.id],
-      );
-      return;
+      if (sameLayerXf(p.before, after) && !styles.length) return null;
+      return { label, kind: 'layer', id: p.id, before: p.before, after, styles };
     }
 
     if (p.kind === 'tree') {
       const after = cloneXf(p.t.xf);
-      if (sameXf(p.before, after) && p.beforeH === p.t.h) return;
-      this.pushCmd(
-        { label, kind: 'tree', t: p.t, before: p.before, after, beforeH: p.beforeH, afterH: p.t.h },
-        p.t.name,
-      );
-      return;
-    }
-
-    const after = cloneXf(p.b.xf);
-    if (sameXf(p.before, after) && p.beforeH === p.b.h) return;
-    this.pushCmd(
-      {
+      if (sameXf(p.before, after) && p.beforeH === p.t.h) return null;
+      return {
         label,
-        kind: 'building',
-        b: p.b,
+        kind: 'tree',
+        t: p.t,
         before: p.before,
         after,
         beforeH: p.beforeH,
-        afterH: p.b.h,
-      },
-      p.b.name,
-    );
+        afterH: p.t.h,
+      };
+    }
+
+    const after = cloneXf(p.b.xf);
+    if (sameXf(p.before, after) && p.beforeH === p.b.h) return null;
+    return {
+      label,
+      kind: 'building',
+      b: p.b,
+      before: p.before,
+      after,
+      beforeH: p.beforeH,
+      afterH: p.b.h,
+    };
   }
 
   private applyXfCmd(b: Building, xf: Xf, h: number): void {
@@ -2867,8 +3256,9 @@ export class Viewer {
     // there is simply no mesh to follow.
     const mesh = this.meshFor(b);
     if (mesh) {
-      // show what just changed
-      if (this.selected?.kind !== 'building' || this.selected.obj !== mesh)
+      // show what just changed — unless a compound command is mid-replay, which
+      // selects everything it touched once at the end instead
+      if (!this.batching && !this.isSelectedObj(mesh))
         this.selectTarget(this.buildingTarget(mesh));
       if (heightChanged) this.rebuildGeometry(mesh, b);
       this.applyXf(mesh, b);
@@ -2884,8 +3274,7 @@ export class Viewer {
     t.h = h;
     const group = this.groupFor(t);
     if (group) {
-      if (this.selected?.kind !== 'tree' || this.selected.obj !== group)
-        this.selectTarget(this.treeTarget(group));
+      if (!this.batching && !this.isSelectedObj(group)) this.selectTarget(this.treeTarget(group));
       if (heightChanged) this.rebuildTreeGeometry(group, t);
       this.applyTreeXf(group, t);
       this.paintTreeMesh(group, t);
@@ -2896,6 +3285,7 @@ export class Viewer {
 
   /** Replay one command in either direction; `to` is its before or its after. */
   private applyCmd(c: Cmd, to: 'before' | 'after'): void {
+    if (c.kind === 'multi') return this.applyMultiCmd(c, to);
     if (c.kind === 'origin') {
       // Show what just changed, as the building path does — an origin that jumps
       // with nothing selected is an undo the user cannot see.
@@ -2921,6 +3311,49 @@ export class Viewer {
     } else this.applyXfCmd(c.b, c[to], to === 'after' ? c.afterH : c.beforeH);
   }
 
+  /**
+   * Replay a compound command, then show the whole of what it touched.
+   *
+   * Backwards for 'before', which matters wherever the children carry indices:
+   * a batch delete takes its elements highest-index-first, so putting them back
+   * has to run lowest-index-first or every index after the first is off by the
+   * ones still missing.
+   *
+   * `batching` silences the "show what just changed" each child would otherwise
+   * do for itself. Left on, six children selecting themselves in turn would end
+   * an undo of a six-element gesture with one element selected — losing the very
+   * grouping the undo was restoring.
+   */
+  private applyMultiCmd(c: Cmd & { kind: 'multi' }, to: 'before' | 'after'): void {
+    const order = to === 'after' ? c.cmds : [...c.cmds].reverse();
+    this.batching = true;
+    try {
+      for (const child of order) this.applyCmd(child, to);
+    } finally {
+      this.batching = false;
+    }
+    this.setTargets(this.targetsOf(c, to));
+  }
+
+  /** The elements a compound command left on screen, for the selection to land
+   *  on. Empty when it was a batch delete being replayed forward — there is
+   *  nothing left to select. */
+  private targetsOf(c: Cmd & { kind: 'multi' }, to: 'before' | 'after'): Target[] {
+    const out: Target[] = [];
+    for (const child of c.cmds) {
+      if (child.kind === 'life' || child.kind === 'building') {
+        if (child.kind === 'life' && (to === 'after' ? !child.added : child.added)) continue;
+        const mesh = this.meshFor(child.b);
+        if (mesh) out.push({ kind: 'building', obj: mesh, b: child.b });
+      } else if (child.kind === 'treeLife' || child.kind === 'tree') {
+        if (child.kind === 'treeLife' && (to === 'after' ? !child.added : child.added)) continue;
+        const group = this.groupFor(child.t);
+        if (group) out.push({ kind: 'tree', obj: group, t: child.t });
+      }
+    }
+    return out;
+  }
+
   private applyLayerCmd(c: Cmd & { kind: 'layer' }, to: 'before' | 'after'): void {
     const s = this.scene;
     if (!s) return;
@@ -2940,6 +3373,9 @@ export class Viewer {
   private cmdName(c: Cmd): string {
     if (c.kind === 'origin') return ORIGIN_NAME;
     if (c.kind === 'layer') return LAYER_LABEL[c.id];
+    // Unused for a 'multi' — report() takes the count instead — but a name is
+    // still wanted for the empty case, and the first child is the honest one.
+    if (c.kind === 'multi') return c.cmds.length ? this.cmdName(c.cmds[0]) : '';
     return c.kind === 'tree' || c.kind === 'treeLife' ? c.t.name : c.b.name;
   }
 
@@ -2952,7 +3388,7 @@ export class Viewer {
     // hand the panel the very values it just took back.
     this.layersChanged();
     this.syncHistory();
-    this.cb.onStatus('status.undone', { label: c.label, name: this.cmdName(c) });
+    this.report('status.undone', 'status.undoneMany', c, this.cmdName(c));
   }
 
   redo(): void {
@@ -2961,7 +3397,7 @@ export class Viewer {
     this.applyCmd(c, 'after');
     this.layersChanged();
     this.syncHistory();
-    this.cb.onStatus('status.redone', { label: c.label, name: this.cmdName(c) });
+    this.report('status.redone', 'status.redoneMany', c, this.cmdName(c));
   }
 
   /* ---- editor panel writes ------------------------------------------
@@ -2971,19 +3407,33 @@ export class Viewer {
      apiece. The origin is different in kind (no xf, no height) and keeps its
      own explicit handling where it applies at all. ------------------------- */
 
-  /** A uniform view onto whatever is selected that has an xf and a height —
-   *  building or tree. Null for no selection and for the origin, which has
-   *  neither, so every method below reduces to a no-op for it automatically. */
-  private editable(): {
-    xf: Xf;
-    getH: () => number;
-    setH: (h: number) => void;
-    apply: () => void;
-    paint: () => void;
-    rebuild: () => void;
-  } | null {
+  /**
+   * The same view onto every selected element that has one.
+   *
+   * Empty for the origin and for a layer, which have no xf and no height, so
+   * every method below reduces to a no-op for them without a branch of its own.
+   *
+   * Applying one typed value to all of them is coherent because an Xf is an
+   * *offset*: pos is measured from each element's own centroid, rot and scale
+   * are about that same point. "Position X = 5" therefore means the same thing
+   * to each of six buildings, rather than stacking them all on one spot.
+   */
+  private editables(): Editable[] {
+    const out: Editable[] = [];
+    for (const t of this.selection) {
+      const e = this.editableOf(t);
+      if (e) out.push(e);
+    }
+    return out;
+  }
+
+  /** The anchor's view, for the readouts that can only describe one element. */
+  private editable(): Editable | null {
     const t = this.selected;
-    if (!t) return null;
+    return t ? this.editableOf(t) : null;
+  }
+
+  private editableOf(t: Target): Editable | null {
     if (t.kind === 'building')
       return {
         xf: t.b.xf,
@@ -3044,19 +3494,26 @@ export class Viewer {
       return;
     }
 
-    const e = this.editable();
-    if (!e) return;
+    const all = this.editables();
+    if (!all.length) return;
     this.beginEdit();
 
-    if (key === 'scale') {
-      const v = Math.max(MIN_SCALE, raw); // no mirroring: it would flip ring winding
-      if (uniform) e.xf.scale = [v, v, v];
-      else e.xf.scale[i] = v;
-    } else if (key === 'rot') e.xf.rot[i] = (raw * Math.PI) / 180;
-    else e.xf.pos[i] = raw;
+    for (const e of all) {
+      if (key === 'scale') {
+        const v = Math.max(MIN_SCALE, raw); // no mirroring: it would flip ring winding
+        if (uniform) e.xf.scale = [v, v, v];
+        else e.xf.scale[i] = v;
+      } else if (key === 'rot') e.xf.rot[i] = (raw * Math.PI) / 180;
+      else e.xf.pos[i] = raw;
+      e.apply();
+    }
 
-    e.apply();
-    this.cb.onTransform(cloneXf(e.xf), e.getH());
+    // The elements moved without the gizmo being touched, so the pivot it is
+    // sitting on has to follow them.
+    this.syncPivot();
+    // The anchor's values, since that is what the field being typed into shows.
+    const a = all[all.length - 1];
+    this.cb.onTransform(cloneXf(a.xf), a.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit(key === 'pos' ? 'edit.move' : key === 'rot' ? 'edit.rotate' : 'edit.scale');
   }
@@ -3097,12 +3554,15 @@ export class Viewer {
   setColor(hex: number, commit: boolean): void {
     const t = this.selected;
     if (t?.kind === 'layer') return this.stampLayer(t.id, { color: hex }, commit, 'edit.colour');
-    const e = this.editable();
-    if (!e) return;
+    const all = this.editables();
+    if (!all.length) return;
     this.beginEdit();
-    e.xf.color = hex;
-    e.paint();
-    this.cb.onTransform(cloneXf(e.xf), e.getH());
+    for (const e of all) {
+      e.xf.color = hex;
+      e.paint();
+    }
+    const a = all[all.length - 1];
+    this.cb.onTransform(cloneXf(a.xf), a.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit('edit.colour');
   }
@@ -3111,12 +3571,15 @@ export class Viewer {
     const t = this.selected;
     if (t?.kind === 'layer')
       return this.stampLayer(t.id, { color: null }, true, 'edit.colourReset');
-    const e = this.editable();
-    if (!e) return;
+    const all = this.editables();
+    if (!all.length) return;
     this.beginEdit();
-    e.xf.color = null;
-    e.paint();
-    this.cb.onTransform(cloneXf(e.xf), e.getH());
+    for (const e of all) {
+      e.xf.color = null;
+      e.paint();
+    }
+    const a = all[all.length - 1];
+    this.cb.onTransform(cloneXf(a.xf), a.getH());
     this.commitEdit('edit.colourReset');
     this.cb.onDirty();
   }
@@ -3133,12 +3596,15 @@ export class Viewer {
         commit,
         'edit.opacity',
       );
-    const e = this.editable();
-    if (!e) return;
+    const all = this.editables();
+    if (!all.length) return;
     this.beginEdit();
-    e.xf.opacity = Math.min(1, Math.max(0, a));
-    e.paint();
-    this.cb.onTransform(cloneXf(e.xf), e.getH());
+    for (const e of all) {
+      e.xf.opacity = Math.min(1, Math.max(0, a));
+      e.paint();
+    }
+    const last = all[all.length - 1];
+    this.cb.onTransform(cloneXf(last.xf), last.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit('edit.opacity');
   }
@@ -3151,37 +3617,136 @@ export class Viewer {
    * gesture must still be one undo step.
    */
   setHeight(h: number, commit: boolean): void {
-    const e = this.editable();
-    if (!e || !Number.isFinite(h)) return;
+    const all = this.editables();
+    if (!all.length || !Number.isFinite(h)) return;
     this.beginEdit();
-    e.setH(Math.max(MIN_HEIGHT, h));
-    e.rebuild();
-    this.cb.onTransform(cloneXf(e.xf), e.getH());
+    for (const e of all) {
+      e.setH(Math.max(MIN_HEIGHT, h));
+      e.rebuild();
+    }
+    const a = all[all.length - 1];
+    this.cb.onTransform(cloneXf(a.xf), a.getH());
     this.cb.onDirty();
     if (commit) this.commitEdit('edit.height');
   }
 
-  /** Remove the selected building or tree from the scene. Undoable: the
-   *  record itself rides on the command, so an undo restores it exactly
-   *  where it was. */
+  /**
+   * Remove everything selected from the scene, as one undoable step.
+   *
+   * Every index is read before any detach, and the removals then run
+   * highest-index-first, so each one is still valid when its turn comes.
+   * applyMultiCmd replays a 'before' in reverse, which puts them back
+   * lowest-index-first — the only order in which a batch lands where it left.
+   */
   deleteSelected(): void {
-    const t = this.selected;
     const s = this.scene;
-    if (!t || !s) return;
-    if (t.kind === 'building') {
-      const index = s.buildings.indexOf(t.b);
-      if (index < 0) return;
-      this.detachBuilding(t.b);
-      this.pushCmd({ label: 'edit.delete', kind: 'life', b: t.b, index, added: false }, t.b.name);
-    } else if (t.kind === 'tree') {
-      const index = s.trees.indexOf(t.t);
-      if (index < 0) return;
-      this.detachTree(t.t);
-      this.pushCmd(
-        { label: 'edit.delete', kind: 'treeLife', t: t.t, index, added: false },
-        t.t.name,
-      );
+    if (!s || !this.selection.length) return;
+
+    const found: { cmd: Cmd; index: number }[] = [];
+    for (const t of this.selection) {
+      if (t.kind === 'building') {
+        const index = s.buildings.indexOf(t.b);
+        if (index >= 0)
+          found.push({ index, cmd: { label: 'edit.delete', kind: 'life', b: t.b, index, added: false } });
+      } else if (t.kind === 'tree') {
+        const index = s.trees.indexOf(t.t);
+        if (index >= 0)
+          found.push({
+            index,
+            cmd: { label: 'edit.delete', kind: 'treeLife', t: t.t, index, added: false },
+          });
+      }
     }
+    if (!found.length) return;
+
+    found.sort((a, b) => b.index - a.index);
+    for (const f of found) {
+      if (f.cmd.kind === 'life') this.detachBuilding(f.cmd.b);
+      else if (f.cmd.kind === 'treeLife') this.detachTree(f.cmd.t);
+    }
+
+    const cmds = found.map((f) => f.cmd);
+    if (cmds.length === 1) return this.pushCmd(cmds[0], this.cmdName(cmds[0]));
+    this.pushCmd({ label: 'edit.delete', kind: 'multi', cmds, count: cmds.length }, '');
+  }
+
+  /**
+   * Repeat everything selected, in place, as one undoable step.
+   *
+   * Only buildings and trees: the origin marker and the layer groups are not
+   * records, and the rail disables the button for them the same way it disables
+   * the rotate and scale modes.
+   *
+   * The copies land on top of their originals rather than beside them — no
+   * offset is invented — which is why the selection moving to them matters: the
+   * copies are what the gizmo ends up on, so the first drag takes them off.
+   * Without that a duplicate would be invisible and unreachable, hidden inside
+   * the thing it was copied from.
+   *
+   * A copy is a hand-made element whatever it was copied from — see
+   * lib/scene/duplicate for why it takes src 'user'. Two things are the viewer's
+   * rather than that module's, because only the viewer knows them: the caps,
+   * which are about how much this scene can carry, and the ids, which have to
+   * come off drawSeq. Minting `drawn-${n}` rather than suffixing the source's id
+   * is what keeps select() and the model tree unambiguous, and what stops a
+   * later hand-drawn building from colliding with a copy still sitting on the
+   * undo stack — see maxSeq.
+   */
+  duplicateSelected(): void {
+    const s = this.scene;
+    if (!s || !this.selection.length) return;
+
+    // The caps are checked against the whole batch, not one copy at a time: a
+    // partial duplicate — four of six buildings, silently — is worse than a
+    // refusal that says why.
+    const nb = this.selection.filter((t) => t.kind === 'building').length;
+    const nt = this.selection.filter((t) => t.kind === 'tree').length;
+    if (s.buildings.length + nb > BUILDING_CAP)
+      return this.cb.onStatus('status.drawFull', { cap: BUILDING_CAP });
+    if (s.trees.length + nt > TREE_DRAW_CAP)
+      return this.cb.onStatus('status.drawFull', { cap: TREE_DRAW_CAP });
+
+    const cmds: Cmd[] = [];
+    const made: Target[] = [];
+    // Silenced while the batch goes in so that each insert does not select its
+    // own copy in turn; the whole set is selected once at the end.
+    this.batching = true;
+    try {
+      for (const t of this.selection) {
+        if (t.kind === 'building') {
+          const copy = duplicateBuilding(
+            t.b,
+            `drawn-${++this.drawSeq}`,
+            `${t.b.name} ${this.copySuffix}`,
+          );
+          const index = s.buildings.length;
+          this.insertBuilding(copy, index);
+          cmds.push({ label: 'edit.duplicate', kind: 'life', b: copy, index, added: true });
+          const mesh = this.meshFor(copy);
+          if (mesh) made.push({ kind: 'building', obj: mesh, b: copy });
+        } else if (t.kind === 'tree') {
+          const copy = duplicateTree(
+            t.t,
+            `drawn-tree-${++this.drawTreeSeq}`,
+            `${t.t.name} ${this.copySuffix}`,
+          );
+          const index = s.trees.length;
+          this.insertTree(copy, index);
+          cmds.push({ label: 'edit.duplicate', kind: 'treeLife', t: copy, index, added: true });
+          const group = this.groupFor(copy);
+          if (group) made.push({ kind: 'tree', obj: group, t: copy });
+        }
+      }
+    } finally {
+      this.batching = false;
+    }
+    if (!cmds.length) return;
+
+    // Same rule as the single case: unless a footprint tool is armed, where the
+    // gizmo would land on the ground the next corner is aimed at.
+    if (!this.drawTool) this.setTargets(made);
+    if (cmds.length === 1) return this.pushCmd(cmds[0], this.cmdName(cmds[0]));
+    this.pushCmd({ label: 'edit.duplicate', kind: 'multi', cmds, count: cmds.length }, '');
   }
 
   /* ---- drawing a footprint --------------------------------------------
@@ -3237,10 +3802,16 @@ export class Viewer {
   /** Height and name for the next footprint or tree. Both come from React:
    *  the height is the dock's default, and a name has to be translated,
    *  which nothing under lib/viewer is allowed to do. */
-  setDrawOptions(opts: { height: number; name: string; treeName: string }): void {
+  setDrawOptions(opts: {
+    height: number;
+    name: string;
+    treeName: string;
+    copyName: string;
+  }): void {
     if (Number.isFinite(opts.height)) this.drawHeight = Math.max(MIN_HEIGHT, opts.height);
     if (opts.name) this.drawName = opts.name;
     if (opts.treeName) this.drawTreeName = opts.treeName;
+    if (opts.copyName) this.copySuffix = opts.copyName;
   }
 
   isDrawing(): boolean {
@@ -3430,18 +4001,24 @@ export class Viewer {
   }
 
   resetElement(): void {
-    const e = this.editable();
-    if (!e) return;
+    const all = this.editables();
+    if (!all.length) return;
     this.beginEdit();
-    const fresh = newXf();
-    e.xf.pos = fresh.pos;
-    e.xf.rot = fresh.rot;
-    e.xf.scale = fresh.scale;
-    e.xf.color = fresh.color;
-    e.xf.opacity = fresh.opacity;
-    e.apply();
-    e.paint();
-    this.cb.onTransform(cloneXf(e.xf), e.getH());
+    for (const e of all) {
+      // A fresh Xf per element: one shared object would leave six records
+      // holding the same arrays, and moving any of them would move them all.
+      const fresh = newXf();
+      e.xf.pos = fresh.pos;
+      e.xf.rot = fresh.rot;
+      e.xf.scale = fresh.scale;
+      e.xf.color = fresh.color;
+      e.xf.opacity = fresh.opacity;
+      e.apply();
+      e.paint();
+    }
+    this.syncPivot();
+    const a = all[all.length - 1];
+    this.cb.onTransform(cloneXf(a.xf), a.getH());
     this.commitEdit('edit.reset');
     this.cb.onDirty();
   }

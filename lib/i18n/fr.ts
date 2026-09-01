@@ -28,6 +28,9 @@ export const fr: Dict = {
   'info.openSource':
     'IFC Site est un projet open source. Toute la chaîne — les requêtes Overpass et IGN, la géométrie, l’écriture de l’IFC — est sur GitHub, ouverte aux tickets et aux pull requests.',
   'info.github': 'Voir le code source sur GitHub',
+  'info.credits': 'Sources de données et licences',
+  'info.creditsLead':
+    'Cet outil repose sur des données publiques, libres d’usage à une condition : la mention doit voyager avec elles. Chaque IFC exporté porte ces termes élément par élément, dans un jeu de propriétés ePset_License, pour que l’attribution parvienne à qui vous transmettez la maquette.',
   'ui.options': 'Options',
   'ui.originMarker': 'Afficher l’origine du modèle',
   'ui.projection': 'Vue orthographique',
@@ -78,7 +81,7 @@ export const fr: Dict = {
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
   'bar.site': 'Site',
   'bar.origin': 'Origine',
-  'bar.rebuild': 'Reconstruire',
+  'bar.rebuild': 'Reconstruire la maquette',
   'bar.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
   'bar.presenting': 'Présentation — Échap pour quitter.',
   'bar.drawHeight': 'H (m)',
@@ -100,6 +103,33 @@ export const fr: Dict = {
   'bar.areaHintPoints': '{n} sommets — le premier sommet ou Entrée ferme, Échap annule.',
   'bar.measureClear': 'Effacer ({n})',
 
+  /* ---- the IFC panel ---- */
+  'ifc.title': 'Fichier IFC',
+  'ifc.lead':
+    'Ce que le fichier dit de lui-même. Rien n’est reconstruit : le modèle à l’écran est ré-sérialisé au fil de la saisie.',
+  'ifc.schema': 'Schéma IFC',
+  'ifc.schema2x3': 'IFC2X3 — lecteurs anciens',
+  'ifc.schema4': 'IFC4 — par défaut',
+  'ifc.schema4x3': 'IFC4X3 — infrastructure',
+  'ifc.schemaBrepHint':
+    'IFC2X3 ne connaît pas la tessellation : le terrain, les voiries et les arbres sont exportés en représentation par frontières — le même modèle, dans un fichier plusieurs fois plus lourd.',
+  'ifc.project': 'Projet',
+  'ifc.projectName': 'Nom',
+  'ifc.projectLongName': 'Nom complet',
+  'ifc.projectDescription': 'Description',
+  'ifc.projectPhase': 'Phase',
+  'ifc.site': 'Site',
+  'ifc.siteName': 'Nom',
+  'ifc.siteLongName': 'Nom complet',
+  'ifc.siteDescription': 'Description',
+  'ifc.siteLandTitle': 'Référence cadastrale',
+  'ifc.authorship': 'Paternité',
+  'ifc.author': 'Auteur',
+  'ifc.authorHint':
+    'L’organisation et le logiciel émetteur sont fixés à bim-lane et ifcsite.app.',
+  'ifc.blankHint': 'Un champ laissé vide est omis du fichier.',
+  'ifc.reset': 'Réinitialiser',
+
   /* ---- controls ---- */
   'ctl.findPlace': 'Rechercher un lieu',
   'ctl.findPlacePlaceholder': 'Rue, ville, code postal, ou lat, lon…',
@@ -113,12 +143,6 @@ export const fr: Dict = {
   'ctl.crsError': 'Index des SCR indisponible — l’UTM automatique reste utilisable.',
   'ctl.crsNone': 'Aucun résultat.',
   'ctl.crsValidHere': '{n} valables sur ce site',
-  'ctl.ifcSchema': 'Schéma IFC',
-  'ctl.ifcSchema2x3': 'IFC2X3',
-  'ctl.ifcSchema4': 'IFC4',
-  'ctl.ifcSchema4x3': 'IFC4X3',
-  'ctl.ifcSchemaBrepHint':
-    'IFC2X3 ne connaît pas la tessellation : le terrain, les voiries et les arbres sont exportés en représentation par frontières — le même modèle, dans un fichier plusieurs fois plus lourd.',
   'ctl.verticalDatum': 'Référence verticale',
   'ctl.verticalDatumNone': 'Aucun — plat',
   'ctl.verticalDatumHint':
@@ -173,6 +197,9 @@ export const fr: Dict = {
   'ctl.advConformStep': 'Pas de drapage',
   'ctl.advConformStepHint':
     'À quel point la voirie et les surfaces suivent le sol entre les points du terrain. Plus fin, plus juste, plus lourd.',
+  'ctl.advDrape': 'Draper sur le terrain',
+  'ctl.advDrapeHint':
+    'Coché, la couche épouse le sol. Décoché, elle conserve l’altitude relevée par la BD TOPO, si bien qu’un pont reste au-dessus de ce qu’il franchit. Les couches dont la source ne porte aucune altitude restent drapées.',
   'ctl.advGeometry': 'Valeurs géométriques par défaut',
   'ctl.advStoreyHeight': 'Hauteur d’étage',
   'ctl.advStoreyHeightHint':
@@ -204,11 +231,13 @@ export const fr: Dict = {
 
   /* ---- element editor ---- */
   'ed.selected': 'Élément sélectionné',
+  'ed.nSelected': '{n} éléments',
   /* Les modes du manipulateur sont désormais des infobulles de la barre
      d’outils, et c’est là que le raccourci a sa place. */
   'ed.move': 'Déplacer (G)',
   'ed.rotate': 'Pivoter (R)',
   'ed.scale': 'Redimensionner (S)',
+  'ed.duplicate': 'Dupliquer (D)',
   'ed.colour': 'Couleur',
   'ed.defaultColour': 'Couleur par défaut',
   'ed.opacity': 'Opacité',
@@ -218,6 +247,7 @@ export const fr: Dict = {
   'ed.deleteTitle': 'Supprimer (Suppr)',
   'ed.drawnName': 'Bâtiment tracé',
   'ed.drawnTreeName': 'Arbre planté',
+  'ed.copySuffix': '(copie)',
   'ed.position': 'Décalage de position (m)',
   'ed.rotation': 'Rotation (°)',
   'ed.scaleLabel': 'Échelle',
@@ -244,8 +274,8 @@ export const fr: Dict = {
   'ed.layerMoveHint':
     'Déplace le calque entier, et l’IFC exporté porte le même décalage. Voiries, voies ferrées et surfaces drapées ont été découpées sur le terrain : un décalage — vertical surtout — les décolle du sol ou les y enfonce.',
 
-  /* ---- arborescence du modèle ---- */
-  'tree.title': 'Arborescence du modèle',
+  /* ---- Couches du modèle ---- */
+  'tree.title': 'Couches du modèle',
   'tree.empty': 'Construisez une maquette pour voir ses calques.',
   'tree.filter': 'Filtrer les éléments…',
   'tree.noMatch': 'Aucun résultat.',
@@ -297,6 +327,9 @@ export const fr: Dict = {
   'status.editCommitted': '{label} — {name}. Ctrl+Z pour annuler.',
   'status.undone': 'Annulé : {label} — {name}.',
   'status.redone': 'Rétabli : {label} — {name}.',
+  'status.editCommittedMany': '{label} — {n} éléments. Ctrl+Z pour annuler.',
+  'status.undoneMany': 'Annulé : {label} — {n} éléments.',
+  'status.redoneMany': 'Rétabli : {label} — {n} éléments.',
   'status.searchUnavailable':
     'Recherche de lieu indisponible ({detail}) — déplacez la carte à la place.',
   'status.draftSaved': '« {name} » enregistré.',
@@ -338,6 +371,7 @@ export const fr: Dict = {
   'edit.height': 'Hauteur',
   'edit.add': 'Nouveau bâtiment',
   'edit.delete': 'Suppression',
+  'edit.duplicate': 'Duplication',
   'edit.reset': 'Élément réinitialisé',
   'edit.origin': 'Déplacement de l’origine',
   'edit.originReset': 'Origine recentrée',
