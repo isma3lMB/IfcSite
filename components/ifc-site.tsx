@@ -68,6 +68,7 @@ import type {
   Vec3,
   ViewTab,
 } from '@/lib/types';
+import { useUnloadGuard } from '@/lib/ui/unload-guard';
 import { paint } from '@/lib/ui/yield';
 import { MapController } from '@/lib/viewer/MapController';
 import {
@@ -164,6 +165,13 @@ export function IfcSite() {
   /** The name this document was last saved or opened under; seeds the Save
    *  field, and null after a rebuild because that is a new document. */
   const draftNameRef = useRef<string | null>(null);
+  /** Whether what is on screen exists nowhere on disk — never saved at all, or
+   *  edited since it was. Not draftNameRef, which is only a name and survives
+   *  every edit made after the save that set it; and not siteDirty, which asks
+   *  about the rectangle rather than about the document. A ref because nothing
+   *  renders from it: the one reader is the unload guard at the end of this
+   *  component, and it only asks while the page is being torn down. */
+  const unsavedRef = useRef(false);
   /** Deferred until the map tab is actually laid out; see runOnMap. */
   const pendingMapAction = useRef<(() => void) | null>(null);
   /** Mirrors infoOpen for the mount-only key handler, which would otherwise
@@ -307,6 +315,16 @@ export function IfcSite() {
       and a rectangle nudged fifty metres must not overrule it. */
   const epsgPickedRef = useRef(false);
 
+  /** An edit worth keeping, wherever it came from: the IFC text behind Download
+   *  is stale, and so is the last save. The two have always travelled together —
+   *  every call that used to be a bare markDirty() was already a statement that
+   *  the document had changed — so they are one call now rather than a rule to
+   *  remember at each site. */
+  const touch = useCallback(() => {
+    emitterRef.current?.markDirty();
+    unsavedRef.current = true;
+  }, []);
+
   /* ---- viewer ---------------------------------------------------------- */
   useEffect(() => {
     if (!viewportRef.current) return;
@@ -318,7 +336,7 @@ export function IfcSite() {
         setCanRedo(r);
       },
       onStatus: (key, params) => setStatus({ kind: 'msg', key, params }),
-      onDirty: () => emitterRef.current?.markDirty(),
+      onDirty: touch,
       // The emitter holds this same meta object, so writing the offset into it is
       // all the *content* the export needs — but it still has to be told to write
       // the file again, and it cannot rely on the viewer's own onDirty for that:
@@ -331,7 +349,7 @@ export function IfcSite() {
         if (!m) return;
         m.exportOffset = off;
         setOriginLabel(originLabelOf(m));
-        emitterRef.current?.markDirty();
+        touch();
       },
       onMode: setGizmoMode,
       onCount: setBuildings,
@@ -741,8 +759,8 @@ export function IfcSite() {
     if (!m) return;
     m.projectBase = base;
     m.projectAngle = angle;
-    emitterRef.current?.markDirty();
-  }, []);
+    touch();
+  }, [touch]);
 
   /* The same write-through as writePlacement above, and for the same reason: the
      emitter holds this very meta object, so putting the patch into it and marking
@@ -751,15 +769,15 @@ export function IfcSite() {
      viewer call here either. The ref keeps runBuildNow's stamp in step. */
   const onIfc = useCallback((patch: Partial<IfcMeta>) => {
     // Off the ref rather than inside a setIfc updater: the write-through and the
-    // markDirty are side effects, and an updater is called more than once.
+    // touch are side effects, and an updater is called more than once.
     const next = { ...ifcRef.current, ...patch };
     ifcRef.current = next;
     setIfc(next);
     const m = metaRef.current;
     if (!m) return;
     m.ifc = next;
-    emitterRef.current?.markDirty();
-  }, []);
+    touch();
+  }, [touch]);
 
   const onResetIfc = useCallback(() => onIfc(newIfcMeta()), [onIfc]);
 
@@ -970,6 +988,15 @@ export function IfcSite() {
     };
   }, [rect, form.provider]);
 
+  /* ---- leaving ----------------------------------------------------------
+     Armed on hasScene rather than on the flag itself: the flag is a ref, so it
+     changes nothing on screen and could not re-run an effect anyway, and there
+     is nothing to lose before the first build — a rectangle is seconds of work
+     and redrawing one is not what the browser's dialog is for. See the hook for
+     why the wording is not ours to write. */
+  const isUnsaved = useCallback(() => unsavedRef.current, []);
+  useUnloadGuard(hasScene, isUnsaved);
+
   /* ---- form ------------------------------------------------------------ */
   const onFormChange = useCallback((patch: FormPatch) => {
     // A CRS in a patch came from the field, which only the user touches — the
@@ -1078,8 +1105,10 @@ export function IfcSite() {
     siteRef.current = res.site;
     crsDefRef.current = res.crsDef;
     // A rebuild fetches into a brand-new scene, so it is a new document rather
-    // than a new version of the one that was open.
+    // than a new version of the one that was open — and therefore a document no
+    // draft on disk describes, however recently the last one was saved.
     draftNameRef.current = null;
+    unsavedRef.current = true;
     setBuildings(res.summary.buildings);
     setOriginLabel(originLabelOf(res.meta));
     // A rebuild re-derives the site, so a placement measured against the old one
@@ -1237,6 +1266,10 @@ export function IfcSite() {
         laterOnMap((m) => m.fitBounds(d.rect));
 
         draftNameRef.current = d.name;
+        // Last, and after every restore above: this scene came off a disk and
+        // has not been touched since. Some of those restores route through
+        // onOrigin, which touches — so an earlier clear would not survive.
+        unsavedRef.current = false;
       } catch (e) {
         setOpening(false);
         setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) });
@@ -1293,6 +1326,10 @@ export function IfcSite() {
     const file = `${safeFileStem(name, 'site')}${DRAFT_EXT}`;
     downloadText(file, draftToText(d), DRAFT_MIME);
     draftNameRef.current = name;
+    // A written draft is a durable copy, the same as a slot. Note Download does
+    // not do this: an .ifc is the deliverable and does not reopen here, so it
+    // saves nothing this page could restore.
+    unsavedRef.current = false;
     setStatus({ kind: 'msg', key: 'status.draftExported', params: { file } });
   }, [collectDraft]);
 
@@ -1349,7 +1386,10 @@ export function IfcSite() {
       } catch (e) {
         return failStatus(e);
       }
+      // Past the failStatus above, so a store that refused still counts as
+      // unsaved — the whole point of the flag is that it not lie about that.
       draftNameRef.current = name;
+      unsavedRef.current = false;
       refreshSlots();
       setStatus({ kind: 'msg', key: 'status.draftSaved', params: { name } });
     },
@@ -1391,7 +1431,12 @@ export function IfcSite() {
       } catch (e) {
         return failStatus(e);
       }
-      if (draftNameRef.current === name) draftNameRef.current = null;
+      // Deleting the slot this document was saved as puts it back to being
+      // nowhere on disk, unedited or not.
+      if (draftNameRef.current === name) {
+        draftNameRef.current = null;
+        unsavedRef.current = true;
+      }
       refreshSlots();
       setStatus({ kind: 'msg', key: 'status.draftDeleted', params: { name } });
     },

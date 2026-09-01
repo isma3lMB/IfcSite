@@ -161,6 +161,16 @@ The single stateful component. It owns:
   selection snapshot, undo/redo availability, gizmo mode, dock/info visibility, and
   `siteDirty` (the rectangle moved since the last build, so the scene — and the IFC behind
   Download — no longer describes it).
+- **`unsavedRef`** (a ref, since nothing renders from it): what is on screen exists nowhere
+  on disk — never saved, or edited since it was. A different question from `siteDirty`,
+  which is about the rectangle, and from `draftNameRef`, which is only a name and survives
+  the edits made after the save that set it. Raised by `touch()` — the one call that
+  replaced every bare `markDirty()`, so an edit cannot mark the IFC text stale without
+  also marking the last save stale — and by a build, which produces a document no draft
+  describes. Lowered by Save, Export draft and Open. `useUnloadGuard`
+  ([lib/ui/unload-guard.ts](lib/ui/unload-guard.ts)) reads it from a `beforeunload`
+  listener armed on `hasScene`, so a refresh or a closed tab asks before discarding the
+  work. Download does not lower it: an `.ifc` is the deliverable and does not reopen here.
 - **Two mount effects** that construct the `Viewer` and the `MapController` and wire their
   callbacks back into `setState`. The map arms drawing immediately: drawing is the first
   thing anyone does here.
