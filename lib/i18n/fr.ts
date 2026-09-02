@@ -113,6 +113,12 @@ export const fr: Dict = {
   'ifc.schema4x3': 'IFC4X3 — infrastructure',
   'ifc.schemaBrepHint':
     'IFC2X3 ne connaît pas la tessellation : le terrain, les voiries et les arbres sont exportés en représentation par frontières — le même modèle, dans un fichier plusieurs fois plus lourd.',
+  'ifc.georefTarget': 'Psets de géoréférencement sur',
+  'ifc.georefSite': 'IfcSite',
+  'ifc.georefProject': 'IfcProject',
+  'ifc.georefBoth': 'Les deux',
+  'ifc.georefTargetHint':
+    'IFC2X3 n’a pas d’IfcMapConversion : le calage est écrit sous forme d’ePset_MapConversion et d’ePset_ProjectedCRS. IfcSite est ce que nomment les recommandations buildingSMART ; certains lecteurs regardent plutôt IfcProject.',
   'ifc.project': 'Projet',
   'ifc.projectName': 'Nom',
   'ifc.projectLongName': 'Nom complet',

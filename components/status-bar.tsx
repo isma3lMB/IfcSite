@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode, RefObject } from 'react';
-import { IconWrench } from '@/components/icons';
+import { IconExport, IconWrench } from '@/components/icons';
 import { IfcFlyout } from '@/components/ifc-flyout';
 import { type Step, buildStep } from '@/lib/ui/step';
 import { useT } from '@/lib/i18n/context';
@@ -55,6 +55,10 @@ export function StatusBar(p: StatusBarProps) {
   // that is never going to be drawn.
   const measuring = p.drawTool === 'measure' || p.drawTool === 'measureArea';
   const clearable = measuring && p.measureCount > 0;
+  /* Whether Download — and so the wrench, and so the panel — is in the row at
+     all. Named because the chip and the panel are rendered in two different
+     places now and have to appear and disappear together. */
+  const ifcChip = (step === 'sited' && p.hasScene) || step === 'ready';
 
   // 'draw' with no tool armed leaves nothing to draw: the next thing to do is a
   // rail button beside the map it acts on, so there is nothing for this row to
@@ -65,13 +69,34 @@ export function StatusBar(p: StatusBarProps) {
   // rail only offers them once there is a scene, which is past 'draw'.
   if (step === 'draw' && !p.drawTool) return null;
 
-  /* Download, with the wrench pinned to its top-right corner and the panel that
-     wrench opens hanging off the same box.
+  /* What is inside the Download button: the IFC mark, the label, and the arrow —
+     what the file is, then what the button does. The arrow trails rather than
+     leading so the two marks are not a pair at the same end; it is the one glyph
+     here that names an action, and the other end of the label is where nothing
+     else is competing for the eye.
+
+     Written once for the same reason withIfcChip below is: the two branches
+     differ only in which of btn-ghost/btn-primary carries this. */
+  const downloadLabel = (
+    <>
+      <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
+      {t('ctl.download')}
+      <IconExport />
+    </>
+  );
+
+  /* Download, with the wrench pinned to its top-right corner.
 
      A badge on the button rather than a sibling beside it: these settings are
      about the file Download writes and nothing else, and a separate round button
      in the row would read as a third action. Yellow because it is the one thing
      here that is neither of the two actions — see .barChip.
+
+     The panel the wrench opens is *not* in here — it is a child of .statusbar
+     below. It used to hang off this box, which is what put it against the right
+     edge of Download; centred on the window instead, the two numbers it needs
+     are the bar's own centre line and the bar's own height, and neither is
+     reachable from a wrapper that is only as wide as one button.
 
      A function rather than a constant because the two branches below hand it a
      different button: Download is the secondary action while the model is stale
@@ -92,15 +117,6 @@ export function StatusBar(p: StatusBarProps) {
       >
         <IconWrench />
       </button>
-      {p.ifcOpen && (
-        <IfcFlyout
-          ifc={p.ifc}
-          defaultProjectName={p.defaultProjectName}
-          onChange={p.onIfc}
-          onReset={p.onResetIfc}
-          onClose={p.onCloseIfc}
-        />
-      )}
     </div>
   );
 
@@ -146,8 +162,7 @@ export function StatusBar(p: StatusBarProps) {
             {p.hasScene &&
               withIfcChip(
                 <button type="button" className="btn-ghost" onClick={p.onDownload}>
-                  <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
-                  {t('ctl.download')}
+                  {downloadLabel}
                 </button>,
               )}
             <button type="button" className="btn-primary" onClick={p.onBuild}>
@@ -169,13 +184,31 @@ export function StatusBar(p: StatusBarProps) {
             </button>
             {withIfcChip(
               <button type="button" className="btn-primary" onClick={p.onDownload}>
-                <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
-                {t('ctl.download')}
+                {downloadLabel}
               </button>,
             )}
           </>
         )}
       </div>
+
+      {/* A sibling of .barActions rather than a child of the wrench's wrapper,
+          so that .statusbar is what it is positioned against: the bar is
+          justify-self: center in the overlay, which makes its 50% the window's
+          centre line and its 100% the bar's own height — the panel is centred
+          and cleared of the bar without either number being written down.
+
+          Guarded on the same condition withIfcChip is called under, because it
+          is no longer inside the branch that renders the chip: a step that takes
+          Download away has to take the panel with it. */}
+      {ifcChip && p.ifcOpen && (
+        <IfcFlyout
+          ifc={p.ifc}
+          defaultProjectName={p.defaultProjectName}
+          onChange={p.onIfc}
+          onReset={p.onResetIfc}
+          onClose={p.onCloseIfc}
+        />
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { Radio, RadioGroup } from '@/components/ui/radio-group';
 import {
   SELECT_CONTENT,
   SELECT_ITEM,
@@ -11,8 +12,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useT } from '@/lib/i18n/context';
-import { IFC_SCHEMAS } from '@/lib/ifc/writer';
-import { DEFAULT_SITE_NAME, type IfcMeta, type IfcSchema, newIfcMeta } from '@/lib/types';
+import { IFC_GEOREF_TARGETS, IFC_SCHEMAS } from '@/lib/ifc/writer';
+import {
+  DEFAULT_SITE_NAME,
+  type IfcGeorefTarget,
+  type IfcMeta,
+  type IfcSchema,
+  newIfcMeta,
+} from '@/lib/types';
 
 export type IfcFlyoutProps = {
   ifc: IfcMeta;
@@ -86,6 +93,14 @@ export function IfcFlyout(p: IfcFlyoutProps) {
     IFC4X3: t('ifc.schema4x3'),
   };
 
+  /* The same shape for the georeferencing targets, and for a plainer reason:
+     the entity names are not translated, but "Both" is. */
+  const georefItems: Record<IfcGeorefTarget, string> = {
+    site: t('ifc.georefSite'),
+    project: t('ifc.georefProject'),
+    both: t('ifc.georefBoth'),
+  };
+
   return (
     <div className="flyout floating ifcFlyout" id="ifcFlyout" aria-label={t('ifc.title')}>
       <div className="dockHead">
@@ -130,8 +145,49 @@ export function IfcFlyout(p: IfcFlyoutProps) {
         {a.schema === 'IFC2X3' && <div className="fieldHint">{t('ifc.schemaBrepHint')}</div>}
       </div>
 
-      <div className="ifcGroup">
+      {/* Also IFC2X3 only, and hidden rather than disabled under the other two
+          for the same reason the hint above is: there is nothing to choose when
+          the schema has IfcMapConversion, which names its own source context.
+          The value stays in the bag either way, so switching to IFC4 and back
+          returns to the option that was picked. */}
+      {a.schema === 'IFC2X3' && (
+        <div className="field">
+          <span className="eyebrow block mb-1.5" id="ifcGeorefTarget">
+            {t('ifc.georefTarget')}
+          </span>
+          <RadioGroup
+            aria-labelledby="ifcGeorefTarget"
+            value={a.georefTarget}
+            onValueChange={(v) => p.onChange({ georefTarget: v as IfcGeorefTarget })}
+          >
+            {/* The `.check` row the Include group and TuneToggle are built
+                from, for the reason stated there: one panel, one control
+                idiom, and a radio is the same row with one dot swapped in. */}
+            {IFC_GEOREF_TARGETS.map((v) => (
+              <label key={v} className="check">
+                <Radio value={v} />
+                {georefItems[v]}
+              </label>
+            ))}
+          </RadioGroup>
+          <div className="fieldHint">{t('ifc.georefTargetHint')}</div>
+        </div>
+      )}
+
+      {/* One grid rather than two stacks, in DOM order project-cell then
+          site-cell down the four rows. The two roots carry the same three
+          attributes and then one of their own, so side by side they read as
+          what they are — two entities of the same shape — and the pairing is
+          the grid's job, not a table's: every cell still carries its own label,
+          which is what lets row four put Phase beside Land title.
+
+          Pair order rather than column order so that a narrow window, where the
+          grid collapses to one column, gets Name, Name, Long name, Long name
+          instead of one root's whole stack followed by the other's. */}
+      <div className="ifcGroup ifcRoots">
         <div className="eyebrow ifcGroupHead">{t('ifc.project')}</div>
+        <div className="eyebrow ifcGroupHead">{t('ifc.site')}</div>
+
         <Attr
           id="ifcProjectName"
           label={t('ifc.projectName')}
@@ -140,33 +196,18 @@ export function IfcFlyout(p: IfcFlyoutProps) {
           onChange={(projectName) => p.onChange({ projectName })}
         />
         <Attr
-          id="ifcProjectLongName"
-          label={t('ifc.projectLongName')}
-          value={a.projectLongName}
-          onChange={(projectLongName) => p.onChange({ projectLongName })}
-        />
-        <Attr
-          id="ifcProjectDescription"
-          label={t('ifc.projectDescription')}
-          value={a.projectDescription}
-          onChange={(projectDescription) => p.onChange({ projectDescription })}
-        />
-        <Attr
-          id="ifcProjectPhase"
-          label={t('ifc.projectPhase')}
-          value={a.projectPhase}
-          onChange={(projectPhase) => p.onChange({ projectPhase })}
-        />
-      </div>
-
-      <div className="ifcGroup">
-        <div className="eyebrow ifcGroupHead">{t('ifc.site')}</div>
-        <Attr
           id="ifcSiteName"
           label={t('ifc.siteName')}
           value={a.siteName}
           placeholder={DEFAULT_SITE_NAME}
           onChange={(siteName) => p.onChange({ siteName })}
+        />
+
+        <Attr
+          id="ifcProjectLongName"
+          label={t('ifc.projectLongName')}
+          value={a.projectLongName}
+          onChange={(projectLongName) => p.onChange({ projectLongName })}
         />
         <Attr
           id="ifcSiteLongName"
@@ -174,11 +215,25 @@ export function IfcFlyout(p: IfcFlyoutProps) {
           value={a.siteLongName}
           onChange={(siteLongName) => p.onChange({ siteLongName })}
         />
+
+        <Attr
+          id="ifcProjectDescription"
+          label={t('ifc.projectDescription')}
+          value={a.projectDescription}
+          onChange={(projectDescription) => p.onChange({ projectDescription })}
+        />
         <Attr
           id="ifcSiteDescription"
           label={t('ifc.siteDescription')}
           value={a.siteDescription}
           onChange={(siteDescription) => p.onChange({ siteDescription })}
+        />
+
+        <Attr
+          id="ifcProjectPhase"
+          label={t('ifc.projectPhase')}
+          value={a.projectPhase}
+          onChange={(projectPhase) => p.onChange({ projectPhase })}
         />
         <Attr
           id="ifcSiteLandTitle"

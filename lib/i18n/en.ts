@@ -116,6 +116,12 @@ export const en = {
   'ifc.schema4x3': 'IFC4X3 — infrastructure',
   'ifc.schemaBrepHint':
     'IFC2X3 has no tessellation, so terrain, roads and trees export as boundary representation — the same model, in a file several times the size.',
+  'ifc.georefTarget': 'Georeferencing psets on',
+  'ifc.georefSite': 'IfcSite',
+  'ifc.georefProject': 'IfcProject',
+  'ifc.georefBoth': 'Both',
+  'ifc.georefTargetHint':
+    'IFC2X3 has no IfcMapConversion, so the placement goes out as ePset_MapConversion and ePset_ProjectedCRS. IfcSite is what the buildingSMART guidance names; some readers look at IfcProject instead.',
   'ifc.project': 'Project',
   'ifc.projectName': 'Name',
   'ifc.projectLongName': 'Long name',

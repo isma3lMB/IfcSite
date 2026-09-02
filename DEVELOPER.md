@@ -747,7 +747,7 @@ fourth schema would be a row rather than a sweep:
 | --- | --- | --- | --- |
 | Meshes | `IfcFacetedBrep` / `IfcShellBasedSurfaceModel` | `IfcPolygonalFaceSet` | `IfcPolygonalFaceSet` |
 | Context layers | `IfcBuildingElementProxy` | `IfcGeographicElement` | `IfcGeographicElement` |
-| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on `IfcSite` | `IfcMapConversion` + `IfcProjectedCRS` | same, +`ScaleY`/`ScaleZ` (10 attributes, not 8) |
+| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on a chosen root | `IfcMapConversion` + `IfcProjectedCRS` | same, +`ScaleY`/`ScaleZ` (10 attributes, not 8) |
 | `OwnerHistory` | mandatory — one shared instance | omitted (optional) | omitted (optional) |
 | Styles | `IfcPresentationStyleAssignment` wrapper | `IfcSurfaceStyle` directly | `IfcSurfaceStyle` directly |
 | Vegetation | `USERDEFINED` + `ObjectType` | `USERDEFINED` + `ObjectType` | **`.VEGETATION.`** |
@@ -789,12 +789,19 @@ flowchart LR
 That combination is **LoGeoRef 50** — the model sits at a local origin and the projected
 easting/northing of that origin travels in `IfcMapConversion`.
 
-IFC2X3 has neither entity, so the same six numbers go onto `IfcSite` as `ePset_MapConversion`
-and `ePset_ProjectedCRS` — the convention the buildingSMART georeferencing guidance defines
-for exactly this. A reader that knows it recovers the full placement; one that does not
-still has `IfcSite.RefLatitude`/`RefLongitude`/`RefElevation` below, which is **LoGeoRef 30**
-and is written identically on all three schemas. The arithmetic is computed once and shared
-by both branches, so they cannot disagree.
+IFC2X3 has neither entity, so the same six numbers go out as `ePset_MapConversion` and
+`ePset_ProjectedCRS` — the convention the buildingSMART georeferencing guidance defines for
+exactly this. A reader that knows it recovers the full placement; one that does not still
+has `IfcSite.RefLatitude`/`RefLongitude`/`RefElevation` below, which is **LoGeoRef 30** and
+is written identically on all three schemas. The arithmetic is computed once and shared by
+both branches, so they cannot disagree.
+
+Which root the two property sets hang off is a setting — `IfcMeta.georefTarget`, offered as a
+radio in the IFC panel and only under IFC2X3. The convention settles the names and not the
+host, and readers disagree about where they look, so the choice is `IfcSite` (the default,
+and what the guidance names), `IfcProject`, or both. "Both" costs one extra
+`IfcRelDefinesByProperties` rather than a second copy of each set:
+`RelatedObjects` is a SET, and `ContextModel.pset()` takes a list for exactly this.
 
 `VerticalDatum` follows the **elevation source**, not the horizontal grid: NGF-IGN69 for
 RGE ALTI, EGM96 for Terrarium (the datum of its dominant source — the tiles are a mosaic,

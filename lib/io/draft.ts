@@ -4,7 +4,7 @@ import { sanitizeTunables } from '@/lib/build/tunables';
 import { AppError } from '@/lib/errors';
 import { gridFrom } from '@/lib/geo/grid';
 import { verticalEpsgFor } from '@/lib/geo/vertical';
-import { isIfcSchema } from '@/lib/ifc/writer';
+import { isIfcGeorefTarget, isIfcSchema } from '@/lib/ifc/writer';
 import { DRAPE_LAYERS, LAYER_IDS, defaultProjectName, newIfcMeta, newLayerState } from '@/lib/types';
 import type {
   Building,
@@ -399,6 +399,9 @@ const ifcMeta = (v: unknown, legacy: Record<string, unknown>): IfcMeta => {
   const schema = s.schema ?? legacy.schema;
   return {
     schema: isIfcSchema(schema) ? schema : d.schema,
+    // No legacy fallback: a draft written before this existed was exported with
+    // the psets on IfcSite, which is the default it falls back to anyway.
+    georefTarget: isIfcGeorefTarget(s.georefTarget) ? s.georefTarget : d.georefTarget,
     projectName: str(s.projectName, str(legacy.projectName, d.projectName)),
     projectLongName: str(s.projectLongName, d.projectLongName),
     projectDescription: str(s.projectDescription, d.projectDescription),

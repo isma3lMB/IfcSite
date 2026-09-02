@@ -301,6 +301,25 @@ describe('parseDraft', () => {
       expect(out.author).toBe('');
     });
 
+    /* Not a text field like the rest of the bag, so it needs its own line here:
+       a target typed under IFC2X3 has to come back on the radio it was set on,
+       or reopening a site silently re-hosts its georeferencing. */
+    it('round-trips the IFC2X3 georeferencing target', () => {
+      const meta = { ...META, ifc: { ...META.ifc, schema: 'IFC2X3', georefTarget: 'both' } };
+      expect(parseDraft(text({ meta })).meta.ifc.georefTarget).toBe('both');
+    });
+
+    /* A draft written before the field existed was exported with the psets on
+       IfcSite, which is exactly what the default says — so there is nothing to
+       migrate, and a junk value is repaired the same way. */
+    it('defaults the georeferencing target to the site', () => {
+      const { georefTarget: _g, ...bare } = META.ifc;
+      const meta = { ...META, ifc: bare };
+      expect(parseDraft(text({ meta })).meta.ifc.georefTarget).toBe('site');
+      const junk = { ...META, ifc: { ...META.ifc, georefTarget: 'nowhere' } };
+      expect(parseDraft(text({ meta: junk })).meta.ifc.georefTarget).toBe('site');
+    });
+
     it('repairs a poisoned tunable rather than rejecting the file', () => {
       const form = { ...DEFAULT_FORM, tune: { ...DEFAULT_TUNABLES, buildingCap: NaN } };
       const out = parseDraft(text({ form }));

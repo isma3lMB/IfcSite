@@ -204,9 +204,10 @@ coordinate moves.
 
 Written to **LoGeoRef 50**: the model sits at a local origin, and the projected
 easting/northing of that origin travels in `IfcMapConversion` + `IfcProjectedCRS`. Under
-IFC2X3, which has neither entity, the same six numbers go onto `IfcSite` as
-`ePset_MapConversion` and `ePset_ProjectedCRS` — the convention buildingSMART defines for
-exactly this case.
+IFC2X3, which has neither entity, the same six numbers go out as `ePset_MapConversion`
+and `ePset_ProjectedCRS` — the convention buildingSMART defines for exactly this case. The
+IFC panel picks which root they hang off, since readers disagree: `IfcSite` by default,
+`IfcProject`, or both.
 
 **LoGeoRef 30** is written identically on all three schemas: `IfcSite.RefLatitude`,
 `RefLongitude` and `RefElevation`, so a reader that knows nothing about map conversion still

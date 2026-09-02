@@ -88,6 +88,20 @@ export const isIfcSchema = (v: unknown): v is IfcSchema =>
   v === 'IFC2X3' || v === 'IFC4' || v === 'IFC4X3';
 
 /**
+ * Which root the IFC2X3 georeferencing property sets hang off.
+ *
+ * Only read under that schema — IFC4 and IFC4X3 have IfcMapConversion, which
+ * names its own source context and leaves nothing to choose. See the
+ * georeferencing block in ContextModel for why the choice exists at all.
+ */
+export type IfcGeorefTarget = 'site' | 'project' | 'both';
+
+export const IFC_GEOREF_TARGETS: IfcGeorefTarget[] = ['site', 'project', 'both'];
+
+export const isIfcGeorefTarget = (v: unknown): v is IfcGeorefTarget =>
+  v === 'site' || v === 'project' || v === 'both';
+
+/**
  * What one schema can be told, as capabilities rather than as a version number.
  *
  * Read as "what does this schema have", not "which schema is this": every
@@ -106,7 +120,8 @@ type SchemaCaps = {
    *  all IFC4 additions. Without them a mesh goes out as a Brep — see mesh(). */
   tessellation: boolean;
   /** IfcMapConversion + IfcProjectedCRS, IFC4 additions. Without them the same
-   *  numbers go onto IfcSite as the conventional ePset_* property sets. */
+   *  numbers go onto a root — IfcSite by default, see IfcGeorefTarget — as the
+   *  conventional ePset_* property sets. */
   mapConversion: boolean;
   /** IFC4X3 gave IfcMapConversion a ScaleY and a ScaleZ: ten attributes where
    *  IFC4 has eight, and a reader handed eight fails on the count. */
@@ -641,23 +656,36 @@ export class ContextModel {
         ...(caps.mapScaleXYZ ? [null, null] : []),
       ]);
     } else {
-      /* IFC2X3 has neither entity, so the same statement goes on IfcSite as the
-         two property sets the buildingSMART georeferencing guidance defines for
+      /* IFC2X3 has neither entity, so the same statement goes out as the two
+         property sets the buildingSMART georeferencing guidance defines for
          exactly this — the conventional way to say LoGeoRef 50 in a schema that
          cannot. A reader that knows the convention recovers the full placement;
          one that does not still has IfcSite's RefLatitude/RefLongitude/
          RefElevation above, which is LoGeoRef 30 and unaffected by any of this.
 
          The names are the convention's own, with the `e` prefix that marks a
-         pset extending the schema rather than one published in it. */
-      this.pset(this.site, 'ePset_ProjectedCRS', {
+         pset extending the schema rather than one published in it.
+
+         Which root they hang off is a setting rather than a constant because
+         the convention only settles the names: readers disagree about where
+         they look, some at IfcSite and some at IfcProject, and a file that
+         lands on the wrong one reads as ungeoreferenced. IfcSite is the
+         default — it is what the guidance names, and it is where these sat
+         before there was anything to choose. */
+      const roots =
+        a.georefTarget === 'project'
+          ? this.project
+          : a.georefTarget === 'both'
+            ? [this.site, this.project]
+            : this.site;
+      this.pset(roots, 'ePset_ProjectedCRS', {
         Name: o.epsg,
         ...(o.crsName ? { Description: o.crsName } : {}),
         ...(o.geodeticDatum ? { GeodeticDatum: o.geodeticDatum } : {}),
         ...(o.verticalDatumEpsg ? { VerticalDatum: o.verticalDatumEpsg } : {}),
         MapUnit: 'METRE',
       });
-      this.pset(this.site, 'ePset_MapConversion', {
+      this.pset(roots, 'ePset_MapConversion', {
         Eastings: eastings,
         Northings: northings,
         OrthogonalHeight: zHeight,
@@ -766,7 +794,11 @@ export class ContextModel {
     return f.add('IfcPolyline', [pts]);
   }
 
-  private pset(el: Ref, name: string, props?: PropBag): void {
+  // el takes several elements as readily as one because
+  // IfcRelDefinesByProperties.RelatedObjects is a SET in all three schemas —
+  // so two roots that want the same properties share one set and one
+  // relationship rather than each carrying a byte-identical copy.
+  private pset(el: Ref | Ref[], name: string, props?: PropBag): void {
     const ks = Object.keys(props || {});
     if (!ks.length) return;
     const f = this.f;
@@ -776,7 +808,8 @@ export class ContextModel {
       return f.add('IfcPropertySingleValue', [S(k), null, nv, null]);
     });
     const ps = f.add('IfcPropertySet', [S(ifcGuid()), this.owner, S(name), null, singles]);
-    f.add('IfcRelDefinesByProperties', [S(ifcGuid()), this.owner, null, null, [el], ps]);
+    const rel = Array.isArray(el) ? el : [el];
+    f.add('IfcRelDefinesByProperties', [S(ifcGuid()), this.owner, null, null, rel, ps]);
   }
 
   /**

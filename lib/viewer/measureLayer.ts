@@ -53,6 +53,51 @@ const DONE = 0x0d4f66;
  *  sized for the same scenes. */
 const DOT_R = 0.45;
 
+/** Clearance, in CSS pixels, between the live label's edge and the point being
+ *  aimed. Past SNAP_CURSOR_PX / 2 in Viewer.ts, so the ring clears with it. */
+const CLEAR = 14;
+
+type Pt2 = { x: number; y: number };
+
+/**
+ * Where the live label goes: its anchor, unless that would put the box over the
+ * point under the cursor, in which case it slides out along the line until the
+ * point sits `CLEAR` pixels clear of the nearest edge.
+ *
+ * A clamp on the distance from the tip rather than a conditional offset, so
+ * there is no threshold to cross: past the point where the box no longer
+ * reaches the tip, `len` wins the max and this returns the anchor exactly.
+ * Written pure and exported because that continuity is the whole claim, and
+ * only a test can hold it.
+ */
+export function labelSpot(anchor: Pt2, tip: Pt2, w: number, h: number): Pt2 {
+  let dx = anchor.x - tip.x;
+  let dy = anchor.y - tip.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-3) {
+    // The anchor is the tip: the first click of a gesture, or a segment seen
+    // exactly end-on. There is no line to slide along, so go up — the one
+    // direction a readout is always expected to sit in.
+    dx = 0;
+    dy = -1;
+  } else {
+    dx /= len;
+    dy /= len;
+  }
+
+  // How far the box reaches from its own centre in that direction. Whichever
+  // pair of edges the ray leaves through is the nearer bound, hence the min.
+  const halfW = w / 2 + CLEAR;
+  const halfH = h / 2 + CLEAR;
+  const exit = Math.min(
+    Math.abs(dx) > 1e-6 ? halfW / Math.abs(dx) : Infinity,
+    Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity,
+  );
+
+  const d = Math.max(len, exit);
+  return { x: tip.x + dx * d, y: tip.y + dy * d };
+}
+
 /** What the snap cursor says it has caught. Kept apart from LIVE/DONE so the
  *  answer is legible without reading the number. */
 const SNAP_COLOR: Record<SnapKind, number> = {
@@ -147,6 +192,12 @@ type Entry = {
    *  formatter do, and rewriting it every frame would touch the DOM sixty times
    *  a second for a string that has not moved. */
   text: string;
+  /** The label's pixel size, cached beside the text for the same reason:
+   *  reading offsetWidth forces a layout, and the box only changes shape when
+   *  the string inside it does. Zero while the label is hidden, which sync
+   *  never reaches — it skips an entry with no text first. */
+  w: number;
+  h: number;
 };
 
 /**
@@ -267,12 +318,21 @@ export function createMeasureLayer(): MeasureLayer {
     return `${fmt.area(ringArea3(pts))}\n⌒ ${fmt.length(perimeter(pts))}`;
   };
 
-  /** Two lines, the second dimmer. Written as elements rather than innerHTML so
-   *  a formatter can never inject markup. */
-  const paint = (el: HTMLElement, text: string): void => {
+  /**
+   * Two lines, the second dimmer. Written as elements rather than innerHTML so
+   * a formatter can never inject markup.
+   *
+   * Refreshes the cached size on the way out: this is the one place a label can
+   * change shape, so measuring here costs one forced layout per changed label
+   * rather than one per label per frame.
+   */
+  const paint = (e: Entry, text: string): void => {
+    const el = e.el;
     el.textContent = '';
     if (!text) {
       el.hidden = true;
+      e.w = 0;
+      e.h = 0;
       return;
     }
     const [head, tail] = text.split('\n');
@@ -286,6 +346,8 @@ export function createMeasureLayer(): MeasureLayer {
       el.append(t);
     }
     el.hidden = false;
+    e.w = el.offsetWidth;
+    e.h = el.offsetHeight;
   };
 
   const drop = (id: number): void => {
@@ -312,10 +374,19 @@ export function createMeasureLayer(): MeasureLayer {
     el.hidden = true;
     dom.append(el);
     const held = pts.map((p) => p.clone());
-    const entry: Entry = { kind, pts: held, obj, el, anchor: anchorOf(kind, held), text: '' };
+    const entry: Entry = {
+      kind,
+      pts: held,
+      obj,
+      el,
+      anchor: anchorOf(kind, held),
+      text: '',
+      w: 0,
+      h: 0,
+    };
     if (lastFmt) {
       entry.text = textOf(kind, held, lastFmt);
-      paint(el, entry.text);
+      paint(entry, entry.text);
     }
     entries.set(id, entry);
   };
@@ -356,7 +427,7 @@ export function createMeasureLayer(): MeasureLayer {
           const next = textOf(e.kind, e.pts, fmt);
           if (next !== e.text) {
             e.text = next;
-            paint(e.el, next);
+            paint(e, next);
           }
         }
         if (!e.text) continue;
@@ -367,9 +438,21 @@ export function createMeasureLayer(): MeasureLayer {
         // it and one that slides to the wrong side of the window.
         e.el.hidden = s.behind;
         if (s.behind) continue;
-        e.el.style.transform = `translate(-50%, -50%) translate(${Math.round(s.x)}px, ${Math.round(
-          s.y,
-        )}px)`;
+        // The gesture's last point is the one under the cursor, and on a short
+        // measurement the anchor sits close enough to it that the box covers
+        // what is being aimed at — the snap ring included. Only the live label
+        // dodges: a committed one reading anywhere but its own midpoint would
+        // stop being comparable with its neighbours at a glance. The tip's own
+        // `behind` is tested separately, because the anchor can be on screen
+        // while the tip is not.
+        let spot: Pt2 = s;
+        if (id === LIVE_ID && e.pts.length) {
+          const t = toScreen(e.pts[e.pts.length - 1], camera, rect);
+          if (!t.behind) spot = labelSpot(s, t, e.w, e.h);
+        }
+        e.el.style.transform = `translate(-50%, -50%) translate(${Math.round(
+          spot.x,
+        )}px, ${Math.round(spot.y)}px)`;
       }
     },
 
