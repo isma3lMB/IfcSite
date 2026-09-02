@@ -269,6 +269,9 @@ export const fr: Dict = {
     'Le point que l’IFC exporté appelle (0, 0, 0). Le déplacer rebase le fichier sans rien déplacer au sol.',
   'ed.projectPlacement': 'Calage local du projet',
   'ed.projectCoords': 'Coordonnées de ce point (m)',
+  'ed.matchGlobal': 'Reprendre la position globale ci-dessus',
+  'ed.matchGlobalWarn':
+    'Ce n’est pas ainsi qu’un IFC doit être géoréférencé. Recopier les coordonnées cartographiques dans le calage du projet annule la conversion de carte à zéro : le fichier ne déclare plus où il se trouve, et chacune de ses coordonnées porte six ou sept chiffres avant la virgule — une précision que la plupart des visionneuses perdent en silence. Laissez ces champs à 0, sauf si un outil en aval l’exige.',
   'ed.projectAngle': 'Angle — ° antihoraire depuis l’est du quadrillage',
   'ed.resetPlacement': 'Réinitialiser le calage',
   'ed.projectHint':

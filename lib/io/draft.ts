@@ -424,6 +424,10 @@ const siteMeta = (v: unknown, rect: SiteRect, provider: Provider): SiteMeta | nu
     exportOffset: vec3(v.exportOffset),
     projectBase: vec3(v.projectBase),
     projectAngle: num(v.projectAngle),
+    // A draft written before this existed had its base typed by hand, which is
+    // exactly what false means — no fallback to guess at by comparing the base
+    // with the marker, since the two can coincide by accident.
+    projectBaseFromGlobal: bool(v.projectBaseFromGlobal, false),
     lat,
     lon,
     epsg: str(v.epsg, 'EPSG:4326'),

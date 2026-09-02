@@ -1221,6 +1221,14 @@ html.dark {
   .ctl-input[type='number'] {
     -moz-appearance: textfield;
   }
+  /* A field the panel is deriving rather than taking — the project coordinates
+     while they are matched to the global position. It needs saying in CSS
+     because .ctl-input sets its own colour and background, which is exactly what
+     the browser would otherwise have dimmed. Same 0.3 the disabled buttons use. */
+  .ctl-input:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
   .rangeval {
     float: right;
     color: var(--color-ink);
@@ -1447,6 +1455,11 @@ html.dark {
     font-size: 12px;
     text-align: right;
   }
+  /* The axis letter is positioned over the field rather than inside it, so it
+     would stay bright above a dimmed one. It goes with the input it labels. */
+  .axes > label:has(input:disabled) > span {
+    opacity: 0.3;
+  }
   .colorInput {
     width: 100%;
     height: 38px;
@@ -1461,6 +1474,14 @@ html.dark {
     color: var(--color-ink-soft);
     margin-top: 14px;
     line-height: 1.5;
+  }
+  /* The one hint in the editor that is a warning rather than advice: the option
+     it belongs to deliberately writes a worse file, so the paragraph has to say
+     so rather than murmur it in --color-ink-soft like every other hint here.
+     --color-err is the red the status line already uses, themed both ways. */
+  .editWarn {
+    color: var(--color-err);
+    margin-top: 10px;
   }
   /* An advanced block inside a panel: ruled off so it reads as a second subject
      rather than as more fields belonging to the one above it. */

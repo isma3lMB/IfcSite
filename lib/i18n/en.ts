@@ -283,6 +283,9 @@ export const en = {
     'The point the exported IFC calls (0, 0, 0). Moving it re-bases the file without moving anything on the ground.',
   'ed.projectPlacement': 'Local project placement',
   'ed.projectCoords': 'Coordinates of this point (m)',
+  'ed.matchGlobal': 'Match the global position above',
+  'ed.matchGlobalWarn':
+    'This is not how an IFC should be georeferenced. Copying the map coordinates into the project placement cancels the map conversion to zero, so the file no longer declares where it sits, and every coordinate in it carries six or seven digits before the decimal — precision most viewers quietly lose. Leave these at 0 unless a downstream tool insists on it.',
   'ed.projectAngle': 'Angle — °counter-clockwise from grid east',
   'ed.resetPlacement': 'Reset placement',
   'ed.projectHint':

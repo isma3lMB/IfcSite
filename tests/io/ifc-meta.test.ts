@@ -20,6 +20,7 @@ const meta = (ifc: Partial<IfcMeta> = {}): SiteMeta => ({
   exportOffset: [0, 0, 0],
   projectBase: [0, 0, 0],
   projectAngle: 0,
+  projectBaseFromGlobal: false,
   lat: 48.8566,
   lon: 2.3522,
   epsg: 'EPSG:2154',
