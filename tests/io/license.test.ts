@@ -17,6 +17,7 @@ import { emptyScene, newIfcMeta, type SceneData, type SiteMeta, type Vec2 } from
 
 const meta = (over: Partial<SiteMeta>): SiteMeta => ({
   origin: [0, 0], exportOffset: [0, 0, 0], projectBase: [0, 0, 0], projectAngle: 0,
+  projectBaseFromGlobal: false,
   lat: 48.8566, lon: 2.3522,
   epsg: 'EPSG:2154', crsName: 'RGF93 / Lambert-93', geodeticDatum: 'RGF93',
   verticalDatum: null, verticalDatumEpsg: null,

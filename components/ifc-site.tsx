@@ -91,6 +91,21 @@ const originLabelOf = (m: SiteMeta): string =>
   ).toFixed(1)}`;
 
 /**
+ * That same point as a project base — the number the editor's match-global
+ * checkbox copies across.
+ *
+ * The very sum originLabelOf makes, and the one the editor's global position row
+ * makes for the display: origin plus marker for easting and northing, and the
+ * marker's own Z, which is already local. Written once here so the three cannot
+ * drift into disagreeing about what "the global position" is.
+ */
+const globalBaseOf = (m: SiteMeta): Vec3 => [
+  m.origin[0] + m.exportOffset[0],
+  m.origin[1] + m.exportOffset[1],
+  m.exportOffset[2],
+];
+
+/**
  * What to call the document when nobody has saved it under a name yet.
  *
  * The project name if one has been typed into the IFC panel, and otherwise the
@@ -289,6 +304,13 @@ export function IfcSite() {
      records gestures. Angle is degrees, counter-clockwise from grid east. */
   const [projectBase, setProjectBase] = useState<Vec3>([0, 0, 0]);
   const [projectAngle, setProjectAngle] = useState(0);
+  /** Whether that base is being held equal to the origin marker's global
+      position rather than typed. The ref is what the mount-only onOrigin below
+      reads — the same pairing setInfo and openConfirm make — and the state is
+      what renders the checkbox. They are only ever written together, in
+      writePlacement. */
+  const [matchGlobal, setMatchGlobal] = useState(false);
+  const matchGlobalRef = useRef(false);
   const [infoOpen, setInfoOpen] = useState(false);
   /* Footprint authoring. The tool and the corner count are the viewer's to
      report — it cancels gestures on its own — so these follow onDraw rather
@@ -349,6 +371,12 @@ export function IfcSite() {
         if (!m) return;
         m.exportOffset = off;
         setOriginLabel(originLabelOf(m));
+        // Every way the marker can move arrives here — the gizmo, a typed axis,
+        // resetOrigin, restoreOrigin — so this is the one place the matched base
+        // has to follow it. m.projectAngle rather than the state: this closure is
+        // mount-only and would hold the angle the page opened with, while the
+        // meta copy writePlacement keeps is always current.
+        if (matchGlobalRef.current) writePlacement(globalBaseOf(m), m.projectAngle, true);
         touch();
       },
       onMode: setGizmoMode,
@@ -752,15 +780,29 @@ export function IfcSite() {
   /* The emitter holds the very same meta object, so writing through to it and
      marking dirty is the whole path to the download — the same trick the origin
      marker's onOrigin uses. No viewer call: nothing on screen changes. */
-  const writePlacement = useCallback((base: Vec3, angle: number) => {
+  const writePlacement = useCallback((base: Vec3, angle: number, fromGlobal: boolean) => {
     setProjectBase(base);
     setProjectAngle(angle);
+    setMatchGlobal(fromGlobal);
+    matchGlobalRef.current = fromGlobal;
     const m = metaRef.current;
     if (!m) return;
     m.projectBase = base;
     m.projectAngle = angle;
+    m.projectBaseFromGlobal = fromGlobal;
     touch();
   }, [touch]);
+
+  /* Fill the project coordinates from the global position above and keep them
+     there, or let them go back to zero. Nothing else in the panel is a shortcut
+     to a worse file, which is why the editor puts a warning under it — see
+     ed.matchGlobalWarn, and the eastings this cancels in lib/ifc/writer. The
+     angle is a separate decision and is carried through untouched. */
+  const onMatchGlobal = useCallback((v: boolean) => {
+    const m = metaRef.current;
+    if (!m) return;
+    writePlacement(v ? globalBaseOf(m) : [0, 0, 0], m.projectAngle, v);
+  }, [writePlacement]);
 
   /* The same write-through as writePlacement above, and for the same reason: the
      emitter holds this very meta object, so putting the patch into it and marking
@@ -786,20 +828,25 @@ export function IfcSite() {
       if (!Number.isFinite(v)) return;
       const next = [...projectBase] as Vec3;
       next[i] = v;
-      writePlacement(next, projectAngle);
+      // False, not the current latch: typing into these fields is what a matched
+      // base is not. Unreachable while it is on — the editor shows them dead —
+      // but a typed coordinate must never be reported as one that was copied.
+      writePlacement(next, projectAngle, false);
     },
     [projectBase, projectAngle, writePlacement],
   );
 
   const onProjectAngle = useCallback(
     (v: number) => {
-      if (Number.isFinite(v)) writePlacement(projectBase, v);
+      // The latch carried through, not cleared: the angle is turned independently
+      // of where the base came from, and stays live while the base is matched.
+      if (Number.isFinite(v)) writePlacement(projectBase, v, matchGlobal);
     },
-    [projectBase, writePlacement],
+    [matchGlobal, projectBase, writePlacement],
   );
 
   const onResetPlacement = useCallback(
-    () => writePlacement([0, 0, 0], 0),
+    () => writePlacement([0, 0, 0], 0, false),
     [writePlacement],
   );
 
@@ -1115,6 +1162,11 @@ export function IfcSite() {
     // means nothing. res.meta already carries the zeroes; this just follows it.
     setProjectBase([0, 0, 0]);
     setProjectAngle(0);
+    // The latch goes with the placement it belonged to, and the ref with it: the
+    // setScene below moves the marker, and a latch left standing would take that
+    // as its cue to copy the new site's coordinates into a base nobody asked for.
+    setMatchGlobal(false);
+    matchGlobalRef.current = false;
     // Seed the footprint height from the dock rather than tracking it live: the
     // build is the moment that setting was last the user's stated intent, and
     // following it afterwards would overwrite a height typed into the draw HUD.
@@ -1239,6 +1291,10 @@ export function IfcSite() {
         // against, so they still mean what they meant.
         setProjectBase(d.meta.projectBase);
         setProjectAngle(d.meta.projectAngle);
+        // And the latch with them, or a reopened draft would show its copied
+        // coordinates as typed ones and stop following the marker.
+        setMatchGlobal(d.meta.projectBaseFromGlobal);
+        matchGlobalRef.current = d.meta.projectBaseFromGlobal;
         // Likewise from the draft: the file's own settings were saved with it,
         // and the panel has to show what the reopened document actually says.
         setIfc(d.meta.ifc);
@@ -1657,6 +1713,8 @@ export function IfcSite() {
           siteMeta={m}
           projectBase={projectBase}
           projectAngle={projectAngle}
+          matchGlobal={matchGlobal}
+          onMatchGlobal={onMatchGlobal}
           onProjectBase={onProjectBase}
           onProjectAngle={onProjectAngle}
           onResetPlacement={onResetPlacement}

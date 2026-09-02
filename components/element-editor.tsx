@@ -27,6 +27,7 @@ function AxisInput({
   value,
   step,
   min,
+  disabled,
   ariaLabel,
   onLive,
   onCommit,
@@ -35,6 +36,9 @@ function AxisInput({
   value: number;
   step: number;
   min?: number;
+  /** Read-only and dimmed, for a value the panel is deriving rather than taking
+   *  — see the match-global checkbox below. */
+  disabled?: boolean;
   ariaLabel: string;
   onLive: (v: number) => void;
   onCommit: (v: number) => void;
@@ -49,6 +53,7 @@ function AxisInput({
         className="ctl-input"
         step={step}
         min={min}
+        disabled={disabled}
         aria-label={ariaLabel}
         value={draft ?? String(value)}
         onChange={(e) => {
@@ -138,6 +143,11 @@ export type ElementEditorProps = {
      ed.projectHint. */
   projectBase: Vec3;
   projectAngle: number;
+  /** Whether the project coordinates are being held equal to the global position
+   *  above instead of typed. It drives the checkbox, greys the three fields out,
+   *  and is what the warning under them hangs on — see ed.matchGlobalWarn. */
+  matchGlobal: boolean;
+  onMatchGlobal: (v: boolean) => void;
   onProjectBase: (i: number, v: number) => void;
   onProjectAngle: (v: number) => void;
   onResetPlacement: () => void;
@@ -182,6 +192,7 @@ export function ElementEditor(p: ElementEditorProps) {
     step: number,
     write: (i: number, v: number, commit: boolean) => void,
     min?: number,
+    disabled?: boolean,
   ) => (
     <div className="axes">
       {(['X', 'Y', 'Z'] as const).map((ax, i) => (
@@ -191,6 +202,7 @@ export function ElementEditor(p: ElementEditorProps) {
           value={values[i]}
           step={step}
           min={min}
+          disabled={disabled}
           ariaLabel={`${name} ${ax}`}
           onLive={(v) => write(i, v, false)}
           onCommit={(v) => write(i, v, true)}
@@ -264,12 +276,29 @@ export function ElementEditor(p: ElementEditorProps) {
             <span className="eyebrow block mb-1.5">{t('ed.projectPlacement')}</span>
 
             <span className="eyebrow block mb-1.5">{t('ed.projectCoords')}</span>
+
+            {/* The shortcut out of typing six-digit eastings by hand — and the
+                one option in this panel that deliberately makes the file worse,
+                which is why it carries the paragraph below rather than a hint.
+                Ticked, these fields are the global position rather than an entry
+                of their own, so they are shown dead and follow the marker. */}
+            <label className="check mb-2">
+              <Checkbox
+                checked={p.matchGlobal}
+                onCheckedChange={(v) => p.onMatchGlobal(v === true)}
+              />
+              {t('ed.matchGlobal')}
+            </label>
+
             {axisRow(
               'project',
               p.projectBase.map((v) => rnd(v, 3)),
               1,
               (i, v) => p.onProjectBase(i, v),
+              undefined,
+              p.matchGlobal,
             )}
+            {p.matchGlobal && <p className="editHint editWarn">{t('ed.matchGlobalWarn')}</p>}
 
             <span className="eyebrow mt-2.5 block mb-1.5">{t('ed.projectAngle')}</span>
             <div className="axes">

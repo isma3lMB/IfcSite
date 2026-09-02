@@ -378,6 +378,18 @@ export type SiteMeta = {
    */
   projectBase: Vec3;
   projectAngle: number;
+  /**
+   * Whether projectBase is being held equal to the origin marker's global
+   * position rather than typed.
+   *
+   * Purely a latch for the UI — the writer only ever reads projectBase, and the
+   * file is the same however the number got there — but it has to survive a
+   * reload, and while it is set the base follows the marker instead of standing
+   * still. Offered with a warning attached, because it is the one placement that
+   * cancels the map conversion to an identity: see ed.matchGlobalWarn and the
+   * eastings/northings in ContextModel.
+   */
+  projectBaseFromGlobal: boolean;
   lat: number;
   lon: number;
   epsg: string;

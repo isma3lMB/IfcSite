@@ -12,6 +12,7 @@ import { emptyScene, newIfcMeta, type SiteMeta } from '@/lib/types';
  */
 const meta = (over: Partial<SiteMeta>): SiteMeta => ({
   origin: [0, 0], exportOffset: [0, 0, 0], projectBase: [0, 0, 0], projectAngle: 0,
+  projectBaseFromGlobal: false,
   lat: 41.3874, lon: 2.1686,
   epsg: 'EPSG:25831', crsName: 'ETRS89 / UTM zone 31N', geodeticDatum: 'ETRS89',
   verticalDatum: null, verticalDatumEpsg: null,
@@ -73,6 +74,63 @@ describe('IfcProjectedCRS', () => {
    properties are identical in all three cases, and the only thing that moves is
    RelatedObjects.
    ------------------------------------------------------------------------- */
+
+/**
+ * What the match-global checkbox actually costs the file.
+ *
+ * Copying the marker's global position into projectBase is offered in the editor
+ * because people ask for it, and warned about in the same breath — see
+ * ed.matchGlobalWarn. This is the warning stated as an assertion: the map
+ * conversion the writer derives by subtracting the base from the global position
+ * collapses to an identity, so the file stops declaring where it is and the
+ * coordinates it does carry are all seven digits wide.
+ */
+describe('a project base matched to the global position', () => {
+  const ORIGIN: [number, number] = [430000, 4580000];
+  const OFF: [number, number, number] = [12, -34, 56];
+  const placed = (over: Partial<SiteMeta> = {}): SiteMeta =>
+    meta({ origin: ORIGIN, exportOffset: OFF, ...over });
+  const matched = (over: Partial<SiteMeta> = {}): SiteMeta =>
+    placed({
+      projectBase: [ORIGIN[0] + OFF[0], ORIGIN[1] + OFF[1], OFF[2]],
+      projectBaseFromGlobal: true,
+      ...over,
+    });
+
+  /* The baseline the warning is measured against: left at zero, the conversion
+     carries the whole offset, which is the point of having one. */
+  it('carries the real offset while the base is left at zero', () => {
+    const { text } = emitIFC(emptyScene(), placed());
+    expect(text).toContain('IFCMAPCONVERSION(#10,#16,430012.,4579966.,56.,');
+  });
+
+  it('cancels IfcMapConversion to an identity', () => {
+    const { text } = emitIFC(emptyScene(), matched());
+    expect(text).toContain('IFCMAPCONVERSION(#10,#18,0.,0.,0.,');
+  });
+
+  /* The IFC2X3 path stands in the same relation to the base, so it zeroes too —
+     otherwise the warning would be true of one schema and not the other. */
+  it('zeroes the IFC2X3 property set the same way', () => {
+    const { text } = emitIFC(
+      emptyScene(),
+      matched({ ifc: { ...newIfcMeta(), schema: 'IFC2X3' } }),
+    );
+    for (const key of ['Eastings', 'Northings', 'OrthogonalHeight']) {
+      expect(text).toContain(`IFCPROPERTYSINGLEVALUE('${key}',$,IFCREAL(0.),$)`);
+    }
+  });
+
+  /* The latch is the editor's, not the writer's: what reaches the file is the
+     base, however it got there. A file written with the box ticked and one
+     written by typing the same six digits are the same file — GUIDs aside,
+     which are freshly generated on every emit and belong to no input. */
+  it('is written from the base alone, not from the latch', () => {
+    const bare = (m: SiteMeta): string =>
+      emitIFC(emptyScene(), m).text.replace(/'[0-9A-Za-z_$]{22}'/g, "'#'");
+    expect(bare(matched({ projectBaseFromGlobal: false }))).toBe(bare(matched()));
+  });
+});
 
 const x3 = (georefTarget: 'site' | 'project' | 'both'): string =>
   emitIFC(emptyScene(), meta({ ifc: { ...newIfcMeta(), schema: 'IFC2X3', georefTarget } })).text;
