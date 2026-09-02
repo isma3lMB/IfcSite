@@ -63,3 +63,84 @@ describe('IfcProjectedCRS', () => {
     expect(text).toContain("IFCPROPERTYSINGLEVALUE('Name',$,IFCLABEL('EPSG:25831')");
   });
 });
+
+/* -------------------------------------------------------------------------
+   Which root the IFC2X3 property sets land on.
+
+   The convention settles the two names and not the host, and readers disagree
+   about where they look — so the target is a setting, and these are the three
+   answers it can give. Read off the relationship rather than off the pset: the
+   properties are identical in all three cases, and the only thing that moves is
+   RelatedObjects.
+   ------------------------------------------------------------------------- */
+
+const x3 = (georefTarget: 'site' | 'project' | 'both'): string =>
+  emitIFC(emptyScene(), meta({ ifc: { ...newIfcMeta(), schema: 'IFC2X3', georefTarget } })).text;
+
+/** The `#n` of the file's one IFCPROJECT or IFCSITE. `=IFCPROJECT(` with the
+ *  paren, so IFCPROJECTEDCRS cannot answer for it. */
+const ref = (text: string, type: 'IFCPROJECT' | 'IFCSITE'): string => {
+  const line = text.split('\n').find((l) => l.includes(`=${type}(`));
+  expect(line, `the file has one ${type}`).toBeTruthy();
+  return (line as string).slice(0, (line as string).indexOf('='));
+};
+
+/** The RelatedObjects of the relationship attaching the named property set,
+ *  as entity refs. */
+const hosts = (text: string, name: string): string[] => {
+  const lines = text.split('\n');
+  const ps = lines.find((l) => l.includes('=IFCPROPERTYSET(') && l.includes(`'${name}'`));
+  expect(ps, `${name} is in the file`).toBeTruthy();
+  const id = (ps as string).slice(0, (ps as string).indexOf('='));
+  const rel = lines.find(
+    (l) => l.includes('=IFCRELDEFINESBYPROPERTIES(') && l.endsWith(`,${id});`),
+  );
+  expect(rel, `${name} is attached to something`).toBeTruthy();
+  const m = (rel as string).match(/,\((#[\d,#]*)\),#\d+\);$/);
+  expect(m, `${name}'s relationship lists RelatedObjects`).toBeTruthy();
+  return (m as RegExpMatchArray)[1].split(',');
+};
+
+describe('the IFC2X3 georeferencing target', () => {
+  /* The default, and what the writer did before there was anything to choose. */
+  it('puts both property sets on IfcSite by default', () => {
+    const text = x3('site');
+    const site = ref(text, 'IFCSITE');
+    expect(hosts(text, 'ePset_ProjectedCRS')).toEqual([site]);
+    expect(hosts(text, 'ePset_MapConversion')).toEqual([site]);
+  });
+
+  it('moves both to IfcProject when asked', () => {
+    const text = x3('project');
+    const project = ref(text, 'IFCPROJECT');
+    expect(hosts(text, 'ePset_ProjectedCRS')).toEqual([project]);
+    expect(hosts(text, 'ePset_MapConversion')).toEqual([project]);
+  });
+
+  /* One property set on two roots, not two copies of it: RelatedObjects is a
+     SET, which is the whole reason "both" costs a relationship and not a file. */
+  it('lists both roots on one relationship each for "both"', () => {
+    const text = x3('both');
+    const both = [ref(text, 'IFCSITE'), ref(text, 'IFCPROJECT')];
+    expect(hosts(text, 'ePset_ProjectedCRS')).toEqual(both);
+    expect(hosts(text, 'ePset_MapConversion')).toEqual(both);
+    for (const name of ['ePset_ProjectedCRS', 'ePset_MapConversion']) {
+      const sets = text
+        .split('\n')
+        .filter((l) => l.includes('=IFCPROPERTYSET(') && l.includes(`'${name}'`));
+      expect(sets).toHaveLength(1);
+    }
+  });
+
+  /* IFC4 has IfcMapConversion, which names its own source context — the setting
+     is not consulted, and no ePset_ is written whatever it says. */
+  it('is ignored under a schema that has IfcMapConversion', () => {
+    const { text } = emitIFC(
+      emptyScene(),
+      meta({ ifc: { ...newIfcMeta(), schema: 'IFC4', georefTarget: 'project' } }),
+    );
+    expect(text).toContain('IFCMAPCONVERSION(');
+    expect(text).not.toContain('ePset_MapConversion');
+    expect(text).not.toContain('ePset_ProjectedCRS');
+  });
+});

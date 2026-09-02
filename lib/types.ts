@@ -1,8 +1,8 @@
 import type { Tunables } from '@/lib/build/tunables';
 import type { LayerKey, Params, StatusKey } from '@/lib/i18n/keys';
-import type { IfcSchema } from '@/lib/ifc/writer';
+import type { IfcGeorefTarget, IfcSchema } from '@/lib/ifc/writer';
 
-export type { IfcSchema };
+export type { IfcGeorefTarget, IfcSchema };
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -297,6 +297,16 @@ export type IfcMeta = {
    * infrastructure work.
    */
   schema: IfcSchema;
+  /**
+   * Which root the IFC2X3 georeferencing property sets hang off.
+   *
+   * Not a text field and not blank-means-omit like the nine below: the psets
+   * are always written under that schema, and this only says where. Read
+   * nowhere else — IFC4 and IFC4X3 write IfcMapConversion, which names its own
+   * source context. Kept in the bag rather than in the panel's own state so it
+   * survives a trip through IFC4 and back, and so a draft remembers it.
+   */
+  georefTarget: IfcGeorefTarget;
   projectName: string;
   projectLongName: string;
   projectDescription: string;
@@ -313,6 +323,7 @@ export type IfcMeta = {
 
 export const newIfcMeta = (): IfcMeta => ({
   schema: 'IFC4',
+  georefTarget: 'site',
   projectName: '',
   projectLongName: '',
   projectDescription: '',

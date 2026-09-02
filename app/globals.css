@@ -91,9 +91,12 @@
   /* ---- surfaces ----
      Extracted from literals that had no token to override. --color-surface is
      the translucent chrome fill; --color-surface-solid is the opaque one, used
-     where a blur would land on top of another blurred panel. */
+     where a blur would land on top of another blurred panel; --color-surface-veil
+     is the same fill thinned to the point where whatever it covers still shows
+     through, for a label that has to sit over the thing it describes. */
   --color-surface: rgba(255, 255, 255, 0.94);
   --color-surface-solid: #ffffff;
+  --color-surface-veil: rgba(255, 255, 255, 0.72);
   --color-scrim: rgba(15, 17, 18, 0.55);
   --color-shadow: rgba(15, 17, 18, 0.32);
   --color-shadow-soft: rgba(15, 17, 18, 0.22);
@@ -131,6 +134,7 @@ html.dark {
 
   --color-surface: rgba(28, 32, 35, 0.94);
   --color-surface-solid: #1c2023;
+  --color-surface-veil: rgba(28, 32, 35, 0.72);
   --color-scrim: rgba(0, 0, 0, 0.66);
   --color-shadow: rgba(0, 0, 0, 0.55);
   --color-shadow-soft: rgba(0, 0, 0, 0.45);
@@ -618,6 +622,11 @@ html.dark {
     align-items: center;
     gap: 14px;
     flex-wrap: nowrap;
+    /* The IFC panel's containing block. justify-self: center above is what
+       makes this worth doing: centred in the overlay, the bar's own 50% is the
+       window's centre line and its 100% is the bar's height, so the panel is
+       centred and cleared of the bar without either being measured. */
+    position: relative;
     /* Only to outrank .siteReadout, the one overlay sibling drawn after this
        one. The bar itself never reaches the corner the readout sits in, but the
        IFC flyout opening upward off it can — and the readout is bare text with
@@ -904,31 +913,60 @@ html.dark {
     background: var(--color-ink);
     color: var(--color-on-ink);
   }
+  /* Centred on the window, and clear of the bar it rises off. Both come from
+     .statusbar being the containing block — see the note there. translateX
+     rather than auto margins: the bar shrink-wraps to its buttons and is
+     narrower than this panel, and auto margins on an over-constrained box give
+     up and flush left instead of centring. */
   .ifcFlyout {
     position: absolute;
     top: auto;
-    left: auto;
+    right: auto;
     bottom: calc(100% + 10px);
-    right: 0;
-    width: 320px;
-    /* The bar is centred and shrink-wrapped, so a 320px panel hanging off it
-       can reach either edge of a narrow window before the panel is the thing
-       that is too wide. */
+    left: 50%;
+    transform: translateX(-50%);
+    /* Two columns of fields wide. The panel was 320 and a single stack, which
+       put the foot below the scroll cap; side by side the whole form fits and
+       there is nothing to scroll. */
+    width: 620px;
+    /* Centred, so what it has to stay inside is the whole window less the
+       overlay's own gutter on both sides. */
     max-width: min(92vw, calc(100vw - 32px));
-    max-height: min(60vh, 520px);
+    max-height: min(72vh, 620px);
   }
-  /* The three blocks of attributes. A rule above each rather than a heading in
-     bold: the eyebrow is already the panel's section voice, and nine fields in
-     one column need the grouping to be visible from further away than a word. */
+  /* The blocks of attributes. A rule above each rather than a heading in bold:
+     the eyebrow is already the panel's section voice, and this many fields need
+     the grouping to be visible from further away than a word. */
   .ifcGroup {
     padding-top: 12px;
-    margin-top: 4px;
+    margin-top: 12px;
     border-top: 1px solid var(--color-line-soft);
   }
   .ifcGroupHead {
     display: block;
     margin-bottom: 10px;
     color: var(--color-ink-soft);
+  }
+  /* Project and Site, side by side and row-aligned. */
+  .ifcRoots {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 16px;
+    row-gap: 14px;
+  }
+  /* Row spacing belongs to the grid here — .field's own bottom margin would add
+     to the gap, and its :last-child exception only cancels the last of a stack,
+     which in two columns is one cell of eight. Inputs pinned to the bottom of
+     each cell so a label that wraps on one side does not lift the field beside
+     it out of line. */
+  .ifcRoots .field {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    margin-bottom: 0;
+  }
+  .ifcRoots .ifcGroupHead {
+    margin-bottom: 0;
   }
   .ifcFoot {
     display: flex;
@@ -1702,6 +1740,11 @@ html.dark {
      the eye lands on among the ones already taken. */
   .measureLabel.live {
     border-color: #1f8ac0;
+    /* Thinner than a committed one, because this is the box that lands nearest
+       the cursor. The blur is what buys the alpha back: without it the mono
+       numerals fight whatever roof they are lying on. */
+    background: var(--color-surface-veil);
+    backdrop-filter: blur(2px);
   }
   .measureLabel .delta {
     color: var(--color-ink-soft);
@@ -1871,6 +1914,21 @@ html.dark {
     width: auto;
     max-width: none;
     max-height: none;
+  }
+  /* The IFC panel is not the rail's, so it does not go to the window's right
+     edge with the rest of them: it stays centred over the bar it belongs to and
+     only gives up width. Restated in full because the rule above resets the
+     same four offsets and would otherwise leave the transform stranded. */
+  .ifcFlyout {
+    position: absolute;
+    top: auto;
+    right: auto;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(620px, calc(100vw - 24px));
+    max-width: none;
+    max-height: min(72vh, 560px);
   }
   /* 2 / -1, not 1 / -1: pinned to the bottom this would otherwise sit over the
      lower half of the rail, and the 3D rail is nine buttons tall. The phone tier
@@ -2050,6 +2108,27 @@ html.dark {
   .searchResults {
     top: auto;
     bottom: calc(100% + 4px);
+  }
+  /* Still centred and still off the bar, for the reason given two tiers up —
+     what changes here is only that it takes the window's full width less the
+     gutter. */
+  .ifcFlyout {
+    position: absolute;
+    top: auto;
+    right: auto;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100vw - 24px);
+    max-width: none;
+    max-height: 60dvh;
+  }
+  /* One column at a phone's width — two would put a 13px mono input at about
+     sixteen characters. The markup is in pair order, so what collapses is
+     Name, Name, Long name, Long name, and the roots stay adjacent. */
+  .ifcRoots {
+    grid-template-columns: 1fr;
+    row-gap: 12px;
   }
 
   /* Above the rail, and free to span the full width now that the rail has left
