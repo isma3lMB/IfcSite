@@ -16,6 +16,10 @@ export type BrandChipProps = {
  * between the user and the viewer for the sake of two controls. The readout
  * moved to the status bar, the utilities to the opposite corner, and what
  * remains shrink-wraps into the top-left corner.
+ *
+ * The wordmark is split on the same two i18n keys the display lockup in the
+ * info overlay uses, so the plated half is the same word in both and the two
+ * cannot drift apart. There is no separate icon: the lockup is the mark.
  */
 export function BrandChip(p: BrandChipProps) {
   const { t } = useT();
@@ -23,8 +27,9 @@ export function BrandChip(p: BrandChipProps) {
 
   return (
     <div className="brandChip floating">
-      <div className="mark" />
-      <div className="wordmark">{t('app.wordmark')}</div>
+      <div className="wordmark">
+        {t('app.h1a')} <span>{t('app.h1b')}</span>
+      </div>
 
       <div className="sep" />
 

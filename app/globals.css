@@ -14,6 +14,13 @@
   --color-paper: #fafafa;
   --color-yellow: #f0fb29;
   --color-yellow-dim: #dce737;
+  /* The accent taken down to where it survives the paper. #f0fb29 measures
+     1.09:1 on --color-paper — green carries most of the luminance, so any
+     yellow still bright enough to read as yellow is invisible on white. This
+     holds the hue (64.7deg against the accent's 63.1deg) and drops the value
+     until it clears 3:1, the non-text contrast floor. Dark mode takes the
+     accent back undimmed below: on #14171a it has all the contrast it needs. */
+  --color-yellow-deep: #8c9800;
   --color-sky: #aee3fd;
   --color-err: #ea384c;
   --color-sheet: #15181a;
@@ -131,6 +138,7 @@ html.dark {
 
   --color-on-ink: #15181a;
   --color-on-yellow: #15181a;
+  --color-yellow-deep: #f0fb29;
 
   --color-surface: rgba(28, 32, 35, 0.94);
   --color-surface-solid: #1c2023;
@@ -1148,19 +1156,16 @@ html.dark {
     object-fit: contain;
   }
 
-  .mark {
-    width: 26px;
-    height: 26px;
-    background: var(--color-ink);
-    clip-path: polygon(0 0, 70% 0, 100% 30%, 100% 100%, 0 100%);
-    flex: none;
-  }
   .wordmark {
     font: 700 13px/1 var(--font-mono);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     white-space: nowrap;
-    flex: none;
+    display: flex;
+    /* flex: ; */
+    gap: 2px;
+    justify-items: center;
+    align-items: center;
   }
   .h1 {
     font: 700 44px/0.95 var(--font-sans);
@@ -1168,11 +1173,30 @@ html.dark {
     margin: 8px 0 0;
     text-transform: uppercase;
   }
+  /* The mark. One lockup at two sizes — the chip in the corner and the display
+     h1 in the info overlay — so the plate is written once here and only the
+     padding differs below. It used to be a yellow fill under a solid rule; it
+     is now the site rectangle instead, the gesture the whole app is about: the
+     same 2px of dashes that lib/viewer/MapController draws around a site on the
+     map. The letters stay ink and are the thing being read; the yellow is the
+     box drawn around them. --color-yellow-deep rather than the raw accent: the
+     map rectangle lies over imagery and carries a fill besides, where this sits
+     on bare paper with nothing behind it. inline-block because a border on
+     an inline box is drawn outside the line box, and at 44px/0.95 that would
+     put the strokes into the tag above and the subtitle below. */
+  .h1 span,
+  .wordmark span {
+    display: inline-block;
+    border: 2px dashed var(--color-yellow-deep);
+    color: inherit;
+  }
   .h1 span {
-    background: var(--color-yellow);
-    color: var(--color-on-yellow);
     padding: 0 6px;
-    box-shadow: 0 0 0 1px var(--color-ink);
+  }
+  /* Trailing letter-spacing hangs inside the box on the last letter, so the
+     right padding is short by that much to keep the word optically centred. */
+  .wordmark span {
+    padding: 1px 3px 1px 4px;
   }
   .sub {
     font-size: 13.5px;
@@ -1977,8 +2001,9 @@ html.dark {
     align-self: start;
     max-width: calc(100% - 48px);
   }
-  /* The mark alone is the brand at this width. */
-  .brandChip .wordmark,
+  /* The wordmark is the brand — there is no icon to fall back to — so only the
+     rule between it and the tabs goes. At 13px mono it costs about the same
+     width as the icon and its gap used to. */
   .brandChip .sep {
     display: none;
   }
