@@ -5,9 +5,10 @@ import type { LayerId } from '@/lib/types';
  * The icon set, drawn rather than imported.
  *
  * lucide-react is a dependency, but its stroke language — round caps on a 24
- * grid at 2 px — reads foreign beside the clip-path wordmark and the crosshair
- * this set grew out of. Everything here is 16×16 with square caps and joins, to
- * match `--radius: 0`; a rounded cap on a 1.3 stroke is visible at this size.
+ * grid at 2 px — reads foreign beside the wordmark's dashed plate and the
+ * crosshair this set grew out of. Everything here is 16×16 with square caps and
+ * joins, to match `--radius: 0`; a rounded cap on a 1.3 stroke is visible at
+ * this size.
  *
  * Each icon is decoration: the label lives on the button that holds it, so the
  * svg is always aria-hidden.
