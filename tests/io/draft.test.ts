@@ -36,6 +36,7 @@ const META: SiteMeta = {
   exportOffset: [0, 0, 0],
   projectBase: [0, 0, 0],
   projectAngle: 0,
+  projectBaseFromGlobal: false,
   lat: 48.8566,
   lon: 2.3522,
   epsg: 'EPSG:2154',
@@ -299,6 +300,45 @@ describe('parseDraft', () => {
       expect(out.projectName).toBe('Older site');
       expect(out.schema).toBe('IFC2X3');
       expect(out.author).toBe('');
+    });
+
+    /* Not a text field like the rest of the bag, so it needs its own line here:
+       a target typed under IFC2X3 has to come back on the radio it was set on,
+       or reopening a site silently re-hosts its georeferencing. */
+    it('round-trips the IFC2X3 georeferencing target', () => {
+      const meta = { ...META, ifc: { ...META.ifc, schema: 'IFC2X3', georefTarget: 'both' } };
+      expect(parseDraft(text({ meta })).meta.ifc.georefTarget).toBe('both');
+    });
+
+    /* A draft written before the field existed was exported with the psets on
+       IfcSite, which is exactly what the default says — so there is nothing to
+       migrate, and a junk value is repaired the same way. */
+    it('defaults the georeferencing target to the site', () => {
+      const { georefTarget: _g, ...bare } = META.ifc;
+      const meta = { ...META, ifc: bare };
+      expect(parseDraft(text({ meta })).meta.ifc.georefTarget).toBe('site');
+      const junk = { ...META, ifc: { ...META.ifc, georefTarget: 'nowhere' } };
+      expect(parseDraft(text({ meta: junk })).meta.ifc.georefTarget).toBe('site');
+    });
+
+    /* The latch behind the match-global checkbox, not a placement of its own:
+       the base it produced is already in projectBase, so what has to survive is
+       whether the panel goes on holding it there as the marker moves. */
+    it('round-trips the matched project base', () => {
+      const meta = { ...META, projectBase: [652010, 6862020, 34], projectBaseFromGlobal: true };
+      const out = parseDraft(text({ meta })).meta;
+      expect(out.projectBaseFromGlobal).toBe(true);
+      expect(out.projectBase).toEqual([652010, 6862020, 34]);
+    });
+
+    /* A draft written before the field existed had its base typed by hand, and
+       false is exactly that. Not inferred by comparing the base against the
+       marker — the two can land on each other by accident. */
+    it('defaults the matched project base to off', () => {
+      const { projectBaseFromGlobal: _m, ...bare } = META;
+      expect(parseDraft(text({ meta: bare })).meta.projectBaseFromGlobal).toBe(false);
+      const junk = { ...META, projectBaseFromGlobal: 'yes' };
+      expect(parseDraft(text({ meta: junk })).meta.projectBaseFromGlobal).toBe(false);
     });
 
     it('repairs a poisoned tunable rather than rejecting the file', () => {

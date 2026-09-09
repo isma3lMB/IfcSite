@@ -161,6 +161,16 @@ The single stateful component. It owns:
   selection snapshot, undo/redo availability, gizmo mode, dock/info visibility, and
   `siteDirty` (the rectangle moved since the last build, so the scene — and the IFC behind
   Download — no longer describes it).
+- **`unsavedRef`** (a ref, since nothing renders from it): what is on screen exists nowhere
+  on disk — never saved, or edited since it was. A different question from `siteDirty`,
+  which is about the rectangle, and from `draftNameRef`, which is only a name and survives
+  the edits made after the save that set it. Raised by `touch()` — the one call that
+  replaced every bare `markDirty()`, so an edit cannot mark the IFC text stale without
+  also marking the last save stale — and by a build, which produces a document no draft
+  describes. Lowered by Save, Export draft and Open. `useUnloadGuard`
+  ([lib/ui/unload-guard.ts](lib/ui/unload-guard.ts)) reads it from a `beforeunload`
+  listener armed on `hasScene`, so a refresh or a closed tab asks before discarding the
+  work. Download does not lower it: an `.ifc` is the deliverable and does not reopen here.
 - **Two mount effects** that construct the `Viewer` and the `MapController` and wire their
   callbacks back into `setState`. The map arms drawing immediately: drawing is the first
   thing anyone does here.
@@ -737,7 +747,7 @@ fourth schema would be a row rather than a sweep:
 | --- | --- | --- | --- |
 | Meshes | `IfcFacetedBrep` / `IfcShellBasedSurfaceModel` | `IfcPolygonalFaceSet` | `IfcPolygonalFaceSet` |
 | Context layers | `IfcBuildingElementProxy` | `IfcGeographicElement` | `IfcGeographicElement` |
-| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on `IfcSite` | `IfcMapConversion` + `IfcProjectedCRS` | same, +`ScaleY`/`ScaleZ` (10 attributes, not 8) |
+| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on a chosen root | `IfcMapConversion` + `IfcProjectedCRS` | same, +`ScaleY`/`ScaleZ` (10 attributes, not 8) |
 | `OwnerHistory` | mandatory — one shared instance | omitted (optional) | omitted (optional) |
 | Styles | `IfcPresentationStyleAssignment` wrapper | `IfcSurfaceStyle` directly | `IfcSurfaceStyle` directly |
 | Vegetation | `USERDEFINED` + `ObjectType` | `USERDEFINED` + `ObjectType` | **`.VEGETATION.`** |
@@ -779,12 +789,19 @@ flowchart LR
 That combination is **LoGeoRef 50** — the model sits at a local origin and the projected
 easting/northing of that origin travels in `IfcMapConversion`.
 
-IFC2X3 has neither entity, so the same six numbers go onto `IfcSite` as `ePset_MapConversion`
-and `ePset_ProjectedCRS` — the convention the buildingSMART georeferencing guidance defines
-for exactly this. A reader that knows it recovers the full placement; one that does not
-still has `IfcSite.RefLatitude`/`RefLongitude`/`RefElevation` below, which is **LoGeoRef 30**
-and is written identically on all three schemas. The arithmetic is computed once and shared
-by both branches, so they cannot disagree.
+IFC2X3 has neither entity, so the same six numbers go out as `ePset_MapConversion` and
+`ePset_ProjectedCRS` — the convention the buildingSMART georeferencing guidance defines for
+exactly this. A reader that knows it recovers the full placement; one that does not still
+has `IfcSite.RefLatitude`/`RefLongitude`/`RefElevation` below, which is **LoGeoRef 30** and
+is written identically on all three schemas. The arithmetic is computed once and shared by
+both branches, so they cannot disagree.
+
+Which root the two property sets hang off is a setting — `IfcMeta.georefTarget`, offered as a
+radio in the IFC panel and only under IFC2X3. The convention settles the names and not the
+host, and readers disagree about where they look, so the choice is `IfcSite` (the default,
+and what the guidance names), `IfcProject`, or both. "Both" costs one extra
+`IfcRelDefinesByProperties` rather than a second copy of each set:
+`RelatedObjects` is a SET, and `ContextModel.pset()` takes a list for exactly this.
 
 `VerticalDatum` follows the **elevation source**, not the horizontal grid: NGF-IGN69 for
 RGE ALTI, EGM96 for Terrarium (the datum of its dominant source — the tiles are a mosaic,

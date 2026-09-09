@@ -116,6 +116,12 @@ export const en = {
   'ifc.schema4x3': 'IFC4X3 — infrastructure',
   'ifc.schemaBrepHint':
     'IFC2X3 has no tessellation, so terrain, roads and trees export as boundary representation — the same model, in a file several times the size.',
+  'ifc.georefTarget': 'Georeferencing psets on',
+  'ifc.georefSite': 'IfcSite',
+  'ifc.georefProject': 'IfcProject',
+  'ifc.georefBoth': 'Both',
+  'ifc.georefTargetHint':
+    'IFC2X3 has no IfcMapConversion, so the placement goes out as ePset_MapConversion and ePset_ProjectedCRS. IfcSite is what the buildingSMART guidance names; some readers look at IfcProject instead.',
   'ifc.project': 'Project',
   'ifc.projectName': 'Name',
   'ifc.projectLongName': 'Long name',
@@ -277,6 +283,9 @@ export const en = {
     'The point the exported IFC calls (0, 0, 0). Moving it re-bases the file without moving anything on the ground.',
   'ed.projectPlacement': 'Local project placement',
   'ed.projectCoords': 'Coordinates of this point (m)',
+  'ed.matchGlobal': 'Match the global position above',
+  'ed.matchGlobalWarn':
+    'This is not how an IFC should be georeferenced. Copying the map coordinates into the project placement cancels the map conversion to zero, so the file no longer declares where it sits, and every coordinate in it carries six or seven digits before the decimal — precision most viewers quietly lose. Leave these at 0 unless a downstream tool insists on it.',
   'ed.projectAngle': 'Angle — °counter-clockwise from grid east',
   'ed.resetPlacement': 'Reset placement',
   'ed.projectHint':

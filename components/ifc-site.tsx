@@ -68,6 +68,7 @@ import type {
   Vec3,
   ViewTab,
 } from '@/lib/types';
+import { useUnloadGuard } from '@/lib/ui/unload-guard';
 import { paint } from '@/lib/ui/yield';
 import { MapController } from '@/lib/viewer/MapController';
 import {
@@ -88,6 +89,21 @@ const originLabelOf = (m: SiteMeta): string =>
   `${m.epsg}  E ${(m.origin[0] + m.exportOffset[0]).toFixed(1)}  N ${(
     m.origin[1] + m.exportOffset[1]
   ).toFixed(1)}`;
+
+/**
+ * That same point as a project base — the number the editor's match-global
+ * checkbox copies across.
+ *
+ * The very sum originLabelOf makes, and the one the editor's global position row
+ * makes for the display: origin plus marker for easting and northing, and the
+ * marker's own Z, which is already local. Written once here so the three cannot
+ * drift into disagreeing about what "the global position" is.
+ */
+const globalBaseOf = (m: SiteMeta): Vec3 => [
+  m.origin[0] + m.exportOffset[0],
+  m.origin[1] + m.exportOffset[1],
+  m.exportOffset[2],
+];
 
 /**
  * What to call the document when nobody has saved it under a name yet.
@@ -164,6 +180,13 @@ export function IfcSite() {
   /** The name this document was last saved or opened under; seeds the Save
    *  field, and null after a rebuild because that is a new document. */
   const draftNameRef = useRef<string | null>(null);
+  /** Whether what is on screen exists nowhere on disk — never saved at all, or
+   *  edited since it was. Not draftNameRef, which is only a name and survives
+   *  every edit made after the save that set it; and not siteDirty, which asks
+   *  about the rectangle rather than about the document. A ref because nothing
+   *  renders from it: the one reader is the unload guard at the end of this
+   *  component, and it only asks while the page is being torn down. */
+  const unsavedRef = useRef(false);
   /** Deferred until the map tab is actually laid out; see runOnMap. */
   const pendingMapAction = useRef<(() => void) | null>(null);
   /** Mirrors infoOpen for the mount-only key handler, which would otherwise
@@ -281,6 +304,13 @@ export function IfcSite() {
      records gestures. Angle is degrees, counter-clockwise from grid east. */
   const [projectBase, setProjectBase] = useState<Vec3>([0, 0, 0]);
   const [projectAngle, setProjectAngle] = useState(0);
+  /** Whether that base is being held equal to the origin marker's global
+      position rather than typed. The ref is what the mount-only onOrigin below
+      reads — the same pairing setInfo and openConfirm make — and the state is
+      what renders the checkbox. They are only ever written together, in
+      writePlacement. */
+  const [matchGlobal, setMatchGlobal] = useState(false);
+  const matchGlobalRef = useRef(false);
   const [infoOpen, setInfoOpen] = useState(false);
   /* Footprint authoring. The tool and the corner count are the viewer's to
      report — it cancels gestures on its own — so these follow onDraw rather
@@ -307,6 +337,16 @@ export function IfcSite() {
       and a rectangle nudged fifty metres must not overrule it. */
   const epsgPickedRef = useRef(false);
 
+  /** An edit worth keeping, wherever it came from: the IFC text behind Download
+   *  is stale, and so is the last save. The two have always travelled together —
+   *  every call that used to be a bare markDirty() was already a statement that
+   *  the document had changed — so they are one call now rather than a rule to
+   *  remember at each site. */
+  const touch = useCallback(() => {
+    emitterRef.current?.markDirty();
+    unsavedRef.current = true;
+  }, []);
+
   /* ---- viewer ---------------------------------------------------------- */
   useEffect(() => {
     if (!viewportRef.current) return;
@@ -318,7 +358,7 @@ export function IfcSite() {
         setCanRedo(r);
       },
       onStatus: (key, params) => setStatus({ kind: 'msg', key, params }),
-      onDirty: () => emitterRef.current?.markDirty(),
+      onDirty: touch,
       // The emitter holds this same meta object, so writing the offset into it is
       // all the *content* the export needs — but it still has to be told to write
       // the file again, and it cannot rely on the viewer's own onDirty for that:
@@ -331,7 +371,13 @@ export function IfcSite() {
         if (!m) return;
         m.exportOffset = off;
         setOriginLabel(originLabelOf(m));
-        emitterRef.current?.markDirty();
+        // Every way the marker can move arrives here — the gizmo, a typed axis,
+        // resetOrigin, restoreOrigin — so this is the one place the matched base
+        // has to follow it. m.projectAngle rather than the state: this closure is
+        // mount-only and would hold the angle the page opened with, while the
+        // meta copy writePlacement keeps is always current.
+        if (matchGlobalRef.current) writePlacement(globalBaseOf(m), m.projectAngle, true);
+        touch();
       },
       onMode: setGizmoMode,
       onCount: setBuildings,
@@ -734,15 +780,29 @@ export function IfcSite() {
   /* The emitter holds the very same meta object, so writing through to it and
      marking dirty is the whole path to the download — the same trick the origin
      marker's onOrigin uses. No viewer call: nothing on screen changes. */
-  const writePlacement = useCallback((base: Vec3, angle: number) => {
+  const writePlacement = useCallback((base: Vec3, angle: number, fromGlobal: boolean) => {
     setProjectBase(base);
     setProjectAngle(angle);
+    setMatchGlobal(fromGlobal);
+    matchGlobalRef.current = fromGlobal;
     const m = metaRef.current;
     if (!m) return;
     m.projectBase = base;
     m.projectAngle = angle;
-    emitterRef.current?.markDirty();
-  }, []);
+    m.projectBaseFromGlobal = fromGlobal;
+    touch();
+  }, [touch]);
+
+  /* Fill the project coordinates from the global position above and keep them
+     there, or let them go back to zero. Nothing else in the panel is a shortcut
+     to a worse file, which is why the editor puts a warning under it — see
+     ed.matchGlobalWarn, and the eastings this cancels in lib/ifc/writer. The
+     angle is a separate decision and is carried through untouched. */
+  const onMatchGlobal = useCallback((v: boolean) => {
+    const m = metaRef.current;
+    if (!m) return;
+    writePlacement(v ? globalBaseOf(m) : [0, 0, 0], m.projectAngle, v);
+  }, [writePlacement]);
 
   /* The same write-through as writePlacement above, and for the same reason: the
      emitter holds this very meta object, so putting the patch into it and marking
@@ -751,15 +811,15 @@ export function IfcSite() {
      viewer call here either. The ref keeps runBuildNow's stamp in step. */
   const onIfc = useCallback((patch: Partial<IfcMeta>) => {
     // Off the ref rather than inside a setIfc updater: the write-through and the
-    // markDirty are side effects, and an updater is called more than once.
+    // touch are side effects, and an updater is called more than once.
     const next = { ...ifcRef.current, ...patch };
     ifcRef.current = next;
     setIfc(next);
     const m = metaRef.current;
     if (!m) return;
     m.ifc = next;
-    emitterRef.current?.markDirty();
-  }, []);
+    touch();
+  }, [touch]);
 
   const onResetIfc = useCallback(() => onIfc(newIfcMeta()), [onIfc]);
 
@@ -768,20 +828,25 @@ export function IfcSite() {
       if (!Number.isFinite(v)) return;
       const next = [...projectBase] as Vec3;
       next[i] = v;
-      writePlacement(next, projectAngle);
+      // False, not the current latch: typing into these fields is what a matched
+      // base is not. Unreachable while it is on — the editor shows them dead —
+      // but a typed coordinate must never be reported as one that was copied.
+      writePlacement(next, projectAngle, false);
     },
     [projectBase, projectAngle, writePlacement],
   );
 
   const onProjectAngle = useCallback(
     (v: number) => {
-      if (Number.isFinite(v)) writePlacement(projectBase, v);
+      // The latch carried through, not cleared: the angle is turned independently
+      // of where the base came from, and stays live while the base is matched.
+      if (Number.isFinite(v)) writePlacement(projectBase, v, matchGlobal);
     },
-    [projectBase, writePlacement],
+    [matchGlobal, projectBase, writePlacement],
   );
 
   const onResetPlacement = useCallback(
-    () => writePlacement([0, 0, 0], 0),
+    () => writePlacement([0, 0, 0], 0, false),
     [writePlacement],
   );
 
@@ -970,6 +1035,15 @@ export function IfcSite() {
     };
   }, [rect, form.provider]);
 
+  /* ---- leaving ----------------------------------------------------------
+     Armed on hasScene rather than on the flag itself: the flag is a ref, so it
+     changes nothing on screen and could not re-run an effect anyway, and there
+     is nothing to lose before the first build — a rectangle is seconds of work
+     and redrawing one is not what the browser's dialog is for. See the hook for
+     why the wording is not ours to write. */
+  const isUnsaved = useCallback(() => unsavedRef.current, []);
+  useUnloadGuard(hasScene, isUnsaved);
+
   /* ---- form ------------------------------------------------------------ */
   const onFormChange = useCallback((patch: FormPatch) => {
     // A CRS in a patch came from the field, which only the user touches — the
@@ -1078,14 +1152,21 @@ export function IfcSite() {
     siteRef.current = res.site;
     crsDefRef.current = res.crsDef;
     // A rebuild fetches into a brand-new scene, so it is a new document rather
-    // than a new version of the one that was open.
+    // than a new version of the one that was open — and therefore a document no
+    // draft on disk describes, however recently the last one was saved.
     draftNameRef.current = null;
+    unsavedRef.current = true;
     setBuildings(res.summary.buildings);
     setOriginLabel(originLabelOf(res.meta));
     // A rebuild re-derives the site, so a placement measured against the old one
     // means nothing. res.meta already carries the zeroes; this just follows it.
     setProjectBase([0, 0, 0]);
     setProjectAngle(0);
+    // The latch goes with the placement it belonged to, and the ref with it: the
+    // setScene below moves the marker, and a latch left standing would take that
+    // as its cue to copy the new site's coordinates into a base nobody asked for.
+    setMatchGlobal(false);
+    matchGlobalRef.current = false;
     // Seed the footprint height from the dock rather than tracking it live: the
     // build is the moment that setting was last the user's stated intent, and
     // following it afterwards would overwrite a height typed into the draw HUD.
@@ -1210,6 +1291,10 @@ export function IfcSite() {
         // against, so they still mean what they meant.
         setProjectBase(d.meta.projectBase);
         setProjectAngle(d.meta.projectAngle);
+        // And the latch with them, or a reopened draft would show its copied
+        // coordinates as typed ones and stop following the marker.
+        setMatchGlobal(d.meta.projectBaseFromGlobal);
+        matchGlobalRef.current = d.meta.projectBaseFromGlobal;
         // Likewise from the draft: the file's own settings were saved with it,
         // and the panel has to show what the reopened document actually says.
         setIfc(d.meta.ifc);
@@ -1237,6 +1322,10 @@ export function IfcSite() {
         laterOnMap((m) => m.fitBounds(d.rect));
 
         draftNameRef.current = d.name;
+        // Last, and after every restore above: this scene came off a disk and
+        // has not been touched since. Some of those restores route through
+        // onOrigin, which touches — so an earlier clear would not survive.
+        unsavedRef.current = false;
       } catch (e) {
         setOpening(false);
         setStatus({ kind: 'error', error: e instanceof Error ? e : new Error(String(e)) });
@@ -1293,6 +1382,10 @@ export function IfcSite() {
     const file = `${safeFileStem(name, 'site')}${DRAFT_EXT}`;
     downloadText(file, draftToText(d), DRAFT_MIME);
     draftNameRef.current = name;
+    // A written draft is a durable copy, the same as a slot. Note Download does
+    // not do this: an .ifc is the deliverable and does not reopen here, so it
+    // saves nothing this page could restore.
+    unsavedRef.current = false;
     setStatus({ kind: 'msg', key: 'status.draftExported', params: { file } });
   }, [collectDraft]);
 
@@ -1349,7 +1442,10 @@ export function IfcSite() {
       } catch (e) {
         return failStatus(e);
       }
+      // Past the failStatus above, so a store that refused still counts as
+      // unsaved — the whole point of the flag is that it not lie about that.
       draftNameRef.current = name;
+      unsavedRef.current = false;
       refreshSlots();
       setStatus({ kind: 'msg', key: 'status.draftSaved', params: { name } });
     },
@@ -1391,7 +1487,12 @@ export function IfcSite() {
       } catch (e) {
         return failStatus(e);
       }
-      if (draftNameRef.current === name) draftNameRef.current = null;
+      // Deleting the slot this document was saved as puts it back to being
+      // nowhere on disk, unedited or not.
+      if (draftNameRef.current === name) {
+        draftNameRef.current = null;
+        unsavedRef.current = true;
+      }
       refreshSlots();
       setStatus({ kind: 'msg', key: 'status.draftDeleted', params: { name } });
     },
@@ -1612,6 +1713,8 @@ export function IfcSite() {
           siteMeta={m}
           projectBase={projectBase}
           projectAngle={projectAngle}
+          matchGlobal={matchGlobal}
+          onMatchGlobal={onMatchGlobal}
           onProjectBase={onProjectBase}
           onProjectAngle={onProjectAngle}
           onResetPlacement={onResetPlacement}

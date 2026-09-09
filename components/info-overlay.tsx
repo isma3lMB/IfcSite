@@ -79,7 +79,7 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
         </div>
 
         {/* The head stays outside the scroller so the close button is always
-            reachable — and so the h1's box-shadow "border" is not clipped by an
+            reachable — and so the h1's dashed border is not clipped by an
             overflow ancestor. Only the prose below scrolls. */}
         <div className="infoBody">
           <Notes />

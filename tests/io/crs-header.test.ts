@@ -12,6 +12,7 @@ import { emptyScene, newIfcMeta, type SiteMeta } from '@/lib/types';
  */
 const meta = (over: Partial<SiteMeta>): SiteMeta => ({
   origin: [0, 0], exportOffset: [0, 0, 0], projectBase: [0, 0, 0], projectAngle: 0,
+  projectBaseFromGlobal: false,
   lat: 41.3874, lon: 2.1686,
   epsg: 'EPSG:25831', crsName: 'ETRS89 / UTM zone 31N', geodeticDatum: 'ETRS89',
   verticalDatum: null, verticalDatumEpsg: null,
@@ -61,5 +62,143 @@ describe('IfcProjectedCRS', () => {
     }));
     expect(text).toContain("IFCPROPERTYSINGLEVALUE('VerticalDatum',$,IFCLABEL('EPSG:5773')");
     expect(text).toContain("IFCPROPERTYSINGLEVALUE('Name',$,IFCLABEL('EPSG:25831')");
+  });
+});
+
+/* -------------------------------------------------------------------------
+   Which root the IFC2X3 property sets land on.
+
+   The convention settles the two names and not the host, and readers disagree
+   about where they look — so the target is a setting, and these are the three
+   answers it can give. Read off the relationship rather than off the pset: the
+   properties are identical in all three cases, and the only thing that moves is
+   RelatedObjects.
+   ------------------------------------------------------------------------- */
+
+/**
+ * What the match-global checkbox actually costs the file.
+ *
+ * Copying the marker's global position into projectBase is offered in the editor
+ * because people ask for it, and warned about in the same breath — see
+ * ed.matchGlobalWarn. This is the warning stated as an assertion: the map
+ * conversion the writer derives by subtracting the base from the global position
+ * collapses to an identity, so the file stops declaring where it is and the
+ * coordinates it does carry are all seven digits wide.
+ */
+describe('a project base matched to the global position', () => {
+  const ORIGIN: [number, number] = [430000, 4580000];
+  const OFF: [number, number, number] = [12, -34, 56];
+  const placed = (over: Partial<SiteMeta> = {}): SiteMeta =>
+    meta({ origin: ORIGIN, exportOffset: OFF, ...over });
+  const matched = (over: Partial<SiteMeta> = {}): SiteMeta =>
+    placed({
+      projectBase: [ORIGIN[0] + OFF[0], ORIGIN[1] + OFF[1], OFF[2]],
+      projectBaseFromGlobal: true,
+      ...over,
+    });
+
+  /* The baseline the warning is measured against: left at zero, the conversion
+     carries the whole offset, which is the point of having one. */
+  it('carries the real offset while the base is left at zero', () => {
+    const { text } = emitIFC(emptyScene(), placed());
+    expect(text).toContain('IFCMAPCONVERSION(#10,#16,430012.,4579966.,56.,');
+  });
+
+  it('cancels IfcMapConversion to an identity', () => {
+    const { text } = emitIFC(emptyScene(), matched());
+    expect(text).toContain('IFCMAPCONVERSION(#10,#18,0.,0.,0.,');
+  });
+
+  /* The IFC2X3 path stands in the same relation to the base, so it zeroes too —
+     otherwise the warning would be true of one schema and not the other. */
+  it('zeroes the IFC2X3 property set the same way', () => {
+    const { text } = emitIFC(
+      emptyScene(),
+      matched({ ifc: { ...newIfcMeta(), schema: 'IFC2X3' } }),
+    );
+    for (const key of ['Eastings', 'Northings', 'OrthogonalHeight']) {
+      expect(text).toContain(`IFCPROPERTYSINGLEVALUE('${key}',$,IFCREAL(0.),$)`);
+    }
+  });
+
+  /* The latch is the editor's, not the writer's: what reaches the file is the
+     base, however it got there. A file written with the box ticked and one
+     written by typing the same six digits are the same file — GUIDs aside,
+     which are freshly generated on every emit and belong to no input. */
+  it('is written from the base alone, not from the latch', () => {
+    const bare = (m: SiteMeta): string =>
+      emitIFC(emptyScene(), m).text.replace(/'[0-9A-Za-z_$]{22}'/g, "'#'");
+    expect(bare(matched({ projectBaseFromGlobal: false }))).toBe(bare(matched()));
+  });
+});
+
+const x3 = (georefTarget: 'site' | 'project' | 'both'): string =>
+  emitIFC(emptyScene(), meta({ ifc: { ...newIfcMeta(), schema: 'IFC2X3', georefTarget } })).text;
+
+/** The `#n` of the file's one IFCPROJECT or IFCSITE. `=IFCPROJECT(` with the
+ *  paren, so IFCPROJECTEDCRS cannot answer for it. */
+const ref = (text: string, type: 'IFCPROJECT' | 'IFCSITE'): string => {
+  const line = text.split('\n').find((l) => l.includes(`=${type}(`));
+  expect(line, `the file has one ${type}`).toBeTruthy();
+  return (line as string).slice(0, (line as string).indexOf('='));
+};
+
+/** The RelatedObjects of the relationship attaching the named property set,
+ *  as entity refs. */
+const hosts = (text: string, name: string): string[] => {
+  const lines = text.split('\n');
+  const ps = lines.find((l) => l.includes('=IFCPROPERTYSET(') && l.includes(`'${name}'`));
+  expect(ps, `${name} is in the file`).toBeTruthy();
+  const id = (ps as string).slice(0, (ps as string).indexOf('='));
+  const rel = lines.find(
+    (l) => l.includes('=IFCRELDEFINESBYPROPERTIES(') && l.endsWith(`,${id});`),
+  );
+  expect(rel, `${name} is attached to something`).toBeTruthy();
+  const m = (rel as string).match(/,\((#[\d,#]*)\),#\d+\);$/);
+  expect(m, `${name}'s relationship lists RelatedObjects`).toBeTruthy();
+  return (m as RegExpMatchArray)[1].split(',');
+};
+
+describe('the IFC2X3 georeferencing target', () => {
+  /* The default, and what the writer did before there was anything to choose. */
+  it('puts both property sets on IfcSite by default', () => {
+    const text = x3('site');
+    const site = ref(text, 'IFCSITE');
+    expect(hosts(text, 'ePset_ProjectedCRS')).toEqual([site]);
+    expect(hosts(text, 'ePset_MapConversion')).toEqual([site]);
+  });
+
+  it('moves both to IfcProject when asked', () => {
+    const text = x3('project');
+    const project = ref(text, 'IFCPROJECT');
+    expect(hosts(text, 'ePset_ProjectedCRS')).toEqual([project]);
+    expect(hosts(text, 'ePset_MapConversion')).toEqual([project]);
+  });
+
+  /* One property set on two roots, not two copies of it: RelatedObjects is a
+     SET, which is the whole reason "both" costs a relationship and not a file. */
+  it('lists both roots on one relationship each for "both"', () => {
+    const text = x3('both');
+    const both = [ref(text, 'IFCSITE'), ref(text, 'IFCPROJECT')];
+    expect(hosts(text, 'ePset_ProjectedCRS')).toEqual(both);
+    expect(hosts(text, 'ePset_MapConversion')).toEqual(both);
+    for (const name of ['ePset_ProjectedCRS', 'ePset_MapConversion']) {
+      const sets = text
+        .split('\n')
+        .filter((l) => l.includes('=IFCPROPERTYSET(') && l.includes(`'${name}'`));
+      expect(sets).toHaveLength(1);
+    }
+  });
+
+  /* IFC4 has IfcMapConversion, which names its own source context — the setting
+     is not consulted, and no ePset_ is written whatever it says. */
+  it('is ignored under a schema that has IfcMapConversion', () => {
+    const { text } = emitIFC(
+      emptyScene(),
+      meta({ ifc: { ...newIfcMeta(), schema: 'IFC4', georefTarget: 'project' } }),
+    );
+    expect(text).toContain('IFCMAPCONVERSION(');
+    expect(text).not.toContain('ePset_MapConversion');
+    expect(text).not.toContain('ePset_ProjectedCRS');
   });
 });

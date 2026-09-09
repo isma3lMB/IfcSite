@@ -183,6 +183,7 @@ export async function runBuild(
     exportOffset: [0, 0, scene.datumZ ?? 0],
     projectBase: [0, 0, 0],
     projectAngle: 0,
+    projectBaseFromGlobal: false,
     lat,
     lon,
     epsg: crs.epsg,
