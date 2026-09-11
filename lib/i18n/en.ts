@@ -86,7 +86,7 @@ export const en = {
   /* ---- status bar: the one place anything is stated ---- */
   'bar.site': 'Site',
   'bar.origin': 'Origin',
-  'bar.rebuild': 'Rebuild model',
+  'bar.rebuild': 'Rebuild',
   'bar.stale': 'Site moved since the last build — rebuild before exporting.',
   'bar.presenting': 'Presentation — press Esc to exit.',
   'bar.drawHeight': 'H (m)',
@@ -112,9 +112,9 @@ export const en = {
   'ifc.lead':
     'What the file says about itself. None of it is rebuilt — the model on screen is re-serialised as you type.',
   'ifc.schema': 'IFC schema',
-  'ifc.schema2x3': 'IFC2X3 — older readers',
+  'ifc.schema2x3': 'IFC2X3',
   'ifc.schema4': 'IFC4 — default',
-  'ifc.schema4x3': 'IFC4X3 — infrastructure',
+  'ifc.schema4x3': 'IFC4X3',
   'ifc.schemaBrepHint':
     'IFC2X3 has no tessellation, so terrain, roads and trees export as boundary representation — the same model, in a file several times the size.',
   'ifc.georefTarget': 'Georeferencing psets on',

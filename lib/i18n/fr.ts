@@ -82,7 +82,7 @@ export const fr: Dict = {
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
   'bar.site': 'Site',
   'bar.origin': 'Origine',
-  'bar.rebuild': 'Reconstruire la maquette',
+  'bar.rebuild': 'Reconstruire',
   'bar.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
   'bar.presenting': 'Présentation — Échap pour quitter.',
   'bar.drawHeight': 'H (m)',
@@ -109,9 +109,9 @@ export const fr: Dict = {
   'ifc.lead':
     'Ce que le fichier dit de lui-même. Rien n’est reconstruit : le modèle à l’écran est ré-sérialisé au fil de la saisie.',
   'ifc.schema': 'Schéma IFC',
-  'ifc.schema2x3': 'IFC2X3 — lecteurs anciens',
+  'ifc.schema2x3': 'IFC2X3',
   'ifc.schema4': 'IFC4 — par défaut',
-  'ifc.schema4x3': 'IFC4X3 — infrastructure',
+  'ifc.schema4x3': 'IFC4X3',
   'ifc.schemaBrepHint':
     'IFC2X3 ne connaît pas la tessellation : le terrain, les voiries et les arbres sont exportés en représentation par frontières — le même modèle, dans un fichier plusieurs fois plus lourd.',
   'ifc.georefTarget': 'Psets de géoréférencement sur',
