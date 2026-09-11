@@ -919,7 +919,13 @@ export class ContextModel {
   // user's edits. X/Y scale is baked into the profile and Z scale into the
   // extrusion depth; position and rotation ride on the placement. three.js
   // composes M = T·R·S, so this is exactly the transform the preview shows.
-  addBuilding(b: Building): Ref | null {
+  //
+  // `plinth` is how far below its base the building reaches, in metres — non-zero
+  // only for one set to cut the terrain, whose base drops to the lowest ground
+  // under it (plinthOf in lib/scene/cut). The wall solid starts that far down and
+  // is that much deeper, so the roof stays exactly where it was and the element
+  // is still one SweptSolid over the same profile.
+  addBuilding(b: Building, plinth = 0): Ref | null {
     const f = this.f;
     const xf = b.xf;
     const [sx, sy, sz] = xf.scale;
@@ -941,7 +947,13 @@ export class ContextModel {
     // to z-fight. A brep would have cost all of that on the most numerous
     // element in the file, to say one colour.
     const capD = wall === cap ? 0 : Math.min(0.3, depth * 0.1);
-    const solid = f.add('IfcExtrudedAreaSolid', [prof, this.world, this.dz, R(depth - capD)]);
+    // The shared world axes when there is no plinth, so every building that does
+    // not cut the ground is written exactly as it was before the option existed.
+    const drop = plinth > 0 ? plinth : 0;
+    const solidAt = drop
+      ? f.add('IfcAxis2Placement3D', [f.add('IfcCartesianPoint', [[R(0), R(0), R(-drop)]]), null, null])
+      : this.world;
+    const solid = f.add('IfcExtrudedAreaSolid', [prof, solidAt, this.dz, R(depth - capD + drop)]);
     const capSolid = capD
       ? f.add('IfcExtrudedAreaSolid', [
           prof,

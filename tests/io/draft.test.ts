@@ -362,4 +362,117 @@ describe('parseDraft', () => {
       }
     });
   });
+
+  /* Shapes drawn in the 3D view are hand-made work, the one kind a rebuild
+     cannot bring back, so a draft is the only thing that can. */
+  describe('drawn shapes and voids', () => {
+    const drawnRoad = {
+      verts: [
+        [0, 0, 1],
+        [10, 0, 1],
+        [10, 5, 1],
+      ],
+      faces: [[0, 1, 2]],
+      name: 'Drawn road 1',
+      type: 'USERDEFINED',
+      layer: 'roads',
+      props: { Source: 'drawn' },
+      id: 'drawn-roads-1',
+      src: 'user',
+    };
+    const hole = {
+      id: 'drawn-void-1',
+      name: 'Terrain void 1',
+      ring: [
+        [0, 0],
+        [4, 0],
+        [4, 4],
+        [0, 4],
+      ],
+      xf: { pos: [3, -2, 0], rot: [0, 0, 0.5], scale: [1, 1, 1], color: null, opacity: 1 },
+    };
+
+    it('round-trips a drawn surface with its id, its origin and the roads tier', () => {
+      const scene = { ...draft().scene, surfaces: [drawnRoad] };
+      const [s] = parseDraft(text({ scene })).scene.surfaces;
+      expect(s.id).toBe('drawn-roads-1');
+      expect(s.src).toBe('user');
+      expect(s.layer).toBe('roads');
+    });
+
+    /* A fetched surface never had either field, and must not come back with
+       one invented — src on a fetched layer would count it as drawn work and
+       strip its licence credit from the export. */
+    it('leaves a fetched surface without an id or a src', () => {
+      const { id: _i, src: _s, ...fetched } = drawnRoad;
+      const [s] = parseDraft(text({ scene: { ...draft().scene, surfaces: [fetched] } })).scene
+        .surfaces;
+      expect(s.id).toBeUndefined();
+      expect(s.src).toBeUndefined();
+    });
+
+    it('round-trips a void, moved', () => {
+      const scene = { ...draft().scene, voids: [hole] };
+      expect(parseDraft(text({ scene })).scene.voids).toEqual([hole]);
+    });
+
+    /* A void written before shapes could move carries no xf, and reads as one
+       that has not been moved. */
+    it('reads a void without a move as unmoved', () => {
+      const { xf: _x, ...still } = hole;
+      const [v] = parseDraft(text({ scene: { ...draft().scene, voids: [still] } })).scene.voids;
+      expect(v.xf.pos).toEqual([0, 0, 0]);
+      expect(v.xf.rot).toEqual([0, 0, 0]);
+    });
+
+    /* The recipe is what a moved surface is rebuilt from; losing it would leave
+       a shape that jumps back to where it was drawn on its next drag. */
+    it('round-trips the recipe a drawn surface moves by', () => {
+      const drawn = {
+        ring: [
+          [0, 0],
+          [10, 0],
+          [10, 5],
+        ],
+        drape: false,
+        roofZ: 31.5,
+        xf: { pos: [4, 1, 0], rot: [0, 0, 1.2], scale: [1, 1, 1], color: null, opacity: 1 },
+      };
+      const scene = { ...draft().scene, surfaces: [{ ...drawnRoad, drawn }] };
+      expect(parseDraft(text({ scene })).scene.surfaces[0].drawn).toEqual(drawn);
+    });
+
+    /* On the Xf beside colour, and written only when set — so a building that
+       never cut reads back exactly as it was saved. */
+    it('round-trips a building set to cut the terrain, and leaves the rest without the flag', () => {
+      const ring = [
+        [-5, -5],
+        [5, -5],
+        [5, 5],
+        [-5, 5],
+      ];
+      const base = { name: 'B', props: {}, ring, center: [0, 0], h: 9, baseZ: 0, src: 'user' };
+      const xf = { pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], color: null, opacity: 1 };
+      const scene = {
+        ...draft().scene,
+        buildings: [
+          { ...base, id: 'cut', xf: { ...xf, cut: true } },
+          { ...base, id: 'plain', xf },
+        ],
+      };
+      const [cut, plain] = parseDraft(text({ scene })).scene.buildings;
+      expect(cut.xf.cut).toBe(true);
+      expect('cut' in plain.xf).toBe(false);
+    });
+
+    /* A void is only its ring, so one without a usable ring is nothing — and
+       a draft written before voids existed simply has none. */
+    it('drops a void with fewer than three corners, and reads a missing list as empty', () => {
+      const bad = { ...hole, ring: [[0, 0], [4, 0]] };
+      const scene = { ...draft().scene, voids: [bad, 'junk', hole] };
+      expect(parseDraft(text({ scene })).scene.voids).toEqual([hole]);
+      const { voids: _v, ...older } = draft().scene;
+      expect(parseDraft(text({ scene: older })).scene.voids).toEqual([]);
+    });
+  });
 });

@@ -141,6 +141,27 @@ describe('ePset_License', () => {
     expect(covered(text, 'OpenStreetMap')).toHaveLength(1);
   });
 
+  /* A water surface drawn in the 3D view is the same kind of element as a
+     BD TOPO lake, and must not be credited to BD TOPO because it is one. */
+  it('leaves a hand-drawn surface uncredited beside a fetched one of its layer', () => {
+    const s = sceneWith(0);
+    const tri = {
+      verts: [
+        [0, 0, 0],
+        [10, 0, 0],
+        [0, 10, 0],
+      ] as [number, number, number][],
+      faces: [[0, 1, 2]],
+      type: 'WATER',
+      layer: 'water' as const,
+    };
+    s.surfaces.push({ ...tri, name: 'Lake' });
+    s.surfaces.push({ ...tri, name: 'Drawn water 1', id: 'drawn-water-1', src: 'user' });
+    const { text } = emitIFC(s, meta({ provider: 'ign' }));
+    expect((text.match(/IFCGEOGRAPHICELEMENT\(/g) ?? [])).toHaveLength(2);
+    expect(covered(text, 'IGN BD TOPO®')).toHaveLength(1);
+  });
+
   /* One relationship per source, not per element. RelatedObjects is a SET in
      every schema this writes, and saying the same sentence once per building
      would cost thousands of entities on a real site. */

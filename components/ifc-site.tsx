@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BrandChip } from '@/components/brand-chip';
 import { ConfirmCard } from '@/components/confirm-card';
 import { ControlsPanel } from '@/components/controls-panel';
+import { DrawPanel } from '@/components/draw-panel';
 import { type AxisKey, ElementEditor } from '@/components/element-editor';
 import { FileFlyout } from '@/components/file-flyout';
 import { InfoOverlay } from '@/components/info-overlay';
@@ -28,6 +29,7 @@ import {
 } from '@/lib/build/tunables';
 import { EPSG_CHOICES } from '@/lib/geo/crs';
 import { bestAt, loadEpsgIndex } from '@/lib/geo/epsg';
+import { toGeoOf } from '@/lib/geo/inverse';
 import { rectCentre } from '@/lib/geo/rect';
 import { useT } from '@/lib/i18n/context';
 import {
@@ -56,6 +58,7 @@ import type { Place } from '@/lib/sources/nominatim';
 import { defaultProjectName, newIfcMeta } from '@/lib/types';
 import type {
   BuildOptions,
+  DrawLayer,
   FormPatch,
   GizmoMode,
   IfcMeta,
@@ -321,6 +324,14 @@ export function IfcSite() {
   const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
   const [drawPoints, setDrawPoints] = useState(0);
   const [drawHeight, setDrawHeight] = useState(DEFAULT_FORM.defaultHeight);
+  /* What the rectangle and polygon tools make, and whether a ground-lying shape
+     follows the terrain. Both are the draw panel's, and survive a rebuild — they
+     are how the user draws, not facts about the site. */
+  const [drawLayer, setDrawLayer] = useState<DrawLayer>('building');
+  const [drawDrape, setDrawDrape] = useState(true);
+  /** Whether the scene on screen has a terrain mesh. The panel reads it to take
+      Drape and Void away where there is no ground to drape onto or hole. */
+  const [hasTerrain, setHasTerrain] = useState(false);
   /** How many measurements the viewer is holding. Reported the same way the
       corner count is, and for the same reason: the viewer drops them on a
       rebuild without being asked. */
@@ -463,13 +474,25 @@ export function IfcSite() {
      across 860 kept whichever inset it happened to have until the next click,
      with the widget either overlapped by the editor or floating inboard of it.
      The listener costs nothing on a desktop that never crosses the threshold. */
+  /* The tool the draw panel speaks for, or null when it is down. The measure
+     tools take no options, and the element editor keeps the corner whenever
+     there is a selection — see the render below. */
+  const panelTool =
+    view === '3d' &&
+    hasScene &&
+    !selection &&
+    (drawTool === 'rect' || drawTool === 'polygon' || drawTool === 'tree')
+      ? drawTool
+      : null;
+  const cornerTaken = selection !== null || panelTool !== null;
+
   useEffect(() => {
     const apply = () =>
-      viewerRef.current?.setRightInset(selection && window.innerWidth > 860 ? 332 : 12);
+      viewerRef.current?.setRightInset(cornerTaken && window.innerWidth > 860 ? 332 : 12);
     apply();
     window.addEventListener('resize', apply);
     return () => window.removeEventListener('resize', apply);
-  }, [selection]);
+  }, [cornerTaken]);
 
   /* ---- theme ------------------------------------------------------------
      The 3D viewer owns a backdrop CSS cannot reach — a shader dome — so the
@@ -524,11 +547,19 @@ export function IfcSite() {
   useEffect(() => {
     viewerRef.current?.setDrawOptions({
       height: drawHeight,
+      layer: drawLayer,
+      drape: drawDrape,
       name: t('ed.drawnName'),
       treeName: t('ed.drawnTreeName'),
+      shapeNames: {
+        vegetation: t('ed.drawnVegName'),
+        roads: t('ed.drawnRoadName'),
+        water: t('ed.drawnWaterName'),
+        void: t('ed.drawnVoidName'),
+      },
       copyName: t('ed.copySuffix'),
     });
-  }, [drawHeight, t]);
+  }, [drawHeight, drawLayer, drawDrape, t]);
 
   /* ---- measuring -------------------------------------------------------
      Same rule as the drawn name above: the viewer may not compose text, so how
@@ -1171,7 +1202,7 @@ export function IfcSite() {
     matchGlobalRef.current = false;
     // Seed the footprint height from the dock rather than tracking it live: the
     // build is the moment that setting was last the user's stated intent, and
-    // following it afterwards would overwrite a height typed into the draw HUD.
+    // following it afterwards would overwrite a height typed into the draw panel.
     setDrawHeight(form.defaultHeight);
 
     // The last stretch of a build and the longest one that is not network:
@@ -1182,8 +1213,11 @@ export function IfcSite() {
     await paint();
 
     emitterRef.current?.setSource(res.scene, res.meta);
-    viewerRef.current?.setScene(res.scene, res.site);
+    // The projection goes with the scene: a shape drawn onto it has to find the
+    // ground under each corner, and the terrain is keyed on lat/lon.
+    viewerRef.current?.setScene(res.scene, res.site, toGeoOf(res.meta));
     setHasScene(true);
+    setHasTerrain(res.scene.terrain !== null);
     setSiteDirty(false);
     setView('3d');
     setBusy(false);
@@ -1306,7 +1340,8 @@ export function IfcSite() {
         // The same scene object reaches both, exactly as a build's does — that
         // shared reference is how a later gizmo drag reaches the download.
         emitterRef.current?.setSource(d.scene, d.meta);
-        viewerRef.current?.setScene(d.scene, d.site);
+        viewerRef.current?.setScene(d.scene, d.site, toGeoOf(d.meta));
+        setHasTerrain(d.scene.terrain !== null);
 
         // setScene resets the origin to the site centre and clears layer
         // visibility, both of which are right for a rebuild and wrong here.
@@ -1711,6 +1746,8 @@ export function IfcSite() {
           onColorReset={() => viewerRef.current?.resetColor()}
           onOpacity={(a, commit) => viewerRef.current?.setOpacity(a, commit)}
           onHeight={(h, commit) => viewerRef.current?.setHeight(h, commit)}
+          onCut={(on) => viewerRef.current?.setCut(on)}
+          hasTerrain={hasTerrain}
           onDelete={() => viewerRef.current?.deleteSelected()}
           onReset={() => viewerRef.current?.resetElement()}
           onResetOrigin={() => viewerRef.current?.resetOrigin()}
@@ -1724,6 +1761,25 @@ export function IfcSite() {
           onResetPlacement={onResetPlacement}
           onDeselect={() => viewerRef.current?.select(null)}
         />
+
+        {/* The same corner, one step earlier: what the next element will be,
+            rather than what the selected one is. Arming a tool clears the
+            selection, so the two only meet when a model-tree pick lands while a
+            tool is armed — and then the element editor keeps the spot, since
+            it is describing something that exists. */}
+        {panelTool && (
+          <DrawPanel
+            tool={panelTool}
+            layer={drawLayer}
+            onLayer={setDrawLayer}
+            height={drawHeight}
+            onHeight={setDrawHeight}
+            drape={drawDrape}
+            onDrape={setDrawDrape}
+            hasTerrain={hasTerrain}
+            onClose={() => viewerRef.current?.setDrawMode(null)}
+          />
+        )}
 
         {/* What the status bar was, split by how long each part is true for:
             the momentary sentence floats over the viewer and leaves, the
@@ -1747,8 +1803,6 @@ export function IfcSite() {
           hasScene={hasScene}
           siteDirty={siteDirty}
           drawTool={drawTool}
-          drawHeight={drawHeight}
-          onDrawHeight={setDrawHeight}
           measureCount={measureCount}
           onClearMeasures={onClearMeasures}
           onBuild={onBuild}

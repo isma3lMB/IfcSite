@@ -507,6 +507,17 @@ export const IconLayerParcel = () => (
   </Svg>
 );
 
+/* A hole through the ground, in section: the ground line drops into a pit and
+   comes back up. The floor of the pit is dashed because it is not ground — it is
+   where the terrain stops, which is the whole of what a void is. Not a layer of
+   its own (a void is listed under the terrain), so it is not in LAYER_ICON. */
+export const IconVoid = () => (
+  <Svg>
+    <path d="M1.5 6.5h3.5v6.5M11 13V6.5h3.5" />
+    <path d="M5 13h6" strokeDasharray="1 1.6" />
+  </Svg>
+);
+
 /**
  * Layer to glyph.
  *

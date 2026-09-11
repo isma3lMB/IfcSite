@@ -121,6 +121,9 @@ export function sourceOf(kind: SourceKind, provider: Provider): DataSource {
     case 'terrain':
       return ign ? 'rgealti' : 'terrarium';
     case 'vector':
+    // Only a hand-drawn road area is a Surface in this tier, and those are never
+    // credited (see emitIFC) — but if one ever were, roads follow the provider.
+    case 'roads':
       return ign ? 'bdtopo' : 'osm';
     case 'trees':
       return 'osm';

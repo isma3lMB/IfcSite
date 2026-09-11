@@ -6,7 +6,7 @@ import type { Vec2 } from '@/lib/types';
 // The package's ESM build exports only a default object (union/difference/...
 // as properties) — its own .d.ts promises named exports that don't exist at
 // this build's runtime, so these are pulled off the default instead.
-const { intersection, union } = polygonClipping;
+const { difference, intersection, union } = polygonClipping;
 
 /**
  * The one file that knows polygon-clipping's coordinate convention differs
@@ -182,6 +182,21 @@ export function clipPolygonToRect(
       holes: poly.holes.map((h) => clipToBox(h, minX, minY, maxX, maxY)).filter((h) => h.length >= 3),
     },
   ];
+}
+
+/**
+ * `subject` with every one of `clips` taken out of it — what cutting a terrain
+ * triangle around a drawn void comes down to (see lib/geo/voids).
+ *
+ * Null when the whole snap ladder failed, rather than the subject back
+ * unchanged: for a void the honest degradation is the caller's to choose, and
+ * "the hole silently did not happen" is not one a caller should get by default.
+ */
+export function differencePolygons(subject: SplitPolygon, clips: SplitPolygon[]): SplitPolygon[] | null {
+  if (subject.outer.length < 3) return [];
+  const cs = clips.filter((c) => c.outer.length >= 3);
+  if (!cs.length) return [subject];
+  return laddered((q) => difference(toPoly(subject, q), ...cs.map((c) => toPoly(c, q))));
 }
 
 // There was an intersectPolygon here, for cutting a region with holes against

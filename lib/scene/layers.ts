@@ -172,18 +172,24 @@ export const styledOf = (scene: SceneData, id: LayerId): Styled[] => {
 /** How many things the tree reports under a layer. Counts the geometry that is
  *  there, so a layer that was never fetched reads as empty rather than absent. */
 export const layerCount = (scene: SceneData, id: LayerId): number => {
+  const surfacesIn = (l: LayerId): number =>
+    scene.surfaces.reduce((n, s) => n + (s.layer === l ? 1 : 0), 0);
   switch (id) {
+    // A void is listed under the ground it holes, which is where the tree shows
+    // it and where deleting it puts the ground back.
     case 'terrain':
-      return scene.terrain ? 1 : 0;
+      return scene.terrain ? 1 + scene.voids.length : 0;
     case 'buildings':
       return scene.buildings.length;
     case 'trees':
       return scene.trees.length;
+    // The merged ribbon counts once, and every road area drawn by hand beside
+    // it counts as its own element — which is what each is in the file.
     case 'roads':
-      return scene.roads.length || scene.roadWalls.length ? 1 : 0;
+      return (scene.roads.length || scene.roadWalls.length ? 1 : 0) + surfacesIn('roads');
     case 'railways':
       return scene.railways.length || scene.railwayWalls.length ? 1 : 0;
     default:
-      return scene.surfaces.reduce((n, s) => n + (s.layer === id ? 1 : 0), 0);
+      return surfacesIn(id);
   }
 };

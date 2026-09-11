@@ -204,10 +204,26 @@ export const RAILWAY_COLOR = 0x6b5b4a;
  * surface is decides its z, its draw order, its opacity and its hue, and those
  * four numbers only stay in step while they are read from one place. lib/sources/ign
  * still owns which WFS type feeds each tier — only the palette moved.
+ *
+ * `roads` is the fifth tier, reached only by a road area drawn by hand, and it
+ * is the merged ribbon's own colour so the two read as one layer.
  */
 export const SURFACE_COLOR: Record<SurfaceLayer, number> = {
   vegetation: 0xc0d4b6,
   hedge: 0x93c07e,
   water: 0xa3c1d2,
   parcel: 0x6b6252,
+  roads: ROAD_COLOR,
 };
+
+/**
+ * Where a drawn surface sits on the ladder above: its clearance over the
+ * ground and the layer its skirt is sized by. The keys of LAYER_DZ and
+ * LAYER_BITE are singular (`road`) where the scene's are plural (`roads`), so
+ * this is the one bridge between the two.
+ */
+export const DRAWN_TIER = {
+  vegetation: 'vegetation',
+  water: 'water',
+  roads: 'road',
+} as const satisfies Record<string, SkirtLayer>;

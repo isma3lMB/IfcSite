@@ -51,8 +51,8 @@ export const en = {
   'rail.label': 'Tools',
   'rail.pan': 'Pan the map',
   'rail.select': 'Select (Esc)',
-  'rail.drawBox': 'Draw a box footprint',
-  'rail.drawPoly': 'Draw a polygon footprint',
+  'rail.drawBox': 'Draw a rectangle',
+  'rail.drawPoly': 'Draw a polygon',
   'rail.drawTree': 'Plant a tree',
   'rail.measure': 'Measure a distance',
   'rail.measureArea': 'Measure an area',
@@ -89,10 +89,7 @@ export const en = {
   'bar.rebuild': 'Rebuild',
   'bar.stale': 'Site moved since the last build — rebuild before exporting.',
   'bar.presenting': 'Presentation — press Esc to exit.',
-  'bar.drawHeight': 'H (m)',
-  'bar.newHeightTitle': 'Height of the next drawn building (m)',
-  'bar.newTreeHeightTitle': 'Height of the next planted tree (m)',
-  'bar.drawHintRect': 'Drag on the ground to box out a footprint. Esc cancels.',
+  'bar.drawHintRect': 'Drag on the ground to box out a shape. Esc cancels.',
   'bar.drawHintPoly':
     'Click each corner on the ground — no crossing edges. Enter or the first corner closes it, Esc cancels.',
   'bar.drawHintPoints': '{n} corners — Enter closes, Esc cancels.',
@@ -105,6 +102,31 @@ export const en = {
   'bar.areaHintStart': 'Click the corners of an area — corners and edges snap. Esc leaves the tool.',
   'bar.areaHintPoints': '{n} corners — the first corner or Enter closes, Esc cancels.',
   'bar.measureClear': 'Clear ({n})',
+
+  /* ---- the draw panel: what the next rectangle or polygon becomes. It takes
+     the element editor's place while a draw tool is armed — nothing can be
+     selected then, so the corner is free. ---- */
+  'draw.title': 'Draw',
+  'draw.toolRect': 'Rectangle',
+  'draw.toolPoly': 'Polygon',
+  'draw.toolTree': 'Tree',
+  'draw.close': 'Leave the tool (Esc)',
+  'draw.layer': 'Layer',
+  'draw.building': 'Building',
+  'draw.vegetation': 'Vegetation',
+  'draw.roads': 'Road',
+  'draw.water': 'Water',
+  'draw.void': 'Void',
+  'draw.height': 'Height (m)',
+  'draw.heightTitle': 'Height of the next drawn building (m)',
+  'draw.treeHeightTitle': 'Height of the next planted tree (m)',
+  'draw.drape': 'Drape onto terrain',
+  'draw.drapeHint':
+    'Ticked, the shape follows the ground under it. Unticked, it is held level at its lowest corner. Either way, a shape started on a roof stays flat on that roof.',
+  'draw.voidHint':
+    'Cuts a hole through the terrain. Buildings and surfaces above it are left as they are.',
+  'draw.noTerrain':
+    'This scene has no terrain mesh, so there is nothing to drape onto or cut through.',
 
   /* ---- the IFC panel: everything the exported file says about itself, off the
      wrench beside Download. None of it is a build input — see IfcMeta. ---- */
@@ -266,6 +288,20 @@ export const en = {
   'ed.deleteTitle': 'Delete (Del)',
   'ed.drawnName': 'Drawn building',
   'ed.drawnTreeName': 'Drawn tree',
+  'ed.drawnVegName': 'Drawn vegetation',
+  'ed.drawnRoadName': 'Drawn road',
+  'ed.drawnWaterName': 'Drawn water',
+  'ed.drawnVoidName': 'Terrain void',
+  'ed.shapeLayer': 'Layer',
+  'ed.shapeHint':
+    'Drawn here. Moved or turned, it is fitted to the ground again where it lands — draped, or held level at its lowest corner, as it was drawn.',
+  'ed.voidHint':
+    'A hole drawn through the terrain. Move it and the hole moves with it; delete it to put the ground back.',
+  'ed.resetShape': 'Back to where drawn',
+  'ed.cutTerrain': 'Cut the terrain under it',
+  'ed.cutTerrainHint':
+    'Removes the ground inside the footprint and drops the base to the lowest ground under it, so no part of the underside hangs over the hole. The roof stays where it is. Carried into the IFC.',
+  'ed.cutNoTerrain': 'This scene has no terrain mesh to cut.',
   /* Appended to the name of whatever was copied, so the model tree lists the
      pair beside each other rather than twice under one name. */
   'ed.copySuffix': '(copy)',
@@ -346,8 +382,9 @@ export const en = {
   'status.drawCancelled': 'Drawing cancelled.',
   'status.cornerSet': 'Corner set — click the opposite corner. Esc cancels.',
   'status.noSiteYet': 'No site yet — click two opposite corners on the map.',
-  'status.drawTooSmall': 'Too small — a footprint needs at least 1 m².',
+  'status.drawTooSmall': 'Too small — a shape needs at least 1 m².',
   'status.drawFull': 'Building limit reached ({cap}) — delete something first.',
+  'status.voidNoTerrain': 'This scene has no terrain to cut a void through.',
   'status.measureCleared': 'Measurements cleared.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z to undo.',
   'status.undone': 'Undone: {label} — {name}.',
@@ -394,6 +431,8 @@ export const en = {
   'edit.opacity': 'Opacity',
   'edit.height': 'Height',
   'edit.add': 'New building',
+  'edit.addShape': 'New shape',
+  'edit.cut': 'Terrain cut',
   'edit.delete': 'Delete',
   'edit.duplicate': 'Duplicate',
   'edit.reset': 'Reset element',
@@ -406,7 +445,7 @@ export const en = {
   'confirm.discardTitle': 'Discard drawn elements?',
   'confirm.discardTitleOne': 'Discard the drawn element?',
   'confirm.discardDrawn':
-    'Rebuilding re-fetches the site from its sources, and {n} hand-drawn buildings and trees are not in them. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
+    'Rebuilding re-fetches the site from its sources, and {n} hand-drawn elements are not in them. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.discardDrawnOne':
     'Rebuilding re-fetches the site from its sources, and your hand-drawn element is not in them. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.rebuildAnyway': 'Rebuild anyway',
@@ -416,7 +455,7 @@ export const en = {
   'confirm.openTitle': 'Discard drawn elements?',
   'confirm.openTitleOne': 'Discard the drawn element?',
   'confirm.openOverDrawn':
-    'Opening a draft replaces everything on screen, and {n} hand-drawn buildings and trees are not in it. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
+    'Opening a draft replaces everything on screen, and {n} hand-drawn elements are not in it. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.openOverDrawnOne':
     'Opening a draft replaces everything on screen, and your hand-drawn element is not in it. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.openAnyway': 'Open anyway',

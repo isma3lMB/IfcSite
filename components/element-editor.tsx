@@ -6,6 +6,7 @@ import { ColourField } from '@/components/colour-field';
 import { Slider } from '@/components/ui/slider';
 import { useT } from '@/lib/i18n/context';
 import type { StringKey } from '@/lib/i18n/context';
+import { LAYER_LABEL } from '@/lib/scene/layers';
 import { rnd } from '@/lib/scene/xf';
 import type { SiteMeta, Vec3 } from '@/lib/types';
 import type { Selection } from '@/lib/viewer/Viewer';
@@ -21,8 +22,11 @@ export type AxisKey = 'pos' | 'rot' | 'scale';
  * draft is dropped and the (clamped, rounded) value from the model takes over.
  * This is the same split the original made between its oninput and onchange
  * handlers, where onchange was both the undo boundary and the rewrite point.
+ *
+ * Exported for the draw panel's height, which wants exactly this behaviour and
+ * sits in the same corner in the same type.
  */
-function AxisInput({
+export function AxisInput({
   axis,
   value,
   step,
@@ -129,6 +133,10 @@ export type ElementEditorProps = {
   onColorReset: () => void;
   onOpacity: (a: number, commit: boolean) => void;
   onHeight: (h: number, commit: boolean) => void;
+  /** Whether the selected buildings hole the terrain under them. */
+  onCut: (on: boolean) => void;
+  /** Without a terrain mesh there is no ground to cut, so the toggle is dimmed. */
+  hasTerrain: boolean;
   onDelete: () => void;
   onReset: () => void;
   onResetOrigin: () => void;
@@ -180,8 +188,12 @@ export function ElementEditor(p: ElementEditorProps) {
   // disabled — see selectTarget in lib/viewer/Viewer for why the gizmo refuses
   // the other two modes as well.
   const isLayer = sel.kind === 'layer';
+  // A surface or a void drawn in the 3D view. It moves across the ground and
+  // turns about the vertical, and is fitted to the ground again wherever it
+  // lands — so it offers its layer, those two rows, Reset and Delete.
+  const isShape = sel.kind === 'shape';
   // Several elements at once. Only buildings and trees group, so this is never
-  // true beside the two branches above.
+  // true beside the three branches above.
   const many = sel.count > 1;
 
   /* `write` rather than p.onAxis directly, so the project-coordinate row can
@@ -364,7 +376,70 @@ export function ElementEditor(p: ElementEditorProps) {
         </div>
       )}
 
-      {!isOrigin && !isLayer && (
+      {isShape && sel.layer && (
+        <div>
+          <div className="field">
+            <span className="eyebrow block mb-1.5">{t('ed.shapeLayer')}</span>
+            <div className="editName capFirst">{t(LAYER_LABEL[sel.layer])}</div>
+          </div>
+
+          {/* Across the ground and about the vertical, and nothing else — the
+              same two handles the gizmo offers it. A shape is fitted to the
+              ground wherever it lands, so it has no height to type, and tipping
+              or stretching one would tear it off the terrain. */}
+          <div className="field">
+            <span className="eyebrow block mb-1.5">{t('ed.position')}</span>
+            <div className="axes">
+              {(['X', 'Y'] as const).map((ax, i) => (
+                <AxisInput
+                  key={ax}
+                  axis={ax}
+                  value={rnd(xf.pos[i], 2)}
+                  step={0.5}
+                  ariaLabel={`pos ${ax}`}
+                  onLive={(v) => p.onAxis('pos', i, v, false)}
+                  onCommit={(v) => p.onAxis('pos', i, v, true)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <span className="eyebrow block mb-1.5">{t('ed.rotation')}</span>
+            <div className="axes">
+              <AxisInput
+                axis="Z"
+                value={rnd((xf.rot[2] * 180) / Math.PI, 1)}
+                step={5}
+                ariaLabel="rot Z"
+                onLive={(v) => p.onAxis('rot', 2, v, false)}
+                onCommit={(v) => p.onAxis('rot', 2, v, true)}
+              />
+            </div>
+          </div>
+
+          <div className="presets">
+            <button type="button" onClick={p.onReset}>
+              {t('ed.resetShape')}
+            </button>
+            <button
+              type="button"
+              className="danger"
+              title={t('ed.deleteTitle')}
+              onClick={p.onDelete}
+            >
+              {t('ed.delete')}
+            </button>
+          </div>
+
+          {/* A void is listed under the terrain, and deleting it is what puts the
+              ground back — which is worth saying, since there is nothing in the
+              hole to see go. */}
+          <p className="editHint">{t(sel.layer === 'terrain' ? 'ed.voidHint' : 'ed.shapeHint')}</p>
+        </div>
+      )}
+
+      {!isOrigin && !isLayer && !isShape && (
         <div>
           <div className="field">
             <label className="eyebrow block mb-1.5" htmlFor="edColor">
@@ -403,6 +478,25 @@ export function ElementEditor(p: ElementEditorProps) {
               />
             </div>
           </div>
+
+          {/* A building's, not a tree's: a canopy has no footprint to cut by. Read
+              off the anchor like every other field here, and written to every
+              building in the selection. */}
+          {sel.kind === 'building' && (
+            <div className="field">
+              <label className="check dimmed mb-0!" aria-disabled={!p.hasTerrain}>
+                <Checkbox
+                  checked={xf.cut === true}
+                  disabled={!p.hasTerrain}
+                  onCheckedChange={(v) => p.onCut(v === true)}
+                />
+                {t('ed.cutTerrain')}
+              </label>
+              <p className="editHint mt-1.5!">
+                {t(p.hasTerrain ? 'ed.cutTerrainHint' : 'ed.cutNoTerrain')}
+              </p>
+            </div>
+          )}
 
           <div className="field">
             <span className="eyebrow block mb-1.5">{t('ed.position')}</span>

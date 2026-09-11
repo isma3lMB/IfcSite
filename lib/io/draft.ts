@@ -10,6 +10,7 @@ import type {
   Building,
   BuildOptions,
   DrapeLayer,
+  DrawnSpec,
   Grid,
   HeightSource,
   IfcMeta,
@@ -24,6 +25,7 @@ import type {
   SiteRect,
   Surface,
   SurfaceLayer,
+  TerrainVoid,
   ToLocal,
   Tree,
   Vec2,
@@ -220,6 +222,8 @@ const xf = (v: unknown): Xf => {
     })(),
     color: colorOrNull(s.color),
     opacity: clamp01(s.opacity, 1),
+    // Only when set, as cloneXf writes it: absent reads as uncut.
+    ...(s.cut === true ? { cut: true } : {}),
   };
 };
 
@@ -237,6 +241,7 @@ const SURFACE_LAYERS: ReadonlySet<string> = new Set<SurfaceLayer>([
   'water',
   'parcel',
   'hedge',
+  'roads',
 ]);
 
 const building = (v: unknown, i: number): Building | null => {
@@ -290,7 +295,33 @@ const surface = (v: unknown): Surface | null => {
   if (c !== null) out.color = c;
   if (isObj(v.props)) out.props = propBag(v.props);
   if (SURFACE_LAYERS.has(layer)) out.layer = layer as SurfaceLayer;
+  // Only a surface drawn in the 3D view carries these, and it needs both: the id
+  // is what the tree and the selection address it by, and src is what keeps it
+  // counted as hand-drawn work.
+  if (typeof v.id === 'string' && v.id) out.id = v.id;
+  if (v.src === 'user') out.src = 'user';
+  const spec = drawnSpec(v.drawn);
+  if (spec) out.drawn = spec;
   return out;
+};
+
+/** The recipe a drawn surface moves by. Without a usable ring there is nothing
+ *  to rebuild it from, so the surface keeps its geometry and simply cannot move
+ *  — better than one that vanishes on its first drag. */
+const drawnSpec = (v: unknown): DrawnSpec | null => {
+  if (!isObj(v)) return null;
+  const r = ring2(v.ring);
+  if (!r) return null;
+  return { ring: r, drape: bool(v.drape, true), roofZ: numOrNull(v.roofZ), xf: xf(v.xf) };
+};
+
+/** A hole drawn through the terrain. Its ring is its whole geometry, so a void
+ *  without a usable one is dropped rather than kept as nothing. */
+const terrainVoid = (v: unknown, i: number): TerrainVoid | null => {
+  if (!isObj(v)) return null;
+  const r = ring2(v.ring);
+  if (!r) return null;
+  return { id: str(v.id, `drawn-void-r${i}`), name: str(v.name, ''), ring: r, xf: xf(v.xf) };
 };
 
 /** Road and railway ribbons: 3-5 convex corners in site coordinates. */
@@ -502,6 +533,9 @@ const scene = (v: unknown, rect: SiteRect, toLocal: ToLocal): SceneData => {
     trees: arr(s.trees)
       .map(tree)
       .filter((t): t is Tree => t !== null),
+    voids: arr(s.voids)
+      .map(terrainVoid)
+      .filter((v): v is TerrainVoid => v !== null),
     layers: layerState(s.layers),
   };
   if (typeof s.terrainSource === 'string') out.terrainSource = s.terrainSource;

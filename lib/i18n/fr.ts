@@ -45,8 +45,8 @@ export const fr: Dict = {
   'rail.label': 'Outils',
   'rail.pan': 'Déplacer la carte',
   'rail.select': 'Sélectionner (Échap)',
-  'rail.drawBox': 'Tracer une emprise rectangulaire',
-  'rail.drawPoly': 'Tracer une emprise polygonale',
+  'rail.drawBox': 'Tracer un rectangle',
+  'rail.drawPoly': 'Tracer un polygone',
   'rail.drawTree': 'Planter un arbre',
   'rail.measure': 'Mesurer une distance',
   'rail.measureArea': 'Mesurer une surface',
@@ -85,10 +85,7 @@ export const fr: Dict = {
   'bar.rebuild': 'Reconstruire',
   'bar.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
   'bar.presenting': 'Présentation — Échap pour quitter.',
-  'bar.drawHeight': 'H (m)',
-  'bar.newHeightTitle': 'Hauteur du prochain bâtiment tracé (m)',
-  'bar.newTreeHeightTitle': 'Hauteur du prochain arbre planté (m)',
-  'bar.drawHintRect': 'Glissez sur le sol pour tracer une emprise rectangulaire. Échap annule.',
+  'bar.drawHintRect': 'Glissez sur le sol pour tracer un rectangle. Échap annule.',
   'bar.drawHintPoly':
     'Cliquez chaque sommet sur le sol — sans arêtes croisées. Entrée ou le premier sommet ferme le contour, Échap annule.',
   'bar.drawHintPoints': '{n} sommets — Entrée ferme, Échap annule.',
@@ -103,6 +100,30 @@ export const fr: Dict = {
     'Cliquez les sommets d’une surface — sommets et arêtes sont magnétiques. Échap quitte l’outil.',
   'bar.areaHintPoints': '{n} sommets — le premier sommet ou Entrée ferme, Échap annule.',
   'bar.measureClear': 'Effacer ({n})',
+
+  /* ---- le panneau de tracé : ce que devient le prochain rectangle ou polygone.
+     Il prend la place de l’éditeur d’élément tant qu’un outil est armé. ---- */
+  'draw.title': 'Tracer',
+  'draw.toolRect': 'Rectangle',
+  'draw.toolPoly': 'Polygone',
+  'draw.toolTree': 'Arbre',
+  'draw.close': 'Quitter l’outil (Échap)',
+  'draw.layer': 'Calque',
+  'draw.building': 'Bâtiment',
+  'draw.vegetation': 'Végétation',
+  'draw.roads': 'Voirie',
+  'draw.water': 'Eau',
+  'draw.void': 'Vide',
+  'draw.height': 'Hauteur (m)',
+  'draw.heightTitle': 'Hauteur du prochain bâtiment tracé (m)',
+  'draw.treeHeightTitle': 'Hauteur du prochain arbre planté (m)',
+  'draw.drape': 'Draper sur le terrain',
+  'draw.drapeHint':
+    'Coché, la forme suit le sol sous elle. Décoché, elle reste de niveau à son sommet le plus bas. Dans les deux cas, une forme commencée sur un toit reste à plat sur ce toit.',
+  'draw.voidHint':
+    'Perce un trou dans le terrain. Les bâtiments et les surfaces au-dessus restent tels quels.',
+  'draw.noTerrain':
+    'Cette scène n’a pas de maillage de terrain : rien sur quoi draper, rien à percer.',
 
   /* ---- the IFC panel ---- */
   'ifc.title': 'Fichier IFC',
@@ -254,6 +275,20 @@ export const fr: Dict = {
   'ed.deleteTitle': 'Supprimer (Suppr)',
   'ed.drawnName': 'Bâtiment tracé',
   'ed.drawnTreeName': 'Arbre planté',
+  'ed.drawnVegName': 'Végétation tracée',
+  'ed.drawnRoadName': 'Voirie tracée',
+  'ed.drawnWaterName': 'Eau tracée',
+  'ed.drawnVoidName': 'Vide de terrain',
+  'ed.shapeLayer': 'Calque',
+  'ed.shapeHint':
+    'Tracée ici. Déplacée ou tournée, elle est ajustée de nouveau au sol là où elle arrive — drapée, ou de niveau à son sommet le plus bas, comme elle a été tracée.',
+  'ed.voidHint':
+    'Un trou tracé dans le terrain. Déplacez-le et le trou le suit ; supprimez-le pour rendre le sol.',
+  'ed.resetShape': 'Revenir au tracé',
+  'ed.cutTerrain': 'Découper le terrain dessous',
+  'ed.cutTerrainHint':
+    'Retire le sol à l’intérieur de l’emprise et abaisse la base jusqu’au point le plus bas du sol dessous, pour qu’aucune partie du dessous ne surplombe le trou. Le toit ne bouge pas. Reporté dans l’IFC.',
+  'ed.cutNoTerrain': 'Cette scène n’a pas de maillage de terrain à découper.',
   'ed.copySuffix': '(copie)',
   'ed.position': 'Décalage de position (m)',
   'ed.rotation': 'Rotation (°)',
@@ -331,8 +366,9 @@ export const fr: Dict = {
   'status.drawCancelled': 'Tracé annulé.',
   'status.cornerSet': 'Premier coin posé — cliquez le coin opposé. Échap annule.',
   'status.noSiteYet': 'Aucun site — cliquez deux coins opposés sur la carte.',
-  'status.drawTooSmall': 'Trop petit — une emprise doit faire au moins 1 m².',
+  'status.drawTooSmall': 'Trop petit — une forme doit faire au moins 1 m².',
   'status.drawFull': 'Limite de bâtiments atteinte ({cap}) — supprimez-en un d’abord.',
+  'status.voidNoTerrain': 'Cette scène n’a pas de terrain dans lequel percer un vide.',
   'status.measureCleared': 'Mesures effacées.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z pour annuler.',
   'status.undone': 'Annulé : {label} — {name}.',
@@ -380,6 +416,8 @@ export const fr: Dict = {
   'edit.opacity': 'Opacité',
   'edit.height': 'Hauteur',
   'edit.add': 'Nouveau bâtiment',
+  'edit.addShape': 'Nouvelle forme',
+  'edit.cut': 'Découpe du terrain',
   'edit.delete': 'Suppression',
   'edit.duplicate': 'Duplication',
   'edit.reset': 'Élément réinitialisé',
@@ -390,7 +428,7 @@ export const fr: Dict = {
   'confirm.discardTitle': 'Supprimer les éléments tracés ?',
   'confirm.discardTitleOne': 'Supprimer l’élément tracé ?',
   'confirm.discardDrawn':
-    'Reconstruire recharge le site depuis ses sources, où vos {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Reconstruire recharge le site depuis ses sources, où vos {n} éléments tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.discardDrawnOne':
     'Reconstruire recharge le site depuis ses sources, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.rebuildAnyway': 'Reconstruire quand même',
@@ -401,7 +439,7 @@ export const fr: Dict = {
   'confirm.openTitle': 'Abandonner les éléments tracés ?',
   'confirm.openTitleOne': 'Abandonner l’élément tracé ?',
   'confirm.openOverDrawn':
-    'Ouvrir une ébauche remplace tout ce qui est à l’écran, où {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Ouvrir une ébauche remplace tout ce qui est à l’écran, où {n} éléments tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.openOverDrawnOne':
     'Ouvrir une ébauche remplace tout ce qui est à l’écran, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.openAnyway': 'Ouvrir quand même',

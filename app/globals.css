@@ -993,33 +993,6 @@ html.dark {
     padding: 7px 12px;
   }
 
-  /* Not information, but the bar is the only horizontal surface left — and the
-     field only exists while a footprint tool is armed. */
-  .barHeight {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: none;
-  }
-  /* The one thing left in this row that is bare text. With the tray gone it sits
-     straight on the viewer, so it takes the same halo .siteReadout uses to stay
-     legible over a basemap — the input beside it needs nothing, being opaque and
-     ink-bordered already. */
-  .barHeight > span {
-    font: 600 10px/1 var(--font-mono);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-ink-soft);
-    white-space: nowrap;
-    text-shadow:
-      0 1px 1px var(--color-surface),
-      0 0 4px var(--color-surface);
-  }
-  .barHeight .ctl-input {
-    width: 74px;
-    padding: 6px 8px;
-  }
-
   /* ---- info overlay: the header prose and the notes, on demand ---- */
   .infoOverlay {
     position: fixed;
@@ -1426,6 +1399,15 @@ html.dark {
   }
   .editPanel .field {
     margin-bottom: 12px;
+  }
+  /* The draw panel takes the editor's corner and its type, but not its height:
+     five radios and a field stretched down the whole column is a card of
+     nothing covering the viewer the next shape is being drawn in. Declared
+     before the narrow tiers on purpose — they set .editPanel's align-self back
+     to `end`, and at the same specificity the later rule wins, so on a narrow
+     window it is a bottom sheet like the editor. */
+  .drawPanel {
+    align-self: start;
   }
   .editHead {
     display: flex;
@@ -2221,10 +2203,6 @@ html.dark {
      take pinch-zoom away from everybody, so it is not the fix. */
   .ctl-input {
     font-size: 16px;
-  }
-  /* 74 was sized for 13px mono and clips three digits at 16. */
-  .barHeight .ctl-input {
-    width: 86px;
   }
 }
 
