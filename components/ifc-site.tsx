@@ -286,6 +286,8 @@ export function IfcSite() {
   const ifcRef = useRef(ifc);
   /** Matches the viewer's own default; the marker is opt-in. */
   const [showOrigin, setShowOrigin] = useState(false);
+  /** The bottom-right readout. Opt-in like the marker, and session-only. */
+  const [showStats, setShowStats] = useState(false);
   /** Also the viewer's default. Held here rather than reported back, like the
       marker above: nothing in the viewer changes it on its own. */
   const [ortho, setOrtho] = useState(false);
@@ -1605,6 +1607,8 @@ export function IfcSite() {
           onOrtho={onOrtho}
           presenting={presenting}
           onPresent={onPresent}
+          showStats={showStats}
+          onShowStats={setShowStats}
           infoOpen={infoOpen}
           onInfo={toggleInfo}
         />
@@ -1762,6 +1766,7 @@ export function IfcSite() {
         />
 
         <SiteReadout
+          visible={showStats}
           rect={rect}
           buildings={buildings}
           stats={stats}

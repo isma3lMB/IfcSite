@@ -38,6 +38,7 @@ export const en = {
   'ui.originMarker': 'Show the model origin',
   'ui.projection': 'Orthographic view',
   'ui.presentation': 'Presentation mode',
+  'ui.stats': 'Show site statistics',
   /* The button is labelled with what pressing it does, not with the state it is
      in — an icon button has no room to say both, and the action is the useful
      half. */

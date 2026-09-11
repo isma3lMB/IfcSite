@@ -1990,6 +1990,10 @@ html.dark {
   .siteReadout {
     display: none;
   }
+  /* The readout's toggle goes with it, or it would be a button that does nothing. */
+  .statsBtn {
+    display: none;
+  }
   /* The bar takes the whole foot of a narrow window, and the element editor
      becomes a bottom sheet above it (see .editPanel), so there is no room left
      on the bar's line. The toast goes to the top of row 2 instead: still over

@@ -7,6 +7,7 @@ import {
   IconOrigin,
   IconPresentation,
   IconProjection,
+  IconStats,
   IconSun,
 } from '@/components/icons';
 import { LangToggle } from '@/components/lang-toggle';
@@ -24,6 +25,8 @@ export type UtilChipProps = {
   onOrtho: (v: boolean) => void;
   presenting: boolean;
   onPresent: (v: boolean) => void;
+  showStats: boolean;
+  onShowStats: (v: boolean) => void;
   infoOpen: boolean;
   onInfo: () => void;
 };
@@ -102,10 +105,23 @@ export function UtilChip(p: UtilChipProps) {
         </>
       )}
 
-      {/* Outside the !isMap block above: the theme is the whole window, not the
-          3D scene, so it is as available over the map as over the stage. It
-          carries no `on` state — the icon is the state, and it shows the theme
-          the press would move to rather than the one in force. */}
+      {/* Outside the !isMap block above, like the theme beside it: the readout
+          sits over whichever viewer is up, so it is as available over the map as
+          over the stage. Off by default — the corner stays clear until asked. */}
+      <button
+        type="button"
+        className={`iconBtn statsBtn${p.showStats ? ' on' : ''}`}
+        title={t('ui.stats')}
+        aria-label={t('ui.stats')}
+        aria-pressed={p.showStats}
+        onClick={() => p.onShowStats(!p.showStats)}
+      >
+        <IconStats />
+      </button>
+
+      {/* The theme is the whole window, not the 3D scene. It carries no `on`
+          state — the icon is the state, and it shows the theme the press would
+          move to rather than the one in force. */}
       <button
         type="button"
         className="iconBtn"

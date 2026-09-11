@@ -35,6 +35,7 @@ export const fr: Dict = {
   'ui.originMarker': 'Afficher l’origine du modèle',
   'ui.projection': 'Vue orthographique',
   'ui.presentation': 'Mode présentation',
+  'ui.stats': 'Afficher les statistiques du site',
   'ui.themeDark': 'Passer au thème sombre',
   'ui.themeLight': 'Passer au thème clair',
   'ui.dismiss': 'Masquer',

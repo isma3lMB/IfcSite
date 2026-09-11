@@ -107,6 +107,17 @@ export const IconMoon = () => (
   </Svg>
 );
 
+/* Three bars on a baseline, for the readout of site figures. Filled for the same
+   reason as the theme pair: hollow bars at this size read as a row of slots. */
+export const IconStats = () => (
+  <Svg>
+    <path d="M2 14h12" />
+    <rect x="3.5" y="8" width="2" height="5" fill="currentColor" stroke="none" />
+    <rect x="7" y="3" width="2" height="10" fill="currentColor" stroke="none" />
+    <rect x="10.5" y="6" width="2" height="7" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 export const IconPan = () => (
   <Svg>
     <path d="M8 1.5v13M1.5 8h13" />
