@@ -1041,32 +1041,44 @@ html.dark {
     padding-top: 18px;
     border-top: 1px solid var(--color-ink);
   }
+  /* Pinned under the scroller, a sibling of .infoHead and .infoBody: the author,
+     the repo and the build never scroll away. */
   .infoFoot {
+    flex: none;
     display: flex;
     align-items: center;
-    gap: 14px;
+    justify-content: space-between;
+    gap: 10px 18px;
     flex-wrap: wrap;
     margin-top: 12px;
-    padding-top: 18px;
+    padding-top: 16px;
     border-top: 1px solid var(--color-ink);
-    font-size: 13px;
-    line-height: 1.7;
     color: var(--color-ink-soft);
-  }
-  .infoFoot p {
-    margin: 0;
-    flex: 1 1 22ch;
   }
   /* Sizes to its label, like every other btn-ghost outside the 330 px sidebar
      it was born in. */
   .infoFoot .btn-ghost {
     display: inline-flex;
     align-items: center;
+    gap: 8px;
     width: auto;
     padding: 9px 16px;
     text-decoration: none;
     white-space: nowrap;
     flex: none;
+  }
+  /* Author, then commit and date. The two spans wrap as units, so a narrow card
+     breaks between them rather than inside "Version 7a4f826". */
+  .infoMeta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    font: 500 11px/1.5 var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .infoMeta a {
+    color: var(--color-ink);
   }
 
   /* ---- confirm card ----

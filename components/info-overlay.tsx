@@ -1,17 +1,20 @@
 'use client';
 
+import { IconGitHub } from '@/components/icons';
 import { Notes } from '@/components/notes';
 import { useT } from '@/lib/i18n/context';
 import { DATA_SOURCES, type SourceLicence } from '@/lib/sources/licence';
+import { COMMIT, COMMIT_DATE } from '@/lib/version';
 
 export type InfoOverlayProps = {
   open: boolean;
   onClose: () => void;
 };
 
-/** Not a dictionary key: it is the one string on this surface that is the same
- *  in every language. */
+/** Not dictionary keys: proper nouns and URLs, the same in every language. */
 const REPO_URL = 'https://github.com/isma3lMB/IfcSite';
+const AUTHOR_NAME = 'isma3lMB';
+const AUTHOR_URL = 'https://www.bim-lane.blog/about';
 
 /**
  * The credits, in the order the pipeline uses them.
@@ -42,8 +45,14 @@ const CREDITS: SourceLicence[] = [
  * behind the (i) button instead of taking a third of the window forever.
  */
 export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
-  const { t } = useT();
+  const { t, lang } = useT();
   if (!open) return null;
+
+  // Formatted here rather than at build time so it follows the language toggle.
+  // No hydration concern: the overlay only renders after a click.
+  const date = COMMIT_DATE
+    ? new Intl.DateTimeFormat(lang, { dateStyle: 'medium' }).format(new Date(COMMIT_DATE))
+    : '';
 
   return (
     // The backdrop closes on click; the card stops the click travelling so
@@ -64,18 +73,15 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
             </h1>
             <p className="sub">{t('app.sub')}</p>
           </div>
-          <div className="flex items-start gap-3">
-            <div className="eyebrow text-right whitespace-pre-line">{t('app.badge')}</div>
-            <button
-              type="button"
-              className="iconBtn"
-              title={t('ui.close')}
-              aria-label={t('ui.close')}
-              onClick={onClose}
-            >
-              ✕
-            </button>
-          </div>
+          <button
+            type="button"
+            className="iconBtn"
+            title={t('ui.close')}
+            aria-label={t('ui.close')}
+            onClick={onClose}
+          >
+            ✕
+          </button>
         </div>
 
         {/* The head stays outside the scroller so the close button is always
@@ -97,17 +103,45 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
               ))}
             </ul>
           </div>
-          <div className="infoFoot">
-            <p>{t('info.openSource')}</p>
-            <a
-              className="btn-ghost"
-              href={REPO_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {t('info.github')}
-            </a>
+          <div className="credits">
+            <h2>{t('info.disclaimerTitle')}</h2>
+            <p>{t('info.disclaimer')}</p>
           </div>
+        </div>
+
+        {/* Outside the scroller, like the head: who made it, where the source
+            is and which build this is stay in view however far the prose runs. */}
+        <div className="infoFoot">
+          <a className="btn-ghost" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+            <IconGitHub />
+            {t('info.github')}
+          </a>
+          <p className="infoMeta">
+            <span>
+              {t('info.madeBy')}{' '}
+              <a href={AUTHOR_URL} target="_blank" rel="noopener noreferrer">
+                {AUTHOR_NAME}
+              </a>
+            </span>
+            {(COMMIT || date) && (
+              <span>
+                {t('info.version')}
+                {COMMIT && (
+                  <>
+                    {' '}
+                    <a
+                      href={`${REPO_URL}/commit/${COMMIT}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {COMMIT}
+                    </a>
+                  </>
+                )}
+                {date && `${COMMIT ? ' ·' : ''} ${date}`}
+              </span>
+            )}
+          </p>
         </div>
       </div>
     </div>

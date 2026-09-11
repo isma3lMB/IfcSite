@@ -1,4 +1,30 @@
+import { execSync } from 'node:child_process';
 import type { NextConfig } from 'next';
+
+/** '' when git is missing — some static hosts build from a tarball with no .git. */
+function git(args: string): string {
+  try {
+    return execSync(`git ${args}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The version shown in the info panel: the commit the build came from, and that
+ * commit's date. Hosts that build without a .git hand the SHA over in their own
+ * variable instead (Vercel, GitHub Actions, Cloudflare Pages, Netlify).
+ */
+const commit =
+  git('rev-parse --short HEAD') ||
+  (
+    process.env.VERCEL_GIT_COMMIT_SHA ??
+    process.env.GITHUB_SHA ??
+    process.env.CF_PAGES_COMMIT_SHA ??
+    process.env.COMMIT_REF ??
+    ''
+  ).slice(0, 7);
+const commitDate = git('log -1 --format=%cI') || new Date().toISOString();
 
 /**
  * Static export: `next build` writes a plain directory of HTML/JS to out/ with
@@ -19,9 +45,12 @@ const nextConfig: NextConfig = {
     // Next reaches for by default; this routes type checking through the CLI.
     useTypeScriptCli: true,
   },
-  allowedDevOrigins: ['192.168.1.12']
+  allowedDevOrigins: ['192.168.1.12'],
+  // Inlined into the client bundle at build time — read through lib/version.ts.
+  env: {
+    NEXT_PUBLIC_COMMIT: commit,
+    NEXT_PUBLIC_COMMIT_DATE: commitDate,
+  },
 };
-// module.exports = {
-//   allowedDevOrigins: ['192.168.1.12'],
-// }
+
 export default nextConfig;

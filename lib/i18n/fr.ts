@@ -3,8 +3,9 @@ import type { Dict } from '@/lib/i18n/en';
 /**
  * French — the default language, and the one the page boots into.
  *
- * Register follows the original: terse and technical, addressing someone who
- * already knows what a CRS and a swept solid are. GIS terms use the vocabulary
+ * The tool strings are terse and technical, addressing someone who already
+ * knows what a CRS and a swept solid are; the info panel (app.sub, info.*,
+ * notes) is plain language for anyone. GIS terms use the vocabulary
  * QGIS and the IGN use in French ("SCR", "emprise", "BD TOPO"), and IFC entity
  * names are left untranslated because they are schema identifiers.
  */
@@ -14,23 +15,25 @@ export const fr: Dict = {
   'app.description':
     'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques — bâtiments, voiries et terrain, géoréférencés, dans le navigateur.',
   'app.wordmark': 'IFC Site',
-  'app.tag': 'Sans serveur · s’exécute dans cet onglet',
+  'app.tag': 'Gratuit · fonctionne dans votre navigateur',
   'app.h1a': 'IFC',
   'app.h1b': 'Site',
   'app.sub':
-    'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques. Tracez un rectangle sur la carte : il récupère les bâtiments, les voiries et le terrain qu’il contient, les extrude et écrit un fichier IFC géoréférencé — entièrement dans le navigateur.',
-  'app.badge': 'Volumétrie LOD100\nIfcBuildingElementProxy\nLoGeoRef 50',
+    'Tracez un rectangle sur la carte et obtenez une maquette 3D du site — bâtiments, voiries et terrain — en fichier IFC pour votre logiciel BIM.',
   'app.langLabel': 'Langue',
 
   /* ---- habillage ---- */
   'ui.info': 'À propos de cet outil',
   'ui.close': 'Fermer',
-  'info.openSource':
-    'IFC Site est un projet open source. Toute la chaîne — les requêtes Overpass et IGN, la géométrie, l’écriture de l’IFC — est sur GitHub, ouverte aux tickets et aux pull requests.',
-  'info.github': 'Voir le code source sur GitHub',
+  'info.github': 'Code source',
+  'info.madeBy': 'Développé par',
+  'info.version': 'Version',
   'info.credits': 'Sources de données et licences',
   'info.creditsLead':
-    'Cet outil repose sur des données publiques, libres d’usage à une condition : la mention doit voyager avec elles. Chaque IFC exporté porte ces termes élément par élément, dans un jeu de propriétés ePset_License, pour que l’attribution parvienne à qui vous transmettez la maquette.',
+    'Construit sur des données publiques gratuites. Chaque IFC exporté conserve ces mentions, qui suivent la maquette.',
+  'info.disclaimerTitle': 'Avertissement',
+  'info.disclaimer':
+    'IFC Site est fourni tel quel, sans aucune garantie, sous licence GPL-3.0. Les données peuvent être incomplètes, périmées ou inexactes — vérifiez-les avant de vous y fier. Les auteurs déclinent toute responsabilité pour tout dommage ou perte résultant de l’utilisation de cet outil ou des fichiers qu’il produit.',
   'ui.options': 'Options',
   'ui.originMarker': 'Afficher l’origine du modèle',
   'ui.projection': 'Vue orthographique',
@@ -484,28 +487,20 @@ export const fr: Dict = {
   /* ---- notes ---- */
   notes: [
     {
-      title: 'Où tout s’exécute.',
-      body: 'Tout est côté client. Overpass envoie `Access-Control-Allow-Origin: *`, le navigateur peut donc l’interroger directement, et l’IFC est sérialisé en JavaScript puis remis à une URL Blob. Aucun serveur ne touche vos données.',
-    },
-    {
-      title: 'Sens de parcours.',
-      body: 'Les emprises OSM arrivent dans les deux sens. Les profils IFC exigent des contours extérieurs dans le sens trigonométrique : chaque anneau est donc vérifié par son aire signée et inversé si besoin — sans cela, près de la moitié des bâtiments s’affichent retournés ou disparaissent.',
-    },
-    {
-      title: 'Géoréférencement.',
-      body: 'Écrit sous forme d’`IfcMapConversion` + `IfcProjectedCRS`. `Scale` vaut 1.0, ce qui convient à cette emprise ; au-delà de quelques kilomètres, substituez le facteur d’échelle combiné réel, sinon votre maquette divergera de celle du géomètre.',
+      title: 'Confidentiel.',
+      body: 'Tout se passe dans votre navigateur. Rien de ce que vous tracez ou exportez ne passe par un serveur.',
     },
     {
       title: 'Tracer le site.',
-      body: 'Le rectangle que vous posez sur le fond OpenStreetMap — deux clics de coin, ou un glisser — constitue toute la définition du site. Rien n’est sélectionné tant que vous ne l’avez pas tracé : ses limites partent vers Overpass et le WFS de l’IGN comme bbox, dimensionnent la grille de terrain et découpent tout polygone qui franchit le bord. C’est un rectangle WGS84 : dans un SCR projeté il est donc très légèrement pivoté par la convergence des méridiens ; la boîte de découpe locale est prise sur le coin le plus extérieur, afin que rien de ce que vous avez tracé ne soit rogné. Les côtés sont maintenus par défaut entre 100 m et 2000 m — au-delà, Overpass et le WFS commencent à refuser, et c’est dans Avancé que vous décidez à quelle distance de cette limite naviguer. Les tuiles du fond de plan et la recherche de lieu proviennent d’OpenStreetMap et de Nominatim ; ce sont des services gratuits, gardez donc les requêtes légères.',
+      body: 'Cliquez deux coins, ou faites glisser, sur la carte. Les côtés vont de 100 m à 1 km ; Avancé permet d’aller jusqu’à 2 km, au prix d’un chargement plus lent.',
     },
     {
-      title: 'Deux fournisseurs.',
-      body: 'OpenStreetMap fonctionne partout mais devine la hauteur à partir de `building:levels × 3`, puis d’une constante. En France, l’IGN Géoplateforme sert la BD TOPO avec une `hauteur` relevée sur presque chaque bâtiment, plus la végétation, l’hydrographie et les parcelles cadastrales — et `data.geopf.fr` envoie `Access-Control-Allow-Origin: *` sans clé d’API, ce qui reste aussi dépourvu de serveur qu’Overpass. Les arbres isolés font exception : la BD TOPO s’arrête aux polygones de végétation, ils viennent donc toujours d’OSM quel que soit le fournisseur.',
+      title: 'D’où viennent les données.',
+      body: 'OpenStreetMap partout. En France, l’IGN ajoute les hauteurs relevées des bâtiments, la végétation, l’eau et les parcelles cadastrales.',
     },
     {
-      title: 'Le sol.',
-      body: 'Terrarium, c’est une tuile de 256 pixels à environ 30 m de résolution. Le RGE ALTI de l’IGN est échantillonné sur un modèle à ~1 m et accepte 5000 points par requête : le maillage est donc dimensionné sur le rectangle — environ 9 m entre les points sur 600 m, 26 m sur 1800 — au lieu d’être figé à 17×17. Les couches nationales arrivent découpées à l’échelle de forêts et de réseaux hydrographiques entiers ; chaque polygone est donc découpé sur le rectangle du site avant d’atteindre la maquette.',
+      title: 'Ce que vous obtenez.',
+      body: 'Des volumes simples, sans toitures ni détails, placés à leur position réelle. Hors de France, les hauteurs sont estimées d’après le nombre d’étages — idéal pour le contexte, pas un relevé.',
     },
   ],
 };
