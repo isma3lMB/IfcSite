@@ -5,6 +5,8 @@ import { useT } from '@/lib/i18n/context';
 import type { IfcStats, SiteRect } from '@/lib/types';
 
 export type SiteReadoutProps = {
+  /** The stats toggle in the utility chip. */
+  visible: boolean;
   rect: SiteRect | null;
   buildings: number | null;
   stats: IfcStats | null;
@@ -55,8 +57,13 @@ export function SiteReadout(p: SiteReadoutProps) {
   // the row's height off the map.
   if (!m && p.buildings === null && !p.stats && !p.originLabel && !p.datum) return null;
 
+  // Hidden rather than unmounted when the toggle is off. It is the tallest thing
+  // in the overlay's bottom row, an `auto` track, so taking it out of the tree
+  // would hand that height to the `1fr` row above — and the rail's flyouts and
+  // the element editor, which stretch to that row, would grow and shrink with
+  // every press. visibility keeps its box, and takes it out of the a11y tree.
   return (
-    <div className="siteReadout">
+    <div className="siteReadout" style={p.visible ? undefined : { visibility: 'hidden' }}>
       {m && cell(t('bar.site'), `${n(Math.round(m.w))} × ${n(Math.round(m.h))} m`)}
       {p.buildings !== null && cell(t('read.buildings'), n(p.buildings))}
       {p.datum &&

@@ -10,34 +10,41 @@ export const en = {
   'app.description':
     'Generating an IFC model of site context from public cartographic data sources — buildings, roads and terrain, georeferenced, entirely in the browser. Open source.',
   'app.wordmark': 'IFC Site',
-  'app.tag': 'No server · runs in this tab',
+  'app.tag': 'Free · runs in your browser',
   'app.h1a': 'IFC',
   'app.h1b': 'Site',
   'app.sub':
-    'Generating an IFC model of site context from public cartographic data sources. Draw a rectangle on the map: it pulls the buildings, roads and terrain inside it, extrudes them, and writes a georeferenced IFC file — entirely in the browser.',
-  'app.badge': 'LOD100 massing\nIfcBuildingElementProxy\nLoGeoRef 50',
+    'Draw a rectangle on the map and get a 3D model of the site — buildings, roads and terrain — as an IFC file for your BIM software.',
   'app.langLabel': 'Language',
 
   /* ---- shell chrome. The viewers are full-bleed and everything else floats
      over them, so these label controls that have no room for prose. ---- */
   'ui.info': 'About this tool',
   'ui.close': 'Close',
-  /* The info panel's footer. The repo URL itself lives in the component — it is
-     the one string on this surface that does not translate. */
-  'info.openSource':
-    'IFC Site is an open source project. The whole pipeline — the Overpass and IGN queries, the geometry, the IFC writer — is on GitHub, and open to issues and pull requests.',
-  'info.github': 'View the source on GitHub',
+  /* The info panel's pinned footer. The author's name and every URL live in the
+     component — proper nouns, the same in every language. */
+  'info.github': 'Source code',
+  /* Followed by the author's name, linked to their about page. */
+  'info.madeBy': 'Author',
+  /* Followed by the commit id and its date, both filled in by the component. */
+  'info.version': 'Version',
   /* The credits block. The rows themselves — dataset names, licence names and
      URLs — are proper nouns and do not translate; they live in the same
      DATA_SOURCES table the IFC writer reads, so the page and the file cannot
      disagree about whose data this is. */
   'info.credits': 'Data sources and licences',
   'info.creditsLead':
-    'This tool is built on public data that is free to use on one condition: the credit travels with it. Every IFC it exports carries these terms per element, in an ePset_License property set, so the attribution reaches whoever you send the model to.',
+    'Built on free public data. Every exported IFC keeps these credits, so they travel with the model.',
+  /* The liability notice. Restates, in plain words, the warranty and liability
+     disclaimers of the GPL-3.0 (sections 15 and 16) the project ships under. */
+  'info.disclaimerTitle': 'Disclaimer',
+  'info.disclaimer':
+    'IFC Site is provided as is, without any warranty, under the GPL-3.0 licence. The data may be incomplete, outdated or inaccurate — check it before relying on it. The authors accept no liability for any damage or loss arising from the use of this tool or of the files it produces.',
   'ui.options': 'Options',
   'ui.originMarker': 'Show the model origin',
   'ui.projection': 'Orthographic view',
   'ui.presentation': 'Presentation mode',
+  'ui.stats': 'Show site statistics',
   /* The button is labelled with what pressing it does, not with the state it is
      in — an icon button has no room to say both, and the action is the useful
      half. */
@@ -50,8 +57,8 @@ export const en = {
   'rail.label': 'Tools',
   'rail.pan': 'Pan the map',
   'rail.select': 'Select (Esc)',
-  'rail.drawBox': 'Draw a box footprint',
-  'rail.drawPoly': 'Draw a polygon footprint',
+  'rail.drawBox': 'Draw a rectangle',
+  'rail.drawPoly': 'Draw a polygon',
   'rail.drawTree': 'Plant a tree',
   'rail.measure': 'Measure a distance',
   'rail.measureArea': 'Measure an area',
@@ -85,13 +92,10 @@ export const en = {
   /* ---- status bar: the one place anything is stated ---- */
   'bar.site': 'Site',
   'bar.origin': 'Origin',
-  'bar.rebuild': 'Rebuild model',
+  'bar.rebuild': 'Rebuild',
   'bar.stale': 'Site moved since the last build — rebuild before exporting.',
   'bar.presenting': 'Presentation — press Esc to exit.',
-  'bar.drawHeight': 'H (m)',
-  'bar.newHeightTitle': 'Height of the next drawn building (m)',
-  'bar.newTreeHeightTitle': 'Height of the next planted tree (m)',
-  'bar.drawHintRect': 'Drag on the ground to box out a footprint. Esc cancels.',
+  'bar.drawHintRect': 'Drag on the ground to box out a shape. Esc cancels.',
   'bar.drawHintPoly':
     'Click each corner on the ground — no crossing edges. Enter or the first corner closes it, Esc cancels.',
   'bar.drawHintPoints': '{n} corners — Enter closes, Esc cancels.',
@@ -105,15 +109,40 @@ export const en = {
   'bar.areaHintPoints': '{n} corners — the first corner or Enter closes, Esc cancels.',
   'bar.measureClear': 'Clear ({n})',
 
+  /* ---- the draw panel: what the next rectangle or polygon becomes. It takes
+     the element editor's place while a draw tool is armed — nothing can be
+     selected then, so the corner is free. ---- */
+  'draw.title': 'Draw',
+  'draw.toolRect': 'Rectangle',
+  'draw.toolPoly': 'Polygon',
+  'draw.toolTree': 'Tree',
+  'draw.close': 'Leave the tool (Esc)',
+  'draw.layer': 'Layer',
+  'draw.building': 'Building',
+  'draw.vegetation': 'Vegetation',
+  'draw.roads': 'Road',
+  'draw.water': 'Water',
+  'draw.void': 'Void',
+  'draw.height': 'Height (m)',
+  'draw.heightTitle': 'Height of the next drawn building (m)',
+  'draw.treeHeightTitle': 'Height of the next planted tree (m)',
+  'draw.drape': 'Drape onto terrain',
+  'draw.drapeHint':
+    'Ticked, the shape follows the ground under it. Unticked, it is held level at its lowest corner. Either way, a shape started on a roof stays flat on that roof.',
+  'draw.voidHint':
+    'Cuts a hole through the terrain. Buildings and surfaces above it are left as they are.',
+  'draw.noTerrain':
+    'This scene has no terrain mesh, so there is nothing to drape onto or cut through.',
+
   /* ---- the IFC panel: everything the exported file says about itself, off the
      wrench beside Download. None of it is a build input — see IfcMeta. ---- */
   'ifc.title': 'IFC file',
   'ifc.lead':
     'What the file says about itself. None of it is rebuilt — the model on screen is re-serialised as you type.',
   'ifc.schema': 'IFC schema',
-  'ifc.schema2x3': 'IFC2X3 — older readers',
+  'ifc.schema2x3': 'IFC2X3',
   'ifc.schema4': 'IFC4 — default',
-  'ifc.schema4x3': 'IFC4X3 — infrastructure',
+  'ifc.schema4x3': 'IFC4X3',
   'ifc.schemaBrepHint':
     'IFC2X3 has no tessellation, so terrain, roads and trees export as boundary representation — the same model, in a file several times the size.',
   'ifc.georefTarget': 'Georeferencing psets on',
@@ -265,6 +294,20 @@ export const en = {
   'ed.deleteTitle': 'Delete (Del)',
   'ed.drawnName': 'Drawn building',
   'ed.drawnTreeName': 'Drawn tree',
+  'ed.drawnVegName': 'Drawn vegetation',
+  'ed.drawnRoadName': 'Drawn road',
+  'ed.drawnWaterName': 'Drawn water',
+  'ed.drawnVoidName': 'Terrain void',
+  'ed.shapeLayer': 'Layer',
+  'ed.shapeHint':
+    'Drawn here. Moved or turned, it is fitted to the ground again where it lands — draped, or held level at its lowest corner, as it was drawn.',
+  'ed.voidHint':
+    'A hole drawn through the terrain. Move it and the hole moves with it; delete it to put the ground back.',
+  'ed.resetShape': 'Back to where drawn',
+  'ed.cutTerrain': 'Cut the terrain under it',
+  'ed.cutTerrainHint':
+    'Removes the ground inside the footprint and drops the base to the lowest ground under it, so no part of the underside hangs over the hole. The roof stays where it is. Carried into the IFC.',
+  'ed.cutNoTerrain': 'This scene has no terrain mesh to cut.',
   /* Appended to the name of whatever was copied, so the model tree lists the
      pair beside each other rather than twice under one name. */
   'ed.copySuffix': '(copy)',
@@ -345,8 +388,9 @@ export const en = {
   'status.drawCancelled': 'Drawing cancelled.',
   'status.cornerSet': 'Corner set — click the opposite corner. Esc cancels.',
   'status.noSiteYet': 'No site yet — click two opposite corners on the map.',
-  'status.drawTooSmall': 'Too small — a footprint needs at least 1 m².',
+  'status.drawTooSmall': 'Too small — a shape needs at least 1 m².',
   'status.drawFull': 'Building limit reached ({cap}) — delete something first.',
+  'status.voidNoTerrain': 'This scene has no terrain to cut a void through.',
   'status.measureCleared': 'Measurements cleared.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z to undo.',
   'status.undone': 'Undone: {label} — {name}.',
@@ -393,6 +437,8 @@ export const en = {
   'edit.opacity': 'Opacity',
   'edit.height': 'Height',
   'edit.add': 'New building',
+  'edit.addShape': 'New shape',
+  'edit.cut': 'Terrain cut',
   'edit.delete': 'Delete',
   'edit.duplicate': 'Duplicate',
   'edit.reset': 'Reset element',
@@ -405,7 +451,7 @@ export const en = {
   'confirm.discardTitle': 'Discard drawn elements?',
   'confirm.discardTitleOne': 'Discard the drawn element?',
   'confirm.discardDrawn':
-    'Rebuilding re-fetches the site from its sources, and {n} hand-drawn buildings and trees are not in them. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
+    'Rebuilding re-fetches the site from its sources, and {n} hand-drawn elements are not in them. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.discardDrawnOne':
     'Rebuilding re-fetches the site from its sources, and your hand-drawn element is not in them. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.rebuildAnyway': 'Rebuild anyway',
@@ -415,7 +461,7 @@ export const en = {
   'confirm.openTitle': 'Discard drawn elements?',
   'confirm.openTitleOne': 'Discard the drawn element?',
   'confirm.openOverDrawn':
-    'Opening a draft replaces everything on screen, and {n} hand-drawn buildings and trees are not in it. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
+    'Opening a draft replaces everything on screen, and {n} hand-drawn elements are not in it. They will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.openOverDrawnOne':
     'Opening a draft replaces everything on screen, and your hand-drawn element is not in it. It will be lost — this is the one edit Ctrl+Z cannot bring back.',
   'confirm.openAnyway': 'Open anyway',
@@ -457,31 +503,24 @@ export const en = {
   'err.slotsUnavailable':
     'This browser will not store drafts — private browsing, most likely. Export a draft file instead.',
 
-  /* ---- notes. `body` marks code spans with backticks. ---- */
+  /* ---- notes. Plain language for someone who just wants a site model.
+     `body` may mark code spans with backticks. ---- */
   notes: [
     {
-      title: 'What runs where.',
-      body: 'Everything is client side. Overpass sends `Access-Control-Allow-Origin: *`, so the browser can query it directly, and the IFC is serialised in JavaScript and handed to a Blob URL. No backend touches your data.',
-    },
-    {
-      title: 'Winding.',
-      body: 'OSM footprints come in both directions. IFC profiles need counter-clockwise outer curves, so every ring is checked by signed area and reversed if needed — skip this and roughly half your buildings render inverted or vanish.',
-    },
-    {
-      title: 'Georeferencing.',
-      body: 'Written as `IfcMapConversion` + `IfcProjectedCRS`. `Scale` is 1.0, which is fine at this extent; over several kilometres substitute the real combined grid factor or your model will disagree with the surveyor’s.',
+      title: 'Private.',
+      body: 'Everything happens in your browser. Nothing you draw or export goes through a server.',
     },
     {
       title: 'Drawing the site.',
-      body: 'The rectangle you place on the OpenStreetMap basemap — two corner clicks, or one drag — is the whole site definition. Nothing is selected until you draw it: its bounds go to Overpass and the IGN WFS as a bbox, size the terrain grid, and clip every polygon that crosses the edge. It is a WGS84 rectangle, so in a projected CRS it is very slightly rotated by grid convergence; the local clip box is taken from the outermost corner so nothing you drew is cropped. Sides are held between 100 m and 2000 m by default — past that Overpass and the WFS start refusing, and Advanced is where you decide how close to that you want to sail. Basemap tiles and the place search come from OpenStreetMap and Nominatim; both are free services, so keep the requests light.',
+      body: 'Click two corners, or drag, on the map. Sides go from 100 m to 1 km; Advanced lets you go up to 2 km, but it loads slower.',
     },
     {
-      title: 'Two providers.',
-      body: 'OpenStreetMap works anywhere but guesses height from `building:levels × 3` and then a constant. Inside France, IGN Géoplateforme serves BD TOPO with a surveyed `hauteur` on nearly every building, plus vegetation, water and cadastral parcels — and `data.geopf.fr` sends `Access-Control-Allow-Origin: *` with no API key, so it stays as server-free as Overpass. Individual trees are the exception: BD TOPO stops at vegetation polygons, so those still come from OSM under both providers.',
+      title: 'Where the data comes from.',
+      body: 'OpenStreetMap everywhere. In France, IGN adds measured building heights, vegetation, water and land parcels.',
     },
     {
-      title: 'Ground.',
-      body: 'Terrarium is one 256-pixel tile of roughly 30 m data. IGN RGE ALTI is sampled from a ~1 m model and takes 5000 points per request, so the mesh is sized to the rectangle — about 9 m between posts across 600 m, 26 m across 1800 — instead of being pinned at 17×17. National layers arrive cut to whole forests and river systems, so every polygon is clipped to the site rectangle before it reaches the model.',
+      title: 'What you get.',
+      body: 'Simple blocks, no roofs or details, placed at their real-world position. Outside France, heights are estimated from floor counts — good for site context, not a survey.',
     },
   ],
 } as const;

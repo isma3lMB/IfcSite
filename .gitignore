@@ -40,3 +40,6 @@ desktop.ini
 
 # deploy
 .vercel
+
+# claude code
+.claude/

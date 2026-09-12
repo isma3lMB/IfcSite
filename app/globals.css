@@ -993,33 +993,6 @@ html.dark {
     padding: 7px 12px;
   }
 
-  /* Not information, but the bar is the only horizontal surface left — and the
-     field only exists while a footprint tool is armed. */
-  .barHeight {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: none;
-  }
-  /* The one thing left in this row that is bare text. With the tray gone it sits
-     straight on the viewer, so it takes the same halo .siteReadout uses to stay
-     legible over a basemap — the input beside it needs nothing, being opaque and
-     ink-bordered already. */
-  .barHeight > span {
-    font: 600 10px/1 var(--font-mono);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-ink-soft);
-    white-space: nowrap;
-    text-shadow:
-      0 1px 1px var(--color-surface),
-      0 0 4px var(--color-surface);
-  }
-  .barHeight .ctl-input {
-    width: 74px;
-    padding: 6px 8px;
-  }
-
   /* ---- info overlay: the header prose and the notes, on demand ---- */
   .infoOverlay {
     position: fixed;
@@ -1068,32 +1041,44 @@ html.dark {
     padding-top: 18px;
     border-top: 1px solid var(--color-ink);
   }
+  /* Pinned under the scroller, a sibling of .infoHead and .infoBody: the author,
+     the repo and the build never scroll away. */
   .infoFoot {
+    flex: none;
     display: flex;
     align-items: center;
-    gap: 14px;
+    justify-content: space-between;
+    gap: 10px 18px;
     flex-wrap: wrap;
     margin-top: 12px;
-    padding-top: 18px;
+    padding-top: 16px;
     border-top: 1px solid var(--color-ink);
-    font-size: 13px;
-    line-height: 1.7;
     color: var(--color-ink-soft);
-  }
-  .infoFoot p {
-    margin: 0;
-    flex: 1 1 22ch;
   }
   /* Sizes to its label, like every other btn-ghost outside the 330 px sidebar
      it was born in. */
   .infoFoot .btn-ghost {
     display: inline-flex;
     align-items: center;
+    gap: 8px;
     width: auto;
     padding: 9px 16px;
     text-decoration: none;
     white-space: nowrap;
     flex: none;
+  }
+  /* Author, then commit and date. The two spans wrap as units, so a narrow card
+     breaks between them rather than inside "Version 7a4f826". */
+  .infoMeta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    font: 500 11px/1.5 var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .infoMeta a {
+    color: var(--color-ink);
   }
 
   /* ---- confirm card ----
@@ -1426,6 +1411,15 @@ html.dark {
   }
   .editPanel .field {
     margin-bottom: 12px;
+  }
+  /* The draw panel takes the editor's corner and its type, but not its height:
+     five radios and a field stretched down the whole column is a card of
+     nothing covering the viewer the next shape is being drawn in. Declared
+     before the narrow tiers on purpose — they set .editPanel's align-self back
+     to `end`, and at the same specificity the later rule wins, so on a narrow
+     window it is a bottom sheet like the editor. */
+  .drawPanel {
+    align-self: start;
   }
   .editHead {
     display: flex;
@@ -1990,6 +1984,10 @@ html.dark {
   .siteReadout {
     display: none;
   }
+  /* The readout's toggle goes with it, or it would be a button that does nothing. */
+  .statsBtn {
+    display: none;
+  }
   /* The bar takes the whole foot of a narrow window, and the element editor
      becomes a bottom sheet above it (see .editPanel), so there is no room left
      on the bar's line. The toast goes to the top of row 2 instead: still over
@@ -2217,10 +2215,6 @@ html.dark {
      take pinch-zoom away from everybody, so it is not the fix. */
   .ctl-input {
     font-size: 16px;
-  }
-  /* 74 was sized for 13px mono and clips three digits at 16. */
-  .barHeight .ctl-input {
-    width: 86px;
   }
 }
 

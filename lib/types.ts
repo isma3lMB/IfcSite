@@ -58,6 +58,21 @@ export type Xf = {
    * makes for the context layers.
    */
   opacity: number;
+  /**
+   * Whether this building holes the terrain under its footprint. Buildings
+   * only; a tree never carries it.
+   *
+   * On the Xf beside colour and opacity because it has their lifetime and their
+   * rules: a choice the user makes on one element, carried into the file, undone
+   * with the same Ctrl+Z, applied across a multi-selection, copied by Duplicate
+   * and saved in a draft — all of which the Xf already does. Optional, so every
+   * record written before it existed reads as uncut.
+   *
+   * On, the ground under the footprint is cut away (see cutRings in
+   * lib/scene/cut) and the base drops to the lowest ground beneath it, so no
+   * part of the underside is left hanging over the hole (see plinthOf).
+   */
+  cut?: boolean;
 };
 
 export type PropBag = Record<string, string | number>;
@@ -111,11 +126,88 @@ export type Surface = {
    *  and hedges apart, and the viewer needs to know to give each its own
    *  render-order/polygon-offset so the stacking order always holds on screen. */
   layer?: SurfaceLayer;
+  /**
+   * Set on a surface drawn in the 3D view, and only there. A fetched surface is
+   * one of hundreds with nothing to address it by, so it has never needed an
+   * id; a drawn one is selectable, deletable and listed in the model tree, all
+   * three of which go by id.
+   */
+  id?: string;
+  /** Hand-drawn rather than fetched — the same narrow job Tree.src does: it
+   *  drives the rebuild warning, and it keeps a licence credit off something
+   *  no dataset produced. */
+  src?: 'user';
+  /** How a drawn surface was made, which is what lets it move: see DrawnSpec.
+   *  Absent on every fetched surface. */
+  drawn?: DrawnSpec;
 };
 
-/** The context-surface tiers. A subset of LayerId, and the discriminator the
- *  viewer's render order and lib/scene/stack's opacity table are keyed on. */
-export type SurfaceLayer = 'vegetation' | 'water' | 'parcel' | 'hedge';
+/**
+ * The recipe a drawn surface is regenerated from.
+ *
+ * A draped skin cannot be moved rigidly — slid across a slope it would float on
+ * one side and bury itself on the other — so moving one means building it again
+ * where it now stands. `verts` and `faces` on the Surface are that build's
+ * output, kept current so the viewer and the IFC writer can go on reading them
+ * as they read any other surface; this is what they are rebuilt from.
+ */
+export type DrawnSpec = {
+  /** The corners as drawn, local site metres, before any move. */
+  ring: Vec2[];
+  /** Follow the ground rather than sit level. */
+  drape: boolean;
+  /** The roof the shape was started on, or null for the ground. A shape on a
+   *  roof stays on that roof's plane wherever it is moved. */
+  roofZ: number | null;
+  /** The move, as an offset from where it was drawn and a turn about the ring's
+   *  own centre. Only pos[0..1] and rot[2] are read: a skin on the ground has no
+   *  height to lift, and tipping one would tear it off the terrain. */
+  xf: Xf;
+};
+
+/**
+ * The context-surface tiers. A subset of LayerId, and the discriminator the
+ * viewer's render order and lib/scene/stack's opacity table are keyed on.
+ *
+ * `roads` is here only for surfaces drawn by hand. Fetched roads stay one
+ * merged ribbon (SceneData.roads); a drawn road area is its own element in the
+ * same layer, so it can be selected and deleted without splicing faces out of
+ * that ribbon.
+ */
+export type SurfaceLayer = 'vegetation' | 'water' | 'parcel' | 'hedge' | 'roads';
+
+/**
+ * A hole cut through the terrain, drawn in the 3D view.
+ *
+ * Stored as the ring it was drawn with rather than baked into the grid:
+ * `SceneData.terrain` is also what every drape and every elevation lookup
+ * reads, and a lattice with holes in it would leave those with nothing to
+ * sample. The cut is derived where the ground is drawn and written — see
+ * cutTerrain in lib/geo/voids.
+ */
+export type TerrainVoid = {
+  id: string;
+  name: string;
+  /** As drawn, local site metres, open (see dedupe in lib/geo/rings). Where it
+   *  sits now is this through `xf` — see placeRing in lib/scene/drawn. */
+  ring: Vec2[];
+  /** The move, read the way DrawnSpec.xf is: pos[0..1] and rot[2]. */
+  xf: Xf;
+};
+
+/**
+ * What a rectangle or polygon drawn in the 3D view becomes.
+ *
+ * Named in the scene's vocabulary where a LayerId exists for it (`roads`,
+ * `vegetation`, `water`), with `building` for a massing and `void` for a hole
+ * in the terrain — neither of which is a layer on its own.
+ */
+export const DRAW_LAYERS = ['building', 'vegetation', 'roads', 'water', 'void'] as const;
+
+export type DrawLayer = (typeof DRAW_LAYERS)[number];
+
+/** The draw layers that lie on the ground and so can follow it. */
+export const DRAPEABLE: ReadonlySet<DrawLayer> = new Set<DrawLayer>(['vegetation', 'roads', 'water']);
 
 /**
  * The top-level nodes of the model tree, in the order the tree lists them.
@@ -241,6 +333,9 @@ export type SceneData = {
   datumZ: number | null;
   surfaces: Surface[];
   trees: Tree[];
+  /** Holes drawn through the terrain. Only ever hand-drawn, and only meaningful
+   *  while `terrain` is set — a flat scene has no ground in the file to hole. */
+  voids: TerrainVoid[];
   /**
    * Layer-level colour and offset, one entry per LayerId.
    *
@@ -269,6 +364,7 @@ export const emptyScene = (): SceneData => ({
   datumZ: null,
   surfaces: [],
   trees: [],
+  voids: [],
   layers: newLayerState(),
 });
 

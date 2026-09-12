@@ -3,8 +3,9 @@ import type { Dict } from '@/lib/i18n/en';
 /**
  * French — the default language, and the one the page boots into.
  *
- * Register follows the original: terse and technical, addressing someone who
- * already knows what a CRS and a swept solid are. GIS terms use the vocabulary
+ * The tool strings are terse and technical, addressing someone who already
+ * knows what a CRS and a swept solid are; the info panel (app.sub, info.*,
+ * notes) is plain language for anyone. GIS terms use the vocabulary
  * QGIS and the IGN use in French ("SCR", "emprise", "BD TOPO"), and IFC entity
  * names are left untranslated because they are schema identifiers.
  */
@@ -14,27 +15,30 @@ export const fr: Dict = {
   'app.description':
     'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques — bâtiments, voiries et terrain, géoréférencés, dans le navigateur.',
   'app.wordmark': 'IFC Site',
-  'app.tag': 'Sans serveur · s’exécute dans cet onglet',
+  'app.tag': 'Gratuit · fonctionne dans votre navigateur',
   'app.h1a': 'IFC',
   'app.h1b': 'Site',
   'app.sub':
-    'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques. Tracez un rectangle sur la carte : il récupère les bâtiments, les voiries et le terrain qu’il contient, les extrude et écrit un fichier IFC géoréférencé — entièrement dans le navigateur.',
-  'app.badge': 'Volumétrie LOD100\nIfcBuildingElementProxy\nLoGeoRef 50',
+    'Tracez un rectangle sur la carte et obtenez une maquette 3D du site — bâtiments, voiries et terrain — en fichier IFC pour votre logiciel BIM.',
   'app.langLabel': 'Langue',
 
   /* ---- habillage ---- */
   'ui.info': 'À propos de cet outil',
   'ui.close': 'Fermer',
-  'info.openSource':
-    'IFC Site est un projet open source. Toute la chaîne — les requêtes Overpass et IGN, la géométrie, l’écriture de l’IFC — est sur GitHub, ouverte aux tickets et aux pull requests.',
-  'info.github': 'Voir le code source sur GitHub',
+  'info.github': 'Code source',
+  'info.madeBy': 'Développé par',
+  'info.version': 'Version',
   'info.credits': 'Sources de données et licences',
   'info.creditsLead':
-    'Cet outil repose sur des données publiques, libres d’usage à une condition : la mention doit voyager avec elles. Chaque IFC exporté porte ces termes élément par élément, dans un jeu de propriétés ePset_License, pour que l’attribution parvienne à qui vous transmettez la maquette.',
+    'Construit sur des données publiques gratuites. Chaque IFC exporté conserve ces mentions, qui suivent la maquette.',
+  'info.disclaimerTitle': 'Avertissement',
+  'info.disclaimer':
+    'IFC Site est fourni tel quel, sans aucune garantie, sous licence GPL-3.0. Les données peuvent être incomplètes, périmées ou inexactes — vérifiez-les avant de vous y fier. Les auteurs déclinent toute responsabilité pour tout dommage ou perte résultant de l’utilisation de cet outil ou des fichiers qu’il produit.',
   'ui.options': 'Options',
   'ui.originMarker': 'Afficher l’origine du modèle',
   'ui.projection': 'Vue orthographique',
   'ui.presentation': 'Mode présentation',
+  'ui.stats': 'Afficher les statistiques du site',
   'ui.themeDark': 'Passer au thème sombre',
   'ui.themeLight': 'Passer au thème clair',
   'ui.dismiss': 'Masquer',
@@ -44,8 +48,8 @@ export const fr: Dict = {
   'rail.label': 'Outils',
   'rail.pan': 'Déplacer la carte',
   'rail.select': 'Sélectionner (Échap)',
-  'rail.drawBox': 'Tracer une emprise rectangulaire',
-  'rail.drawPoly': 'Tracer une emprise polygonale',
+  'rail.drawBox': 'Tracer un rectangle',
+  'rail.drawPoly': 'Tracer un polygone',
   'rail.drawTree': 'Planter un arbre',
   'rail.measure': 'Mesurer une distance',
   'rail.measureArea': 'Mesurer une surface',
@@ -81,13 +85,10 @@ export const fr: Dict = {
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
   'bar.site': 'Site',
   'bar.origin': 'Origine',
-  'bar.rebuild': 'Reconstruire la maquette',
+  'bar.rebuild': 'Reconstruire',
   'bar.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
   'bar.presenting': 'Présentation — Échap pour quitter.',
-  'bar.drawHeight': 'H (m)',
-  'bar.newHeightTitle': 'Hauteur du prochain bâtiment tracé (m)',
-  'bar.newTreeHeightTitle': 'Hauteur du prochain arbre planté (m)',
-  'bar.drawHintRect': 'Glissez sur le sol pour tracer une emprise rectangulaire. Échap annule.',
+  'bar.drawHintRect': 'Glissez sur le sol pour tracer un rectangle. Échap annule.',
   'bar.drawHintPoly':
     'Cliquez chaque sommet sur le sol — sans arêtes croisées. Entrée ou le premier sommet ferme le contour, Échap annule.',
   'bar.drawHintPoints': '{n} sommets — Entrée ferme, Échap annule.',
@@ -103,14 +104,38 @@ export const fr: Dict = {
   'bar.areaHintPoints': '{n} sommets — le premier sommet ou Entrée ferme, Échap annule.',
   'bar.measureClear': 'Effacer ({n})',
 
+  /* ---- le panneau de tracé : ce que devient le prochain rectangle ou polygone.
+     Il prend la place de l’éditeur d’élément tant qu’un outil est armé. ---- */
+  'draw.title': 'Tracer',
+  'draw.toolRect': 'Rectangle',
+  'draw.toolPoly': 'Polygone',
+  'draw.toolTree': 'Arbre',
+  'draw.close': 'Quitter l’outil (Échap)',
+  'draw.layer': 'Calque',
+  'draw.building': 'Bâtiment',
+  'draw.vegetation': 'Végétation',
+  'draw.roads': 'Voirie',
+  'draw.water': 'Eau',
+  'draw.void': 'Vide',
+  'draw.height': 'Hauteur (m)',
+  'draw.heightTitle': 'Hauteur du prochain bâtiment tracé (m)',
+  'draw.treeHeightTitle': 'Hauteur du prochain arbre planté (m)',
+  'draw.drape': 'Draper sur le terrain',
+  'draw.drapeHint':
+    'Coché, la forme suit le sol sous elle. Décoché, elle reste de niveau à son sommet le plus bas. Dans les deux cas, une forme commencée sur un toit reste à plat sur ce toit.',
+  'draw.voidHint':
+    'Perce un trou dans le terrain. Les bâtiments et les surfaces au-dessus restent tels quels.',
+  'draw.noTerrain':
+    'Cette scène n’a pas de maillage de terrain : rien sur quoi draper, rien à percer.',
+
   /* ---- the IFC panel ---- */
   'ifc.title': 'Fichier IFC',
   'ifc.lead':
     'Ce que le fichier dit de lui-même. Rien n’est reconstruit : le modèle à l’écran est ré-sérialisé au fil de la saisie.',
   'ifc.schema': 'Schéma IFC',
-  'ifc.schema2x3': 'IFC2X3 — lecteurs anciens',
+  'ifc.schema2x3': 'IFC2X3',
   'ifc.schema4': 'IFC4 — par défaut',
-  'ifc.schema4x3': 'IFC4X3 — infrastructure',
+  'ifc.schema4x3': 'IFC4X3',
   'ifc.schemaBrepHint':
     'IFC2X3 ne connaît pas la tessellation : le terrain, les voiries et les arbres sont exportés en représentation par frontières — le même modèle, dans un fichier plusieurs fois plus lourd.',
   'ifc.georefTarget': 'Psets de géoréférencement sur',
@@ -253,6 +278,20 @@ export const fr: Dict = {
   'ed.deleteTitle': 'Supprimer (Suppr)',
   'ed.drawnName': 'Bâtiment tracé',
   'ed.drawnTreeName': 'Arbre planté',
+  'ed.drawnVegName': 'Végétation tracée',
+  'ed.drawnRoadName': 'Voirie tracée',
+  'ed.drawnWaterName': 'Eau tracée',
+  'ed.drawnVoidName': 'Vide de terrain',
+  'ed.shapeLayer': 'Calque',
+  'ed.shapeHint':
+    'Tracée ici. Déplacée ou tournée, elle est ajustée de nouveau au sol là où elle arrive — drapée, ou de niveau à son sommet le plus bas, comme elle a été tracée.',
+  'ed.voidHint':
+    'Un trou tracé dans le terrain. Déplacez-le et le trou le suit ; supprimez-le pour rendre le sol.',
+  'ed.resetShape': 'Revenir au tracé',
+  'ed.cutTerrain': 'Découper le terrain dessous',
+  'ed.cutTerrainHint':
+    'Retire le sol à l’intérieur de l’emprise et abaisse la base jusqu’au point le plus bas du sol dessous, pour qu’aucune partie du dessous ne surplombe le trou. Le toit ne bouge pas. Reporté dans l’IFC.',
+  'ed.cutNoTerrain': 'Cette scène n’a pas de maillage de terrain à découper.',
   'ed.copySuffix': '(copie)',
   'ed.position': 'Décalage de position (m)',
   'ed.rotation': 'Rotation (°)',
@@ -330,8 +369,9 @@ export const fr: Dict = {
   'status.drawCancelled': 'Tracé annulé.',
   'status.cornerSet': 'Premier coin posé — cliquez le coin opposé. Échap annule.',
   'status.noSiteYet': 'Aucun site — cliquez deux coins opposés sur la carte.',
-  'status.drawTooSmall': 'Trop petit — une emprise doit faire au moins 1 m².',
+  'status.drawTooSmall': 'Trop petit — une forme doit faire au moins 1 m².',
   'status.drawFull': 'Limite de bâtiments atteinte ({cap}) — supprimez-en un d’abord.',
+  'status.voidNoTerrain': 'Cette scène n’a pas de terrain dans lequel percer un vide.',
   'status.measureCleared': 'Mesures effacées.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z pour annuler.',
   'status.undone': 'Annulé : {label} — {name}.',
@@ -379,6 +419,8 @@ export const fr: Dict = {
   'edit.opacity': 'Opacité',
   'edit.height': 'Hauteur',
   'edit.add': 'Nouveau bâtiment',
+  'edit.addShape': 'Nouvelle forme',
+  'edit.cut': 'Découpe du terrain',
   'edit.delete': 'Suppression',
   'edit.duplicate': 'Duplication',
   'edit.reset': 'Élément réinitialisé',
@@ -389,7 +431,7 @@ export const fr: Dict = {
   'confirm.discardTitle': 'Supprimer les éléments tracés ?',
   'confirm.discardTitleOne': 'Supprimer l’élément tracé ?',
   'confirm.discardDrawn':
-    'Reconstruire recharge le site depuis ses sources, où vos {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Reconstruire recharge le site depuis ses sources, où vos {n} éléments tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.discardDrawnOne':
     'Reconstruire recharge le site depuis ses sources, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.rebuildAnyway': 'Reconstruire quand même',
@@ -400,7 +442,7 @@ export const fr: Dict = {
   'confirm.openTitle': 'Abandonner les éléments tracés ?',
   'confirm.openTitleOne': 'Abandonner l’élément tracé ?',
   'confirm.openOverDrawn':
-    'Ouvrir une ébauche remplace tout ce qui est à l’écran, où {n} bâtiments et arbres tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
+    'Ouvrir une ébauche remplace tout ce qui est à l’écran, où {n} éléments tracés à la main ne figurent pas. Ils seront perdus — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.openOverDrawnOne':
     'Ouvrir une ébauche remplace tout ce qui est à l’écran, où votre élément tracé à la main ne figure pas. Il sera perdu — c’est la seule modification que Ctrl+Z ne peut pas rétablir.',
   'confirm.openAnyway': 'Ouvrir quand même',
@@ -445,28 +487,20 @@ export const fr: Dict = {
   /* ---- notes ---- */
   notes: [
     {
-      title: 'Où tout s’exécute.',
-      body: 'Tout est côté client. Overpass envoie `Access-Control-Allow-Origin: *`, le navigateur peut donc l’interroger directement, et l’IFC est sérialisé en JavaScript puis remis à une URL Blob. Aucun serveur ne touche vos données.',
-    },
-    {
-      title: 'Sens de parcours.',
-      body: 'Les emprises OSM arrivent dans les deux sens. Les profils IFC exigent des contours extérieurs dans le sens trigonométrique : chaque anneau est donc vérifié par son aire signée et inversé si besoin — sans cela, près de la moitié des bâtiments s’affichent retournés ou disparaissent.',
-    },
-    {
-      title: 'Géoréférencement.',
-      body: 'Écrit sous forme d’`IfcMapConversion` + `IfcProjectedCRS`. `Scale` vaut 1.0, ce qui convient à cette emprise ; au-delà de quelques kilomètres, substituez le facteur d’échelle combiné réel, sinon votre maquette divergera de celle du géomètre.',
+      title: 'Confidentiel.',
+      body: 'Tout se passe dans votre navigateur. Rien de ce que vous tracez ou exportez ne passe par un serveur.',
     },
     {
       title: 'Tracer le site.',
-      body: 'Le rectangle que vous posez sur le fond OpenStreetMap — deux clics de coin, ou un glisser — constitue toute la définition du site. Rien n’est sélectionné tant que vous ne l’avez pas tracé : ses limites partent vers Overpass et le WFS de l’IGN comme bbox, dimensionnent la grille de terrain et découpent tout polygone qui franchit le bord. C’est un rectangle WGS84 : dans un SCR projeté il est donc très légèrement pivoté par la convergence des méridiens ; la boîte de découpe locale est prise sur le coin le plus extérieur, afin que rien de ce que vous avez tracé ne soit rogné. Les côtés sont maintenus par défaut entre 100 m et 2000 m — au-delà, Overpass et le WFS commencent à refuser, et c’est dans Avancé que vous décidez à quelle distance de cette limite naviguer. Les tuiles du fond de plan et la recherche de lieu proviennent d’OpenStreetMap et de Nominatim ; ce sont des services gratuits, gardez donc les requêtes légères.',
+      body: 'Cliquez deux coins, ou faites glisser, sur la carte. Les côtés vont de 100 m à 1 km ; Avancé permet d’aller jusqu’à 2 km, au prix d’un chargement plus lent.',
     },
     {
-      title: 'Deux fournisseurs.',
-      body: 'OpenStreetMap fonctionne partout mais devine la hauteur à partir de `building:levels × 3`, puis d’une constante. En France, l’IGN Géoplateforme sert la BD TOPO avec une `hauteur` relevée sur presque chaque bâtiment, plus la végétation, l’hydrographie et les parcelles cadastrales — et `data.geopf.fr` envoie `Access-Control-Allow-Origin: *` sans clé d’API, ce qui reste aussi dépourvu de serveur qu’Overpass. Les arbres isolés font exception : la BD TOPO s’arrête aux polygones de végétation, ils viennent donc toujours d’OSM quel que soit le fournisseur.',
+      title: 'D’où viennent les données.',
+      body: 'OpenStreetMap partout. En France, l’IGN ajoute les hauteurs relevées des bâtiments, la végétation, l’eau et les parcelles cadastrales.',
     },
     {
-      title: 'Le sol.',
-      body: 'Terrarium, c’est une tuile de 256 pixels à environ 30 m de résolution. Le RGE ALTI de l’IGN est échantillonné sur un modèle à ~1 m et accepte 5000 points par requête : le maillage est donc dimensionné sur le rectangle — environ 9 m entre les points sur 600 m, 26 m sur 1800 — au lieu d’être figé à 17×17. Les couches nationales arrivent découpées à l’échelle de forêts et de réseaux hydrographiques entiers ; chaque polygone est donc découpé sur le rectangle du site avant d’atteindre la maquette.',
+      title: 'Ce que vous obtenez.',
+      body: 'Des volumes simples, sans toitures ni détails, placés à leur position réelle. Hors de France, les hauteurs sont estimées d’après le nombre d’étages — idéal pour le contexte, pas un relevé.',
     },
   ],
 };

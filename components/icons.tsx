@@ -107,6 +107,17 @@ export const IconMoon = () => (
   </Svg>
 );
 
+/* Three bars on a baseline, for the readout of site figures. Filled for the same
+   reason as the theme pair: hollow bars at this size read as a row of slots. */
+export const IconStats = () => (
+  <Svg>
+    <path d="M2 14h12" />
+    <rect x="3.5" y="8" width="2" height="5" fill="currentColor" stroke="none" />
+    <rect x="7" y="3" width="2" height="10" fill="currentColor" stroke="none" />
+    <rect x="10.5" y="6" width="2" height="7" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 export const IconPan = () => (
   <Svg>
     <path d="M8 1.5v13M1.5 8h13" />
@@ -380,6 +391,19 @@ export const IconRename = () => (
   </Svg>
 );
 
+/* The GitHub mark (Octicons' mark-github, MIT). The one glyph not drawn in this
+   set's stroke language: it is a logo, and a logo is reproduced, not redrawn —
+   so it is a filled silhouette on the same 16 grid. */
+export const IconGitHub = () => (
+  <Svg>
+    <path
+      fill="currentColor"
+      stroke="none"
+      d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+    />
+  </Svg>
+);
+
 /* =====================================================================
    The layer glyphs.
 
@@ -493,6 +517,17 @@ export const IconLayerParcel = () => (
   <Svg>
     <path d="M2.2 5 9 2.2 13.8 6 7 13.8Z" />
     <path d="M5.6 3.6 10.4 9.9" />
+  </Svg>
+);
+
+/* A hole through the ground, in section: the ground line drops into a pit and
+   comes back up. The floor of the pit is dashed because it is not ground — it is
+   where the terrain stops, which is the whole of what a void is. Not a layer of
+   its own (a void is listed under the terrain), so it is not in LAYER_ICON. */
+export const IconVoid = () => (
+  <Svg>
+    <path d="M1.5 6.5h3.5v6.5M11 13V6.5h3.5" />
+    <path d="M5 13h6" strokeDasharray="1 1.6" />
   </Svg>
 );
 

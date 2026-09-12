@@ -85,6 +85,10 @@ export function ToolRail(p: ToolRailProps) {
   // selected. Disabling the three buttons states that; letting them look live
   // and do nothing would not.
   const translateOnly = p.selection?.kind === 'origin' || p.selection?.kind === 'layer';
+  // A drawn shape moves and turns but does not stretch — it is fitted to the
+  // ground again wherever it lands, and a scaled draped skin would come off it —
+  // and it is not duplicated, since a copy would only land on top of itself.
+  const shape = p.selection?.kind === 'shape';
 
   const groups: RailBtn[][] = is3d
     ? [
@@ -160,19 +164,20 @@ export function ToolRail(p: ToolRailProps) {
             icon: <IconScale />,
             tip: t('ed.scale'),
             on: p.gizmoMode === 'scale',
-            disabled: translateOnly,
+            disabled: translateOnly || shape,
             onClick: () => p.onMode('scale'),
           },
           // In this group rather than one of its own — it acts on the selection,
           // which is what the three above have in common — but it is a command,
           // not a mode, so it never takes a pressed state. Disabled with nothing
-          // selected, and for the origin and the layers, which are not records
-          // there is anything to copy.
+          // selected, for the origin and the layers, which are not records there
+          // is anything to copy, and for a drawn shape, which is fitted to the
+          // ground where it lies and would only land on top of itself.
           {
             key: 'dup',
             icon: <IconDuplicate />,
             tip: t('ed.duplicate'),
-            disabled: !p.selection || translateOnly,
+            disabled: !p.selection || translateOnly || shape,
             onClick: p.onDuplicate,
           },
         ],

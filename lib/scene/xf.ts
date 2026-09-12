@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Building, Xf } from '@/lib/types';
+import type { Building, Vec2, Xf } from '@/lib/types';
 
 /** No mirroring: a negative scale would flip ring winding. */
 export const MIN_SCALE = 0.05;
@@ -14,18 +14,23 @@ export const newXf = (): Xf => ({
   opacity: 1,
 });
 
+/* `cut` is copied only when set, so an Xf that never had it comes back without
+   it — a clone must compare equal to its source, and to a newXf(), under a deep
+   equality that tells `false` from absent. */
 export const cloneXf = (x: Xf): Xf => ({
   pos: [...x.pos],
   rot: [...x.rot],
   scale: [...x.scale],
   color: x.color,
   opacity: x.opacity,
+  ...(x.cut ? { cut: true } : {}),
 });
 
 export function sameXf(a: Xf, b: Xf): boolean {
   return (
     a.color === b.color &&
     Math.abs(a.opacity - b.opacity) < 1e-9 &&
+    !!a.cut === !!b.cut &&
     (['pos', 'rot', 'scale'] as const).every((k) =>
       a[k].every((v, i) => Math.abs(v - b[k][i]) < 1e-9),
     )
@@ -43,6 +48,27 @@ export function sameXf(a: Xf, b: Xf): boolean {
  *  A building tipped about X or Y has no single roof elevation to give. */
 export const roofZ = (b: Building): number =>
   (b.baseZ || 0) + b.xf.pos[2] + b.h * b.xf.scale[2];
+
+/**
+ * Where a building stands in plan: its ring through the edit, in site metres.
+ *
+ * The same M = T·R·S the preview and the writer compose, projected straight
+ * down — scale, then the turn about Z, then the offset from its centre. Turns
+ * about X and Y are left out: a building tipped over has no single footprint,
+ * and the gizmo never makes one on its own. Exact for everything it does make.
+ */
+export function footprintOf(b: Building): Vec2[] {
+  const [sx, sy] = b.xf.scale;
+  const c = Math.cos(b.xf.rot[2]);
+  const s = Math.sin(b.xf.rot[2]);
+  const ox = b.center[0] + b.xf.pos[0];
+  const oy = b.center[1] + b.xf.pos[1];
+  return b.ring.map(([x, y]): Vec2 => {
+    const u = x * sx;
+    const v = y * sy;
+    return [ox + u * c - v * s, oy + u * s + v * c];
+  });
+}
 
 /** off-white = sourced massing, blue = drawn here. Height source no longer tints
  *  the massing: tagged and estimated buildings read as one material, and the

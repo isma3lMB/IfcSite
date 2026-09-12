@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { DEFAULT_TUNABLES, TUNE_RANGE } from '@/lib/build/tunables';
+import { triangulate } from '@/lib/geo/mesh';
+import { densify, ringCentre } from '@/lib/geo/rings';
 import { treeCanopyGeometry, treeTrunkGeometry, treeTrunkHeight } from '@/lib/geo/treeShape';
+import { cutTerrain, groundAt } from '@/lib/geo/voids';
+import { cutRings, plinthOf } from '@/lib/scene/cut';
+import { type DrawnSurfaceLayer, buildDrawn, placeRing } from '@/lib/scene/drawn';
 import {
   LAYER_LABEL,
   MOVABLE_LAYERS,
@@ -12,6 +17,7 @@ import {
   defaultLayerColor,
   defaultLayerOpacity,
   layerAlpha,
+  layerColor,
   layerCount,
   readStyle,
   sameLayerXf,
@@ -64,13 +70,18 @@ import { type ViewAxis, type ViewTriad, axisEye, createViewTriad } from '@/lib/v
 import type { EditLabelKey, Params, StatusKey } from '@/lib/i18n/keys';
 import {
   type Building,
+  type DrawLayer,
+  type DrawnSpec,
   type GizmoMode,
   LAYER_IDS,
   type LayerId,
   type LayerXf,
+  type SampleZ,
   type SceneData,
   type Site,
   type Surface,
+  type TerrainVoid,
+  type ToGeo,
   type Tree,
   type Vec2,
   type Vec3,
@@ -112,8 +123,17 @@ export type Selection = {
    * the offset in pos and an identity rot/scale, so the editor reuses the
    * position row and the colour swatch unchanged. Rotation, scale, opacity and
    * height do not apply and the editor does not offer them.
+   *
+   * 'shape' is a surface or a void drawn in this view. It is a record — it can
+   * be deleted and put back — but it has no transform: a draped skin moved off
+   * the ground it was conformed to would no longer describe it. So it carries
+   * an identity xf the editor never shows, and the panel offers its layer and
+   * Delete and nothing else.
    */
-  kind: 'building' | 'tree' | 'origin' | 'layer';
+  kind: 'building' | 'tree' | 'origin' | 'layer' | 'shape';
+  /** The layer a shape lives in, for the panel to name. Unset for every other
+   *  kind, where the kind already says it. */
+  layer?: LayerId;
   /** The anchor's id — the element picked last, and the one every field below
    *  describes. For a layer, the prefixed form; see layerSelId. */
   id: string;
@@ -277,7 +297,40 @@ type Target =
   | { kind: 'building'; obj: THREE.Mesh; b: Building }
   | { kind: 'tree'; obj: THREE.Group; t: Tree }
   | { kind: 'origin'; obj: THREE.Object3D }
-  | { kind: 'layer'; obj: THREE.Group; id: LayerId };
+  | { kind: 'layer'; obj: THREE.Group; id: LayerId }
+  | { kind: 'shape'; obj: THREE.Object3D; rec: Shape };
+
+/** What a 'shape' selection holds: a drawn surface, or a drawn void. */
+type Shape = Surface | TerrainVoid;
+
+/** A void is the one of the two that keeps its ring; a Surface has only the
+ *  triangulation it was conformed into. */
+const isVoid = (r: Shape): r is TerrainVoid => 'ring' in r;
+
+/** The layer a shape is drawn in and hidden with. A void belongs to the ground
+ *  it holes. */
+const shapeLayer = (r: Shape): LayerId => (isVoid(r) ? 'terrain' : (r.layer ?? 'parcel'));
+
+/** The draw layers that become a shape rather than a building. */
+type ShapeLayer = Exclude<DrawLayer, 'building'>;
+
+const SHAPE_LAYERS: readonly ShapeLayer[] = ['vegetation', 'roads', 'water', 'void'];
+
+/** The render tier each context surface draws at, keyed by Surface['layer'].
+ *  Draw order and polygon offset march in lockstep with the stacking order in
+ *  lib/scene/stack — see the note where setScene builds them. */
+const SURFACE_TIER: Record<string, number> = {
+  parcel: DRAW_ORDER.PARCEL,
+  vegetation: DRAW_ORDER.VEGETATION,
+  water: DRAW_ORDER.WATER,
+  roads: DRAW_ORDER.ROAD,
+  hedge: DRAW_ORDER.HEDGE,
+};
+
+/** A void's rim, at rest and selected. The rest colour is the site outline's,
+ *  the other the building outline's selection blue. */
+const VOID_LINE = 0x3d4245;
+const SELECT_LINE = 0x1f8ac0;
 
 /**
  * One undoable gesture.
@@ -317,6 +370,12 @@ type Cmd =
   | { label: EditLabelKey; kind: 'origin'; before: Vec3; after: Vec3 }
   | { label: EditLabelKey; kind: 'life'; b: Building; index: number; added: boolean }
   | { label: EditLabelKey; kind: 'treeLife'; t: Tree; index: number; added: boolean }
+  /* 'life' again, for a drawn surface or void. `index` is into scene.surfaces
+     or scene.voids, whichever the record belongs to. */
+  | { label: EditLabelKey; kind: 'shapeLife'; rec: Shape; index: number; added: boolean }
+  /* A shape moved or turned: its move before and after. Replaying one rebuilds
+     the shape where that move puts it, exactly as letting go of a drag does. */
+  | { label: EditLabelKey; kind: 'shape'; rec: Shape; before: Xf; after: Xf }
   | {
       label: EditLabelKey;
       kind: 'layer';
@@ -370,6 +429,7 @@ type Pending =
   | { kind: 'building'; b: Building; before: Xf; beforeH: number }
   | { kind: 'tree'; t: Tree; before: Xf; beforeH: number }
   | { kind: 'origin'; before: Vec3 }
+  | { kind: 'shape'; rec: Shape; before: Xf }
   | {
       kind: 'layer';
       id: LayerId;
@@ -570,6 +630,34 @@ export class Viewer {
   private drawSeq = 0;
   private drawTreeName = 'Tree';
   private drawTreeSeq = 0;
+  /** What the rectangle and polygon tools make. React's, pushed down with the
+   *  height through setDrawOptions. */
+  private drawLayer: DrawLayer = 'building';
+  /** Whether a drawn vegetation, road or water shape follows the ground. */
+  private drawDrape = true;
+  /** One name and one counter per shape layer, for the same reason buildings
+   *  and trees keep their own: "Water 1" should not come out as "Water 3"
+   *  because two roads were drawn first. */
+  private shapeNames: Record<ShapeLayer, string> = {
+    vegetation: 'Vegetation',
+    roads: 'Road',
+    water: 'Water',
+    void: 'Void',
+  };
+  private shapeSeq: Record<ShapeLayer, number> = { vegetation: 0, roads: 0, water: 0, void: 0 };
+  /**
+   * Local metres to lon/lat, for draping a drawn shape. Handed in with the
+   * scene: the viewer has no projection of its own, and Grid.sample is keyed on
+   * lat/lon. Null holds every drawn shape level rather than draped.
+   */
+  private toGeo: ToGeo | null = null;
+  /**
+   * The drawn surfaces and voids, as the objects a click resolves to — a
+   * surface's mesh, or a void's group. The only scenery the pick reaches: a
+   * fetched layer stays unpickable, so a click on the ground keeps meaning
+   * "nothing" everywhere a shape was not drawn.
+   */
+  private shapeObjs: THREE.Object3D[] = [];
   /** What a duplicate's name gets appended to it. Same rule as the two names
    *  above: nothing under lib/viewer may compose translated text. */
   private copySuffix = '(copy)';
@@ -800,6 +888,13 @@ export class Viewer {
         this.beginEdit(); // one drag == one undo step
         this.captureDragLocals();
       } else {
+        // The drag moved the object rigidly, as a preview. Now that it has been
+        // let go, a shape is built again where it landed — re-draped, or its hole
+        // re-cut — and a building that cuts the ground takes its hole and its
+        // plinth to the new spot.
+        const t = this.selected;
+        if (t?.kind === 'shape') this.reshape(t);
+        this.settleCuts();
         this.commitEdit(MODE_LABEL[this.gizmo.getMode() as GizmoMode] || 'edit.move');
         this.dragLocals = [];
         // The elements have moved, so the middle of them has too. Re-centred at
@@ -828,9 +923,15 @@ export class Viewer {
         l.offset = t.obj.position.toArray() as Vec3;
         this.syncLayerBox();
         this.cb.onTransform(layerXf(t.id, l), 0);
-      } else {
+      } else if (t.kind === 'tree') {
         this.readTreeMeshInto(t.obj, t.t.xf);
         this.cb.onTransform(cloneXf(t.t.xf), t.t.h);
+      } else {
+        // A shape follows the drag rigidly and is rebuilt when it is let go;
+        // only the numbers are carried live, so the panel keeps up.
+        this.readShapeInto(t);
+        const xf = Viewer.shapeXf(t.rec);
+        if (xf) this.cb.onTransform(cloneXf(xf), 0);
       }
       this.cb.onDirty();
     });
@@ -1619,12 +1720,19 @@ export class Viewer {
     if (!s) return [];
     return LAYER_IDS.map((id) => {
       const count = layerCount(s, id);
+      // Under the surface layers and the terrain, only what was drawn here is a
+      // leaf: a fetched surface has no id to select it by and never did, and
+      // the tree's count already covers it.
       const items =
         id === 'buildings'
           ? s.buildings.map((b) => ({ id: b.id, name: b.name }))
           : id === 'trees'
             ? s.trees.map((t) => ({ id: t.id, name: t.name }))
-            : [];
+            : id === 'terrain'
+              ? s.voids.map((v) => ({ id: v.id, name: v.name }))
+              : s.surfaces
+                  .filter((x): x is Surface & { id: string } => x.layer === id && x.id !== undefined)
+                  .map((x) => ({ id: x.id, name: x.name }));
       return {
         id,
         label: LAYER_LABEL[id],
@@ -1650,7 +1758,9 @@ export class Viewer {
         ? id === 'buildings'
         : t.kind === 'tree'
           ? id === 'trees'
-          : t.kind === 'layer' && t.id === id,
+          : t.kind === 'shape'
+            ? shapeLayer(t.rec) === id
+            : t.kind === 'layer' && t.id === id,
     );
   }
 
@@ -1676,8 +1786,9 @@ export class Viewer {
     this.selectTarget(g ? { kind: 'layer', obj: g, id } : null);
   }
 
-  setScene(scene: SceneData, site: Site): void {
+  setScene(scene: SceneData, site: Site, toGeo: ToGeo | null = null): void {
     this.scene = scene;
+    this.toGeo = toGeo;
     // Measurements are world points taken against geometry that is about to be
     // replaced. Left alone they would float over the new scene reading numbers
     // about the old one, which is worse than losing them.
@@ -1690,11 +1801,20 @@ export class Viewer {
     // what the fields were initialised to anyway.
     this.drawSeq = Viewer.maxSeq(scene.buildings, /^drawn-(\d+)$/);
     this.drawTreeSeq = Viewer.maxSeq(scene.trees, /^drawn-tree-(\d+)$/);
+    const shapeIds = [
+      ...scene.voids,
+      ...scene.surfaces.filter((s): s is Surface & { id: string } => s.id !== undefined),
+    ];
+    for (const l of SHAPE_LAYERS)
+      this.shapeSeq[l] = Viewer.maxSeq(shapeIds, new RegExp(`^drawn-${l}-(\\d+)$`));
     this.clearHistory();
     this.setDrawMode(null);
     this.selectTarget(null);
     this.buildingMeshes = [];
     this.treeMeshes = [];
+    this.shapeObjs = [];
+    // The new ground is cut from the new scene as it is built below.
+    this.groundStale = false;
     this.groundMesh = null;
     this.layerGroups.clear();
     // A new scene starts fully visible: nothing carries over from a layer left
@@ -1875,7 +1995,9 @@ export class Viewer {
       // footprint's corners are raycast against, so they land on the visible
       // ground rather than on a flat plane through it.
       this.groundMesh = new THREE.Mesh(
-        facesetGeometry(scene.terrain.verts, scene.terrain.faces),
+        // Through the void cut, so a draft that was saved with holes in its
+        // ground reopens with them. With no voids this is the lattice as is.
+        this.groundGeometry(),
         new THREE.MeshLambertMaterial({
           color: TERRAIN_COLOR,
           flatShading: true,
@@ -1890,6 +2012,7 @@ export class Viewer {
       );
       this.groundMesh.userData.layerRole = 'fill' satisfies LayerRole;
       this.layerGroup('terrain').add(this.groundMesh);
+      for (const v of scene.voids) this.addVoidMesh(v);
     } else {
       // A flat build has no terrain mesh, and since the reference grid went away
       // it would otherwise have nothing under it at all — buildings hanging in
@@ -1929,42 +2052,9 @@ export class Viewer {
     // water < hedge, with roads and trees interleaved below by their own draw
     // calls further down. Draw order and offset march in lockstep so a higher
     // tier always wins both the paint order and the depth test against a lower
-    // one, regardless of how close their true world z happens to be.
-    const SURFACE_TIER: Record<string, number> = {
-      parcel: DRAW_ORDER.PARCEL,
-      vegetation: DRAW_ORDER.VEGETATION,
-      water: DRAW_ORDER.WATER,
-      hedge: DRAW_ORDER.HEDGE,
-    };
-    for (const s of scene.surfaces) {
-      const tier = SURFACE_TIER[s.layer ?? ''] ?? DRAW_ORDER.PARCEL;
-      // Opacity comes from the layer, which starts at the lib/scene/stack
-      // default and is the same number the IFC exports as transparency. A layer
-      // drawn below 1 must not write depth, or it hides what it is meant to be
-      // a tint over. The paint pass at the end of this method sets all three
-      // again from the model, so this only has to be a sane starting point.
-      const alpha = layerAlpha(scene, s.layer ?? 'parcel');
-      const mesh = new THREE.Mesh(
-        facesetGeometry(s.verts, s.faces),
-        new THREE.MeshLambertMaterial({
-          color: s.color,
-          side: THREE.DoubleSide,
-          transparent: alpha < 1,
-          opacity: alpha,
-          depthWrite: alpha >= 1,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-        }),
-      );
-      mesh.renderOrder = tier;
-      // Tagged with the record, not just the role: a context surface keeps its
-      // own colour (Surface.color), which is what a layer recolour stamps and
-      // what the IFC already exports, so the repaint reads it back from here.
-      mesh.userData.layerRole = 'fill' satisfies LayerRole;
-      mesh.userData.surface = s;
-      this.layerGroup(s.layer ?? 'parcel').add(mesh);
-    }
+    // one, regardless of how close their true world z happens to be. The tiers
+    // are SURFACE_TIER, at the head of this module.
+    for (const s of scene.surfaces) this.addSurfaceMesh(s);
 
     // One group per tree, same as buildings — individually pickable, editable
     // and undoable, at the cost of the single shared InstancedMesh draw call
@@ -1993,15 +2083,394 @@ export class Viewer {
     }
   }
 
+  /* ---- context surfaces and voids ------------------------------------
+     Built one record at a time for the same reason addBuildingMesh is: a
+     shape drawn in this view, and the undo of deleting one, both put a single
+     record back into a scene already on screen, and they have to produce the
+     same object setScene would have. */
+
+  /**
+   * One context surface's mesh, in its layer's group.
+   *
+   * Drawn surfaces also get an outline child — shown only while selected, since
+   * a surface has no silhouette of its own to recolour the way a building does —
+   * and join shapeObjs, which is what makes them the only pickable scenery.
+   */
+  private addSurfaceMesh(s: Surface): THREE.Mesh {
+    const scene = this.scene!;
+    const layer = s.layer ?? 'parcel';
+    // Opacity comes from the layer, which starts at the lib/scene/stack default
+    // and is the same number the IFC exports as transparency. A layer drawn
+    // below 1 must not write depth, or it hides what it is meant to be a tint
+    // over. paintLayer sets all three again from the model, so this only has to
+    // be a sane starting point.
+    const alpha = layerAlpha(scene, layer);
+    const opts = {
+      color: s.color ?? layerColor(scene, layer),
+      side: THREE.DoubleSide,
+      transparent: alpha < 1,
+      opacity: alpha,
+      depthWrite: alpha >= 1,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    };
+    // A drawn surface is built in its own frame (see shapeFrame), so the gizmo
+    // can pick it up by its centre; a fetched one stays in site coordinates.
+    const frame = s.drawn ? this.shapeFrame(s) : null;
+    const geo = frame ? Viewer.framedGeometry(s.verts, s.faces, frame) : facesetGeometry(s.verts, s.faces);
+    // Unlit in the roads tier, like the merged ribbon beside it — a drawn road
+    // that took the light while the fetched ones did not would read as a
+    // different material.
+    const mesh = new THREE.Mesh(
+      geo,
+      layer === 'roads' ? new THREE.MeshBasicMaterial(opts) : new THREE.MeshLambertMaterial(opts),
+    );
+    if (frame) Viewer.placeFrame(mesh, frame);
+    mesh.renderOrder = SURFACE_TIER[layer] ?? DRAW_ORDER.PARCEL;
+    // Tagged with the record, not just the role: a context surface keeps its
+    // own colour (Surface.color), which is what a layer recolour stamps and
+    // what the IFC already exports, so the repaint reads it back from here.
+    mesh.userData.layerRole = 'fill' satisfies LayerRole;
+    mesh.userData.surface = s;
+    if (s.src === 'user') {
+      // Drawn over everything, like the origin marker: its edges are the slab's
+      // own, so with the depth test on they tie with the faces they outline and
+      // the selection never shows. It is only on while selected.
+      const outline = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geo, 30),
+        new THREE.LineBasicMaterial({ color: SELECT_LINE, depthTest: false }),
+      );
+      outline.visible = false;
+      outline.renderOrder = DRAW_ORDER.GHOST_FRONT;
+      outline.raycast = () => {};
+      mesh.add(outline);
+      mesh.userData.shape = s;
+      mesh.userData.shapeRoot = mesh;
+      this.shapeObjs.push(mesh);
+    }
+    this.layerGroup(layer).add(mesh);
+    return mesh;
+  }
+
+  /** The object a shape resolves to on screen, if it is there. */
+  private objFor(rec: Shape): THREE.Object3D | undefined {
+    return this.shapeObjs.find((o) => o.userData.shape === rec);
+  }
+
+  private removeShapeObj(rec: Shape): void {
+    const o = this.objFor(rec);
+    if (!o) return;
+    this.shapeObjs.splice(this.shapeObjs.indexOf(o), 1);
+    o.removeFromParent();
+    // Traverses from the object itself, so a surface's outline child and a
+    // void's rim and pick mesh all go with it.
+    Viewer.disposeGroup(o);
+  }
+
+  /** Elevation at a local point: off the terrain triangle under it, then the
+   *  terrain's own sampler past the lattice's edge, then the datum. What a
+   *  void's rim is drawn along and what a drawn shape's corners stand on. */
+  private groundZ(x: number, y: number): number {
+    const s = this.scene;
+    const t = s?.terrain;
+    if (!t) return s?.datumZ ?? 0;
+    const z = groundAt(t, x, y);
+    if (z !== null) return z;
+    if (!this.toGeo) return s?.datumZ ?? 0;
+    const [lon, lat] = this.toGeo(x, y);
+    return t.sample(lat, lon);
+  }
+
+  /* ---- a shape's frame -------------------------------------------------
+     A drawn shape is rebuilt where it stands rather than moved rigidly — a
+     draped skin slid across a slope would float on one side and bury itself on
+     the other — but the gizmo can only move an object rigidly. So the object
+     carries the shape's move as its own transform, centred on the ring, and the
+     geometry is written in that frame: the gizmo drags the object as a preview,
+     and releasing it rebuilds the geometry in place (see reshape). */
+
+  /** The move a shape carries: a void's own xf, or a drawn surface's recipe's.
+   *  Null for a fetched surface, which does not move. */
+  private static shapeXf(rec: Shape): Xf | null {
+    return isVoid(rec) ? rec.xf : (rec.drawn?.xf ?? null);
+  }
+
+  /** The ring a shape was drawn with, before any move. */
+  private static shapeRing(rec: Shape): Vec2[] | null {
+    return isVoid(rec) ? rec.ring : (rec.drawn?.ring ?? null);
+  }
+
+  /**
+   * Where a shape's object sits: over the centre of its ring, as moved, turned
+   * by the move's angle, at the height of its top so the gizmo stands on it
+   * rather than inside the ground.
+   */
+  private shapeFrame(rec: Shape): { p: THREE.Vector3; rot: number } | null {
+    const ring = Viewer.shapeRing(rec);
+    const xf = Viewer.shapeXf(rec);
+    if (!ring || !xf) return null;
+    const [cx, cy] = ringCentre(ring);
+    const x = cx + xf.pos[0];
+    const y = cy + xf.pos[1];
+    const z = isVoid(rec)
+      ? this.groundZ(x, y)
+      : rec.verts.reduce((m, v) => Math.max(m, v[2]), -Infinity);
+    return { p: new THREE.Vector3(x, y, Number.isFinite(z) ? z : 0), rot: xf.rot[2] };
+  }
+
+  /** Site-coordinate vertices, written into a shape's frame. */
+  private static toFrame(verts: Vec3[], f: { p: THREE.Vector3; rot: number }): Vec3[] {
+    const c = Math.cos(-f.rot);
+    const s = Math.sin(-f.rot);
+    return verts.map(([x, y, z]): Vec3 => {
+      const u = x - f.p.x;
+      const v = y - f.p.y;
+      return [u * c - v * s, u * s + v * c, z - f.p.z];
+    });
+  }
+
+  private static framedGeometry(
+    verts: Vec3[],
+    faces: number[][],
+    f: { p: THREE.Vector3; rot: number },
+  ): THREE.BufferGeometry {
+    return facesetGeometry(Viewer.toFrame(verts, f), faces);
+  }
+
+  private static placeFrame(o: THREE.Object3D, f: { p: THREE.Vector3; rot: number }): void {
+    o.position.copy(f.p);
+    o.rotation.set(0, 0, f.rot);
+  }
+
+  /** The object -> the move, after a gizmo drag. Only what a shape can do is
+   *  read: where its centre went in plan, and its turn about the vertical. */
+  private readShapeInto(t: Target & { kind: 'shape' }): void {
+    const ring = Viewer.shapeRing(t.rec);
+    const xf = Viewer.shapeXf(t.rec);
+    if (!ring || !xf) return;
+    const [cx, cy] = ringCentre(ring);
+    xf.pos = [t.obj.position.x - cx, t.obj.position.y - cy, 0];
+    xf.rot = [0, 0, t.obj.rotation.z];
+  }
+
+  /**
+   * Build a shape again where its move now puts it.
+   *
+   * A surface is re-conformed through buildDrawn — the same call that drew it —
+   * and its verts, faces and properties replaced, so the viewer and the writer
+   * go on reading it like any other surface. A void only needs its rim and
+   * pick plane redrawn; the hole itself follows through the ground cut, which
+   * is marked stale here and rebuilt once the gesture is done.
+   */
+  private reshape(t: Target & { kind: 'shape' }): void {
+    const s = this.scene;
+    if (!s) return;
+    const rec = t.rec;
+    if (isVoid(rec)) {
+      Viewer.disposeGroup(t.obj);
+      this.fillVoidGroup(t.obj as THREE.Group, rec);
+      this.paintShape(t);
+      this.groundStale = true;
+      return;
+    }
+    if (!rec.drawn) return;
+    const made = buildDrawn(rec.drawn, rec.layer as DrawnSurfaceLayer, {
+      terrain: s.terrain,
+      toGeo: this.toGeo,
+      sampleZ: this.sampleZ(),
+      groundZ: (x, y) => this.groundZ(x, y),
+    });
+    if (!made) return;
+    rec.verts = made.verts;
+    rec.faces = made.faces;
+    rec.props = made.props;
+    const mesh = t.obj as THREE.Mesh;
+    const f = this.shapeFrame(rec)!;
+    const geo = Viewer.framedGeometry(rec.verts, rec.faces, f);
+    mesh.geometry.dispose();
+    mesh.geometry = geo;
+    const outline = Viewer.outlineOf(mesh);
+    if (outline) {
+      outline.geometry.dispose();
+      outline.geometry = new THREE.EdgesGeometry(geo, 30);
+    }
+    Viewer.placeFrame(mesh, f);
+  }
+
+  /**
+   * Set when something that holes the ground has come, gone or moved — a void,
+   * or a building set to cut — and cleared by flushGround.
+   *
+   * A flag rather than an immediate rebuild because a single gesture can touch
+   * many of them: a batch delete of cutting buildings, or the undo of one, would
+   * otherwise re-cut the whole lattice once per element.
+   */
+  private groundStale = false;
+
+  private flushGround(): void {
+    if (!this.groundStale) return;
+    this.groundStale = false;
+    this.rebuildGround();
+  }
+
+  /** What a drape samples: the terrain, or the flat datum a scene without one
+   *  stands on. */
+  private sampleZ(): SampleZ {
+    const s = this.scene;
+    const t = s?.terrain;
+    return t ? t.sample : () => s?.datumZ ?? 0;
+  }
+
+  /** The terrain as drawn: the lattice with every void, and every building set
+   *  to cut, taken out of it — the same rings the export cuts by. */
+  private groundGeometry(): THREE.BufferGeometry {
+    const s = this.scene!;
+    const { verts, faces } = cutTerrain(s.terrain!, cutRings(s));
+    return facesetGeometry(verts, faces);
+  }
+
+  /** Re-cut the ground after a void came or went. The mesh object stays — it is
+   *  what pickSupport and pickGround hold — and only its buffer is swapped. */
+  private rebuildGround(): void {
+    if (!this.groundMesh || !this.scene?.terrain) return;
+    const old = this.groundMesh.geometry;
+    this.groundMesh.geometry = this.groundGeometry();
+    old.dispose();
+  }
+
+  /**
+   * A void's rim and its pick target, as one group in the terrain layer, so it
+   * hides with the ground it holes.
+   *
+   * A hole has nothing in it to click, which is the whole reason for the pick
+   * mesh: the ring filled in flat at the height of its highest rim point, never
+   * drawn. At that height a ray landing inside the ring meets it before any
+   * ground within the hole, and the pick still defers to terrain standing in
+   * front of it — see pickShape.
+   */
+  private addVoidMesh(v: TerrainVoid): THREE.Group {
+    const group = new THREE.Group();
+    this.fillVoidGroup(group, v);
+    group.userData.shape = v;
+    this.layerGroup('terrain').add(group);
+    this.shapeObjs.push(group);
+    return group;
+  }
+
+  /** A void's rim and pick plane, in its frame, where its move now puts it.
+   *  Split from addVoidMesh because a move rebuilds both in place. */
+  private fillVoidGroup(group: THREE.Group, v: TerrainVoid): void {
+    const f = this.shapeFrame(v)!;
+    const placed = placeRing(v.ring, v.xf);
+    // Stations along the rim so the line follows the slope it is cut into
+    // rather than cutting chords through it.
+    const rimWorld = densify(placed, 2, true).map(
+      ([x, y]): Vec3 => [x, y, this.groundZ(x, y) + 0.15],
+    );
+    const rim = Viewer.toFrame(rimWorld, f).map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const line = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(rim),
+      new THREE.LineBasicMaterial({ color: VOID_LINE }),
+    );
+    line.raycast = () => {};
+    group.add(line);
+
+    const top = Math.max(...rim.map((p) => p.z));
+    const local = Viewer.toFrame(
+      placed.map(([x, y]): Vec3 => [x, y, 0]),
+      f,
+    );
+    const pos: number[] = [];
+    for (const t of triangulate(placed)) for (const k of t) pos.push(local[k][0], local[k][1], top);
+    const pickGeo = new THREE.BufferGeometry();
+    pickGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const pick = new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    // Invisible but still hit: three does not consult .visible when raycasting,
+    // which is the quirk every shown() guard in this file exists to work round —
+    // here it is the point.
+    pick.visible = false;
+    pick.userData.shapeRoot = group;
+    group.add(pick);
+    Viewer.placeFrame(group, f);
+  }
+
+  private shapeTarget(obj: THREE.Object3D): Target {
+    return { kind: 'shape', obj, rec: obj.userData.shape as Shape };
+  }
+
+  /** A drawn surface's outline shows while it is selected; a void's rim is
+   *  always on and turns the selection blue. */
+  private paintShape(t: Target & { kind: 'shape' }): void {
+    const sel = this.isSelectedObj(t.obj);
+    if (isVoid(t.rec)) {
+      const line = t.obj.children.find((c) => c instanceof THREE.LineLoop) as THREE.LineLoop | undefined;
+      (line?.material as THREE.LineBasicMaterial | undefined)?.color.setHex(sel ? SELECT_LINE : VOID_LINE);
+      return;
+    }
+    const outline = t.obj.children.find((c) => c instanceof THREE.LineSegments);
+    if (outline) outline.visible = sel;
+  }
+
+  /**
+   * Put a shape into the scene at the index it belongs at — both directions of
+   * a 'shapeLife' command, and the forward direction of a draw.
+   *
+   * Selected on the way back in for the reason insertBuilding gives, and with
+   * the same two exceptions: a tool is armed, or a batch will select itself.
+   */
+  private insertShape(rec: Shape, index: number): void {
+    const s = this.scene;
+    if (!s) return;
+    let obj: THREE.Object3D;
+    if (isVoid(rec)) {
+      s.voids.splice(Math.min(index, s.voids.length), 0, rec);
+      obj = this.addVoidMesh(rec);
+      this.groundStale = true;
+    } else {
+      s.surfaces.splice(Math.min(index, s.surfaces.length), 0, rec);
+      obj = this.addSurfaceMesh(rec);
+      this.paintLayer(shapeLayer(rec));
+    }
+    this.layersChanged();
+    if (!this.drawTool && !this.batching && this.shown(shapeLayer(rec)))
+      this.selectTarget(this.shapeTarget(obj));
+  }
+
+  private detachShape(rec: Shape): void {
+    const s = this.scene;
+    if (!s) return;
+    if (this.selection.some((t) => t.kind === 'shape' && t.rec === rec))
+      this.setTargets(this.selection.filter((t) => !(t.kind === 'shape' && t.rec === rec)));
+    if (isVoid(rec)) {
+      const i = s.voids.indexOf(rec);
+      if (i >= 0) s.voids.splice(i, 1);
+      this.removeShapeObj(rec);
+      this.groundStale = true;
+    } else {
+      const i = s.surfaces.indexOf(rec);
+      if (i >= 0) s.surfaces.splice(i, 1);
+      this.removeShapeObj(rec);
+    }
+    this.layersChanged();
+  }
+
   /* ---- element editing ---------------------------------------------- */
 
   /** The extruded prism for one building, at its current ring and height. Split
    *  out because a height edit rebuilds it in place. */
-  private static buildingGeometry(b: Building): THREE.ExtrudeGeometry {
+  private buildingGeometry(b: Building): THREE.ExtrudeGeometry {
     // Ring is local to b.center, so the geometry sits on its own origin and the
     // gizmo pivots on the building. Z-scale grows it upward from its base.
     const shape = new THREE.Shape(b.ring.map((p) => new THREE.Vector2(p[0], p[1])));
-    return new THREE.ExtrudeGeometry(shape, { depth: b.h, bevelEnabled: false });
+    // A building set to cut the ground reaches down to the lowest ground under
+    // it (plinthOf), so its underside never hangs over the hole it makes. That
+    // depth is world metres; the mesh's own Z scale is applied after, so it is
+    // divided out here and the roof stays exactly where it was.
+    const drop = plinthOf(b, this.scene?.terrain ?? null) / Math.max(b.xf.scale[2], MIN_SCALE);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: b.h + drop, bevelEnabled: false });
+    if (drop > 0) geo.translate(0, 0, -drop);
+    return geo;
   }
 
   /**
@@ -2013,7 +2482,7 @@ export class Viewer {
    * same object or an edit made before the undo would not survive it.
    */
   private addBuildingMesh(b: Building): THREE.Mesh {
-    const geo = Viewer.buildingGeometry(b);
+    const geo = this.buildingGeometry(b);
     const mesh = new THREE.Mesh(geo, [
       new THREE.MeshLambertMaterial({ flatShading: true }),
       new THREE.MeshLambertMaterial({ flatShading: true }),
@@ -2114,7 +2583,7 @@ export class Viewer {
   /** Swap in a prism for the building's current height, keeping the material,
    *  the transform and the selection exactly as they were. */
   private rebuildGeometry(mesh: THREE.Mesh, b: Building): void {
-    const geo = Viewer.buildingGeometry(b);
+    const geo = this.buildingGeometry(b);
     const shell = Viewer.shellOf(mesh);
     mesh.geometry.dispose();
     mesh.geometry = geo;
@@ -2138,6 +2607,8 @@ export class Viewer {
     if (!s) return;
     s.buildings.splice(Math.min(index, s.buildings.length), 0, b);
     const mesh = this.addBuildingMesh(b);
+    // A building that cuts the ground takes its hole with it in both directions.
+    if (b.xf.cut) this.groundStale = true;
     this.cb.onCount(s.buildings.length);
     this.layersChanged();
     // Show what just came back — a building reappearing off-screen with nothing
@@ -2157,6 +2628,7 @@ export class Viewer {
     if (this.selection.some((t) => t.kind === 'building' && t.b === b))
       this.setTargets(this.selection.filter((t) => !(t.kind === 'building' && t.b === b)));
     this.removeBuildingMesh(b);
+    if (b.xf.cut) this.groundStale = true;
     this.cb.onCount(s.buildings.length);
     this.layersChanged();
   }
@@ -2410,9 +2882,11 @@ export class Viewer {
    */
   private setTargets(list: Target[]): void {
     const last = list.length ? list[list.length - 1] : null;
+    // A shape stands alone like the origin and a layer: it has no transform for
+    // a group edit to write, and Delete is the only thing the panel offers it.
     const next = !last
       ? []
-      : last.kind === 'origin' || last.kind === 'layer'
+      : last.kind === 'origin' || last.kind === 'layer' || last.kind === 'shape'
         ? [last]
         : list.filter((t) => t.kind === 'building' || t.kind === 'tree');
     const prev = this.selection;
@@ -2425,12 +2899,14 @@ export class Viewer {
       if (next.some((t) => t.obj === p.obj)) continue;
       if (p.kind === 'building' && p.obj.parent) this.paintMesh(p.obj, p.b);
       else if (p.kind === 'tree' && p.obj.parent) this.paintTreeMesh(p.obj, p.t);
+      else if (p.kind === 'shape' && p.obj.parent) this.paintShape(p);
       else if (p.kind === 'origin') setMarkerActive(this.originMarker, false);
     }
 
     for (const t of next) {
       if (t.kind === 'building') this.paintMesh(t.obj, t.b);
       else if (t.kind === 'tree') this.paintTreeMesh(t.obj, t.t);
+      else if (t.kind === 'shape') this.paintShape(t);
       else if (t.kind === 'origin') setMarkerActive(this.originMarker, true);
     }
 
@@ -2451,6 +2927,9 @@ export class Viewer {
    */
   private attachGizmo(): void {
     const list = this.selection;
+    // First, so a group or a building picked after a shape gets every handle
+    // back rather than inheriting the shape's reduced set.
+    this.lockAxes();
     if (!list.length) {
       this.gizmo.detach();
       return;
@@ -2463,6 +2942,24 @@ export class Viewer {
     }
 
     const t = list[0];
+    // A drawn shape moves across the ground and turns about the vertical, and
+    // nothing else: it is rebuilt on the ground wherever it lands, so it has no
+    // height of its own to lift, and tipping or stretching a draped skin would
+    // tear it off the terrain. A fetched surface has no recipe to rebuild it
+    // from and cannot move at all — but only drawn ones are ever selectable.
+    if (t.kind === 'shape') {
+      if (!Viewer.shapeXf(t.rec)) {
+        this.gizmo.detach();
+        return;
+      }
+      this.gizmo.attach(t.obj);
+      if (this.gizmo.getMode() === 'scale') {
+        this.gizmo.setMode('translate');
+        this.cb.onMode('translate');
+      }
+      this.lockAxes();
+      return;
+    }
     // Terrain has no offset to drag (see MOVABLE_LAYERS), and a layer with no
     // geometry has nothing to drag it by — the tree filters those out, but an
     // undo replaying an old command could still ask for one.
@@ -2637,6 +3134,19 @@ export class Viewer {
         h: t.t.h,
         defaultColor: TREE_CANOPY_COLOR,
       };
+    if (t.kind === 'shape')
+      return {
+        kind: 'shape',
+        id: this.idOf(t),
+        ids,
+        count: 1,
+        name: t.rec.name,
+        layer: shapeLayer(t.rec),
+        // Its move, for the panel's position and rotation rows.
+        xf: cloneXf(Viewer.shapeXf(t.rec) ?? newXf()),
+        h: 0,
+        defaultColor: 0,
+      };
     return {
       kind: 'building',
       id: t.b.id,
@@ -2653,6 +3163,8 @@ export class Viewer {
   private idOf(t: Target): string {
     if (t.kind === 'building') return t.b.id;
     if (t.kind === 'tree') return t.t.id;
+    // Every drawn shape is minted an id; a fetched surface never reaches here.
+    if (t.kind === 'shape') return t.rec.id ?? '';
     return t.kind === 'origin' ? ORIGIN_ID : layerSelId(t.id);
   }
 
@@ -2733,9 +3245,11 @@ export class Viewer {
     const groups: THREE.Object3D[] = [];
     for (const [id, g] of this.layerGroups) if (id !== 'trees' && this.shown(id)) groups.push(g);
 
+    // .visible as well, for the one invisible mesh in a layer group: a void's
+    // pick plane, which exists to be clicked and must not be measured to.
     const hit = this.raycaster
       .intersectObjects(groups, true)
-      .find((h) => h.face && h.object instanceof THREE.Mesh);
+      .find((h) => h.face && h.object instanceof THREE.Mesh && h.object.visible);
 
     if (hit) {
       // The terrain is a regular grid, so its vertices are the sampling, not
@@ -2934,10 +3448,16 @@ export class Viewer {
       const tHit = this.shown('trees')
         ? this.raycaster.intersectObjects(this.treeMeshes, true)[0]
         : undefined;
-      const hit =
+      const elHit =
         tHit && (!bHit || tHit.distance < bHit.distance)
           ? this.treeTarget(tHit.object.userData.treeRoot as THREE.Group)
           : this.buildingTarget(bHit?.object as THREE.Mesh | undefined);
+      const elDist = Math.min(tHit?.distance ?? Infinity, bHit?.distance ?? Infinity);
+      // A drawn shape lies on the ground, so a building or tree standing in
+      // front of it keeps the click — the nearer of the two wins, as between
+      // buildings and trees.
+      const sHit = this.pickShape();
+      const hit = sHit && sHit.d < elDist ? sHit.t : elHit;
 
       // Ctrl adds and removes, Shift only removes. metaKey rides with ctrlKey
       // the way the undo shortcut already handles it.
@@ -2975,6 +3495,31 @@ export class Viewer {
       e.preventDefault();
       if (Math.hypot(e.clientX - downX, e.clientY - downY) <= CLICK_PX) this.cancelDraw();
     });
+  }
+
+  /**
+   * The drawn shape under the ray the caller has already aimed, and how far
+   * along it.
+   *
+   * Meshes only: a surface's selection outline and a void's rim are lines, and
+   * a line's pick threshold is a metre of world, which would let a rim take
+   * clicks aimed well clear of it. A shape also has to beat the terrain — the
+   * void's pick plane sits at its highest rim point, and a hill standing in
+   * front of the hole is what the user is actually pointing at.
+   */
+  private pickShape(): { t: Target; d: number } | null {
+    const objs = this.shapeObjs.filter((o) => this.shown(shapeLayer(o.userData.shape as Shape)));
+    if (!objs.length) return null;
+    const hit = this.raycaster.intersectObjects(objs, true).find((h) => h.object instanceof THREE.Mesh);
+    if (!hit) return null;
+    const ground =
+      this.groundMesh && this.shown('terrain')
+        ? this.raycaster.intersectObject(this.groundMesh, false)[0]
+        : undefined;
+    // A draped skin sits its rung above the ground, so it is always strictly
+    // nearer where it covers; the millimetre only forgives float noise.
+    if (ground && ground.distance + 1e-3 < hit.distance) return null;
+    return { t: this.shapeTarget(hit.object.userData.shapeRoot as THREE.Object3D), d: hit.distance };
   }
 
   /** Screen-space distance from a world point to a pointer, in CSS pixels. */
@@ -3019,8 +3564,61 @@ export class Viewer {
   setMode(mode: GizmoMode): boolean {
     const k = this.selected?.kind;
     if (k === 'origin' || k === 'layer') return false;
+    if (k === 'shape' && mode === 'scale') return false;
     this.gizmo.setMode(mode);
+    this.lockAxes();
     return true;
+  }
+
+  /** Hide the handles a shape cannot use — the vertical arrow when moving, the
+   *  two tilting rings when turning — and give every other selection the full
+   *  set back. */
+  private lockAxes(): void {
+    const shape = this.selected?.kind === 'shape';
+    const mode = this.gizmo.getMode();
+    this.gizmo.showX = !(shape && mode === 'rotate');
+    this.gizmo.showY = !(shape && mode === 'rotate');
+    this.gizmo.showZ = !(shape && mode === 'translate');
+  }
+
+  /**
+   * Bring every selected building that cuts the ground in line with where it now
+   * stands: its plinth is re-measured against the ground under its new footprint,
+   * and the ground re-cut. Run when a gesture that can move one ends.
+   */
+  private settleCuts(): void {
+    for (const t of this.selection)
+      if (t.kind === 'building' && t.b.xf.cut) {
+        this.rebuildGeometry(t.obj, t.b);
+        this.groundStale = true;
+      }
+    this.flushGround();
+  }
+
+  /**
+   * Set whether the selected buildings hole the terrain under them.
+   *
+   * On, the ground under each footprint is cut away and the building's base drops
+   * to the lowest ground beneath it; off puts both back. One undo step across the
+   * whole selection, like every other panel write. Trees in a mixed selection are
+   * left alone — a canopy has no footprint to cut by.
+   */
+  setCut(on: boolean): void {
+    if (!this.scene?.terrain) return;
+    const bs = this.selection.filter((t): t is Target & { kind: 'building' } => t.kind === 'building');
+    if (!bs.length) return;
+    this.beginEdit();
+    for (const t of bs) {
+      if (on) t.b.xf.cut = true;
+      else delete t.b.xf.cut;
+      this.rebuildGeometry(t.obj, t.b);
+    }
+    this.groundStale = true;
+    this.flushGround();
+    const a = this.selected;
+    if (a?.kind === 'building') this.cb.onTransform(cloneXf(a.b.xf), a.b.h);
+    this.cb.onDirty();
+    this.commitEdit('edit.cut');
   }
 
   /**
@@ -3045,7 +3643,18 @@ export class Viewer {
       !mesh && this.shown('trees')
         ? this.treeMeshes.find((g) => (g.userData.tree as Tree).id === id)
         : undefined;
-    const t = mesh ? this.buildingTarget(mesh) : this.treeTarget(group);
+    const shape =
+      !mesh && !group
+        ? this.shapeObjs.find((o) => {
+            const rec = o.userData.shape as Shape;
+            return rec.id === id && this.shown(shapeLayer(rec));
+          })
+        : undefined;
+    const t = shape
+      ? this.shapeTarget(shape)
+      : mesh
+        ? this.buildingTarget(mesh)
+        : this.treeTarget(group);
     // An id that resolves to nothing — a hidden layer's row — clears a plain
     // select, but must not empty a selection being added to.
     if (!t) return mode === 'replace' ? this.selectTarget(null) : undefined;
@@ -3144,8 +3753,11 @@ export class Viewer {
         this.pending.push({ kind: 'origin', before: this.originOffset.toArray() as Vec3 });
       } else if (t.kind === 'building') {
         this.pending.push({ kind: 'building', b: t.b, before: cloneXf(t.b.xf), beforeH: t.b.h });
-      } else {
+      } else if (t.kind === 'tree') {
         this.pending.push({ kind: 'tree', t: t.t, before: cloneXf(t.t.xf), beforeH: t.t.h });
+      } else if (t.kind === 'shape') {
+        const xf = Viewer.shapeXf(t.rec);
+        if (xf) this.pending.push({ kind: 'shape', rec: t.rec, before: cloneXf(xf) });
       }
     }
   }
@@ -3159,6 +3771,10 @@ export class Viewer {
    * line — is the same either way.
    */
   private pushCmd(cmd: Cmd, name: string): void {
+    // Every committed gesture lands here, so this is where a hole that came, went
+    // or moved during it is cut into the ground — once, however many elements the
+    // gesture touched.
+    this.flushGround();
     this.edits.stack.length = this.edits.index + 1; // a new edit truncates the redo branch
     this.edits.stack.push(cmd);
     if (this.edits.stack.length > this.edits.limit) this.edits.stack.shift();
@@ -3203,6 +3819,14 @@ export class Viewer {
 
   /** One closed part as a command, or null when nothing about it moved. */
   private cmdOf(p: Pending, label: EditLabelKey): Cmd | null {
+    if (p.kind === 'shape') {
+      const xf = Viewer.shapeXf(p.rec);
+      if (!xf) return null;
+      const after = cloneXf(xf);
+      if (sameXf(p.before, after)) return null;
+      return { label, kind: 'shape', rec: p.rec, before: p.before, after };
+    }
+
     if (p.kind === 'origin') {
       const after = this.originOffset.toArray() as Vec3;
       if (p.before.every((v, i) => v === after[i])) return null;
@@ -3248,8 +3872,13 @@ export class Viewer {
   }
 
   private applyXfCmd(b: Building, xf: Xf, h: number): void {
+    // A building that cuts the ground on either side of the replay — the toggle
+    // itself, or a move made while it was on — needs its plinth re-measured and
+    // the ground re-cut, not just the transform put back.
+    const cutting = !!b.xf.cut || !!xf.cut;
     b.xf = cloneXf(xf);
-    const heightChanged = b.h !== h;
+    const heightChanged = b.h !== h || cutting;
+    if (cutting) this.groundStale = true;
     b.h = h;
     // A building whose 'life' command has already been shifted off the bottom of
     // the stack is no longer in the scene; writing its record is harmless and
@@ -3265,6 +3894,23 @@ export class Viewer {
       this.paintMesh(mesh, b);
     }
     this.cb.onTransform(cloneXf(b.xf), b.h);
+    this.cb.onDirty();
+  }
+
+  /** Put a shape's move back and rebuild it there — the replay of a drag. */
+  private applyShapeCmd(rec: Shape, xf: Xf): void {
+    const own = Viewer.shapeXf(rec);
+    if (!own) return;
+    own.pos = [...xf.pos];
+    own.rot = [...xf.rot];
+    const obj = this.objFor(rec);
+    if (obj) {
+      const t = this.shapeTarget(obj) as Target & { kind: 'shape' };
+      if (!this.batching && !this.isSelectedObj(obj) && this.shown(shapeLayer(rec)))
+        this.selectTarget(t);
+      this.reshape(t);
+    }
+    this.cb.onTransform(cloneXf(own), 0);
     this.cb.onDirty();
   }
 
@@ -3304,6 +3950,13 @@ export class Viewer {
       if (present) this.insertTree(c.t, c.index);
       else this.detachTree(c.t);
       this.cb.onDirty();
+    } else if (c.kind === 'shapeLife') {
+      const present = to === 'after' ? c.added : !c.added;
+      if (present) this.insertShape(c.rec, c.index);
+      else this.detachShape(c.rec);
+      this.cb.onDirty();
+    } else if (c.kind === 'shape') {
+      this.applyShapeCmd(c.rec, c[to]);
     } else if (c.kind === 'layer') {
       this.applyLayerCmd(c, to);
     } else if (c.kind === 'tree') {
@@ -3376,6 +4029,7 @@ export class Viewer {
     // Unused for a 'multi' — report() takes the count instead — but a name is
     // still wanted for the empty case, and the first child is the honest one.
     if (c.kind === 'multi') return c.cmds.length ? this.cmdName(c.cmds[0]) : '';
+    if (c.kind === 'shapeLife' || c.kind === 'shape') return c.rec.name;
     return c.kind === 'tree' || c.kind === 'treeLife' ? c.t.name : c.b.name;
   }
 
@@ -3383,6 +4037,7 @@ export class Viewer {
     if (this.edits.index < 0) return;
     const c = this.edits.stack[this.edits.index--];
     this.applyCmd(c, 'before');
+    this.flushGround();
     // After the replay, not before it: the tree is derived from the scene, and
     // re-deriving it from the state the undo is about to leave behind would
     // hand the panel the very values it just took back.
@@ -3395,6 +4050,7 @@ export class Viewer {
     if (this.edits.index >= this.edits.stack.length - 1) return;
     const c = this.edits.stack[++this.edits.index];
     this.applyCmd(c, 'after');
+    this.flushGround();
     this.layersChanged();
     this.syncHistory();
     this.report('status.redone', 'status.redoneMany', c, this.cmdName(c));
@@ -3456,6 +4112,21 @@ export class Viewer {
         paint: () => this.paintTreeMesh(t.obj, t.t),
         rebuild: () => this.rebuildTreeGeometry(t.obj, t.t),
       };
+    if (t.kind === 'shape') {
+      const xf = Viewer.shapeXf(t.rec);
+      if (!xf) return null;
+      // Its move is the xf, and applying one is a rebuild where it now points —
+      // so a typed position re-drapes the shape as the value lands. It has no
+      // height and no colour of its own; the panel offers neither.
+      return {
+        xf,
+        getH: () => 0,
+        setH: () => {},
+        apply: () => this.reshape(t),
+        paint: () => this.paintShape(t),
+        rebuild: () => {},
+      };
+    }
     return null;
   }
 
@@ -3509,8 +4180,9 @@ export class Viewer {
     }
 
     // The elements moved without the gizmo being touched, so the pivot it is
-    // sitting on has to follow them.
+    // sitting on has to follow them — and any hole they make, with them.
     this.syncPivot();
+    this.settleCuts();
     // The anchor's values, since that is what the field being typed into shows.
     const a = all[all.length - 1];
     this.cb.onTransform(cloneXf(a.xf), a.getH());
@@ -3655,6 +4327,16 @@ export class Viewer {
             index,
             cmd: { label: 'edit.delete', kind: 'treeLife', t: t.t, index, added: false },
           });
+      } else if (t.kind === 'shape') {
+        // Alone in the selection by construction (see setTargets), so its index
+        // never has to be ordered against a building's in another array.
+        const list: Shape[] = isVoid(t.rec) ? s.voids : s.surfaces;
+        const index = list.indexOf(t.rec);
+        if (index >= 0)
+          found.push({
+            index,
+            cmd: { label: 'edit.delete', kind: 'shapeLife', rec: t.rec, index, added: false },
+          });
       }
     }
     if (!found.length) return;
@@ -3663,6 +4345,7 @@ export class Viewer {
     for (const f of found) {
       if (f.cmd.kind === 'life') this.detachBuilding(f.cmd.b);
       else if (f.cmd.kind === 'treeLife') this.detachTree(f.cmd.t);
+      else if (f.cmd.kind === 'shapeLife') this.detachShape(f.cmd.rec);
     }
 
     const cmds = found.map((f) => f.cmd);
@@ -3799,18 +4482,25 @@ export class Viewer {
     this.cb.onDraw(tool, 0);
   }
 
-  /** Height and name for the next footprint or tree. Both come from React:
-   *  the height is the dock's default, and a name has to be translated,
-   *  which nothing under lib/viewer is allowed to do. */
+  /** What the next rectangle or polygon becomes, and the height and names the
+   *  drawn records get. All of it comes from React: the choices live on the
+   *  draw panel, and a name has to be translated, which nothing under
+   *  lib/viewer is allowed to do. */
   setDrawOptions(opts: {
     height: number;
+    layer: DrawLayer;
+    drape: boolean;
     name: string;
     treeName: string;
+    shapeNames: Record<ShapeLayer, string>;
     copyName: string;
   }): void {
     if (Number.isFinite(opts.height)) this.drawHeight = Math.max(MIN_HEIGHT, opts.height);
+    this.drawLayer = opts.layer;
+    this.drawDrape = opts.drape;
     if (opts.name) this.drawName = opts.name;
     if (opts.treeName) this.drawTreeName = opts.treeName;
+    for (const l of SHAPE_LAYERS) if (opts.shapeNames[l]) this.shapeNames[l] = opts.shapeNames[l];
     if (opts.copyName) this.copySuffix = opts.copyName;
   }
 
@@ -3902,13 +4592,15 @@ export class Viewer {
     this.measureFmt = fmt;
   }
 
-  /** How many hand-drawn buildings and trees the scene holds — what a
-   *  rebuild is about to discard. */
+  /** How many hand-drawn buildings, trees, surfaces and voids the scene holds —
+   *  what a rebuild is about to discard. */
   drawnCount(): number {
     if (!this.scene) return 0;
     return (
       this.scene.buildings.filter((b) => b.src === 'user').length +
-      this.scene.trees.filter((t) => t.src === 'user').length
+      this.scene.trees.filter((t) => t.src === 'user').length +
+      this.scene.surfaces.filter((s) => s.src === 'user').length +
+      this.scene.voids.length
     );
   }
 
@@ -3925,6 +4617,9 @@ export class Viewer {
   private commitFootprint(pts: THREE.Vector3[]): void {
     const s = this.scene;
     const tool = this.drawTool;
+    // Read before the gesture is torn down: a shape started on a roof stays on
+    // that roof, and clearing the plane is part of the teardown.
+    const roof = this.drawPlaneZ;
     this.drawPts = [];
     this.rectAnchor = null;
     this.clearDrawPlane();
@@ -3932,12 +4627,14 @@ export class Viewer {
     if (tool) this.cb.onDraw(tool, 0);
     if (!s || pts.length < 3) return;
 
-    if (s.buildings.length >= BUILDING_CAP)
-      return this.cb.onStatus('status.drawFull', { cap: BUILDING_CAP });
-
     const ring = pts.map((p): Vec2 => [p.x, p.y]);
     if (Math.abs(ringArea2(ring)) < MIN_FOOTPRINT_M2 * 2)
       return this.cb.onStatus('status.drawTooSmall');
+
+    if (this.drawLayer !== 'building') return this.commitShape(pts, ring, this.drawLayer, roof);
+
+    if (s.buildings.length >= BUILDING_CAP)
+      return this.cb.onStatus('status.drawFull', { cap: BUILDING_CAP });
 
     const baseZ = Math.min(...pts.map((p) => p.z));
     const n = ++this.drawSeq;
@@ -3963,6 +4660,53 @@ export class Viewer {
     // a row, and a gizmo attached to the last one would sit over the ground the
     // next corner is aimed at. The status line pushCmd emits is the confirmation.
     this.pushCmd({ label: 'edit.add', kind: 'life', b, index, added: true }, b.name);
+  }
+
+  /**
+   * Turn the corners just drawn into a surface on one of the context layers, or
+   * into a hole in the terrain.
+   *
+   * The surface goes through drawnSurface, the same conform-and-skirt a fetched
+   * layer is built with, so it stacks against the fetched ones by the same
+   * ladder. A void is only its ring: the cut is derived from it wherever the
+   * ground is drawn and written.
+   *
+   * Not selected afterwards, for the reason commitFootprint gives.
+   */
+  private commitShape(pts: THREE.Vector3[], ring: Vec2[], layer: ShapeLayer, roof: number | null): void {
+    const s = this.scene!;
+    // The panel does not offer a void without terrain, but a flat scene has no
+    // ground in the file to hole, so it is refused here as well.
+    if (layer === 'void' && !s.terrain) return this.cb.onStatus('status.voidNoTerrain');
+    // The recipe it can be rebuilt from when it moves, and the first build from
+    // it — the same call a move makes, so a shape drawn and a shape moved back to
+    // where it was drawn are the same shape.
+    const spec: DrawnSpec = { ring, drape: this.drawDrape, roofZ: roof, xf: newXf() };
+    const made =
+      layer === 'void'
+        ? null
+        : buildDrawn(spec, layer, {
+            terrain: s.terrain,
+            toGeo: this.toGeo,
+            sampleZ: this.sampleZ(),
+            // Looked up afresh rather than taken off the picked corners, so the
+            // first build and every later move stand on the ground by one rule.
+            groundZ: (x, y) => this.groundZ(x, y),
+          });
+    if (layer !== 'void' && !made) return this.cb.onStatus('status.drawTooSmall');
+
+    const n = ++this.shapeSeq[layer];
+    const id = `drawn-${layer}-${n}`;
+    const name = `${this.shapeNames[layer]} ${n}`;
+    // A surface takes no colour of its own: it follows its layer's, which is
+    // what a layer recolour then carries through to it.
+    const rec: Shape = made
+      ? { ...made, id, name, src: 'user', drawn: spec }
+      : { id, name, ring, xf: newXf() };
+
+    const index = isVoid(rec) ? s.voids.length : s.surfaces.length;
+    this.insertShape(rec, index);
+    this.pushCmd({ label: 'edit.addShape', kind: 'shapeLife', rec, index, added: true }, name);
   }
 
   /** Turn a single ground click into a planted tree — no ring, so this is
@@ -4017,6 +4761,7 @@ export class Viewer {
       e.paint();
     }
     this.syncPivot();
+    this.settleCuts();
     const a = all[all.length - 1];
     this.cb.onTransform(cloneXf(a.xf), a.getH());
     this.commitEdit('edit.reset');

@@ -1,3 +1,5 @@
+import { cutTerrain } from '@/lib/geo/voids';
+import { cutRings, plinthOf } from '@/lib/scene/cut';
 import { ContextModel } from '@/lib/ifc/writer';
 import { layerAlpha, layerColor } from '@/lib/scene/layers';
 import { sourceOf } from '@/lib/sources/licence';
@@ -21,9 +23,14 @@ export function emitIFC(
     // model tree's override if there is one, the palette default otherwise — so
     // the export cannot disagree with it. Terrain takes no offset: it is not a
     // movable layer (see MOVABLE_LAYERS in lib/scene/layers).
+    //
+    // Cut by the same rings the viewer's ground mesh is — drawn voids and the
+    // footprints of buildings set to cut — so the holes in the file are the
+    // holes on screen. With none it hands the lattice back as is.
+    const ground = cutTerrain(scene.terrain, cutRings(scene));
     model.addSurface(
-      scene.terrain.verts,
-      scene.terrain.faces,
+      ground.verts,
+      ground.faces,
       `Terrain (${scene.terrainSource || 'Terrarium DEM'})`,
       'TERRAIN',
       layerColor(scene, 'terrain'),
@@ -38,7 +45,9 @@ export function emitIFC(
     );
   }
 
-  for (const b of scene.buildings) model.addBuilding(b);
+  // A building set to cut the ground drops its base to the lowest ground under
+  // it, the same depth the preview extends it by — see plinthOf.
+  for (const b of scene.buildings) model.addBuilding(b, plinthOf(b, scene.terrain));
 
   // scene.roads keeps the road surface's own corners, so the mesh the IFC needs
   // is reconstructible without storing it twice. Since finishRoads started
@@ -123,8 +132,10 @@ export function emitIFC(
       1 - layerAlpha(scene, layer),
       scene.layers[layer].offset,
       // The theme layers only exist on the IGN path, so the tier alone settles
-      // it: parcels are the cadastre, the rest are BD TOPO.
-      sourceOf(layer, meta.provider),
+      // it: parcels are the cadastre, the rest are BD TOPO. A surface drawn by
+      // hand came out of no dataset and is credited to none — the rule a drawn
+      // tree already follows in addTree.
+      s.src === 'user' ? undefined : sourceOf(layer, meta.provider),
     );
   }
 

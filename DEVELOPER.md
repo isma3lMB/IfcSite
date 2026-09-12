@@ -210,8 +210,8 @@ long each is true for, which is what let two of the three stop being permanent c
 
 | Component | Lifetime |
 | --- | --- |
-| [status-bar.tsx](components/status-bar.tsx) | The two actions, plus the height field while a draw tool is armed, plus the wrench chip beside Download that opens `ifc-flyout`. Shrink-wrapped and centred on the window (`grid-column: 1 / -1; justify-self: center`, so the element editor opening does not slide it). **Not a `.floating` surface**, unlike every other cluster on the overlay: two buttons in a bordered tray read as one toolbar where these are two separate ends to the sequence, so the row is bare and each button carries its own square outline and shadow (`.statusbar .btn-*`). Returns `null` when it would be empty. |
-| [site-readout.tsx](components/site-readout.tsx) | Standing facts: site size, buildings, entities, file size, origin. Bottom-right corner of the same grid row as the bar, as text rather than a panel, with `pointer-events: none` — a corner of the map that cannot be dragged because a number is lying on it is a worse trade than the number. |
+| [status-bar.tsx](components/status-bar.tsx) | The two actions, plus Clear while a measure tool holds measurements, plus the wrench chip beside Download that opens `ifc-flyout`. Shrink-wrapped and centred on the window (`grid-column: 1 / -1; justify-self: center`, so the element editor opening does not slide it). **Not a `.floating` surface**, unlike every other cluster on the overlay: two buttons in a bordered tray read as one toolbar where these are two separate ends to the sequence, so the row is bare and each button carries its own square outline and shadow (`.statusbar .btn-*`). Returns `null` when it would be empty. |
+| [site-readout.tsx](components/site-readout.tsx) | Standing facts: site size, buildings, entities, file size, origin. Bottom-right corner of the same grid row as the bar, as text rather than a panel, with `pointer-events: none` — a corner of the map that cannot be dragged because a number is lying on it is a worse trade than the number. Off by default; the stats toggle in the utility chip shows it. Hidden with `visibility`, not unmounted, so its row keeps its height and the flyouts and element editor above it do not resize on toggle. |
 | [status-toast.tsx](components/status-toast.tsx) | What just happened. Floats over the stage above the bar and fades on its own. |
 
 The toast holds two lifetimes of its own, and the distinction is the design: the **draw
@@ -242,20 +242,21 @@ agree — the bar offers Rebuild in the same step the toast calls the scene stal
 | --- | --- |
 | [stage.tsx](components/stage.tsx) | The two viewer hosts. Both stay mounted; the map is an overlay toggled with `display`, never unmounted. `StageHud` holds the compass (also permanently mounted — the viewer is handed the element once, on mount) plus the legend and hint. |
 | [brand-chip.tsx](components/brand-chip.tsx) | What is left of the masthead: the wordmark and the Map/3D switch, shrink-wrapped into the top-left corner. It used to be a strip across the whole window carrying a readout and three utility buttons as well — a bar between the user and the viewer for the sake of two controls. The readout moved to the status bar and the utilities to the opposite corner. |
-| [util-chip.tsx](components/util-chip.tsx) | The opposite corner: compass host, origin-marker toggle, orthographic toggle, presentation mode, theme toggle, info and the language select. Icon-only, so every label is a tooltip — and each is written as *what pressing it does*, not as the state it is in. |
-| [tool-rail.tsx](components/tool-rail.tsx) | The vertical rail: pan/select, draw site, zoom to site, the box/polygon/tree draw tools, the two measure tools, the three gizmo modes and Duplicate, undo/redo, and the four flyout buttons (search, options, model tree, drafts). Icon-only and stateless — every button is a callback into `ifc-site`, and what is *offered* is derived from `view`, `hasScene`, `rect` and `selection` rather than stored. |
+| [util-chip.tsx](components/util-chip.tsx) | The opposite corner: compass host, origin-marker toggle, orthographic toggle, presentation mode, stats toggle, theme toggle, info and the language select. Icon-only, so every label is a tooltip — and each is written as *what pressing it does*, not as the state it is in. |
+| [tool-rail.tsx](components/tool-rail.tsx) | The vertical rail: pan/select, draw site, zoom to site, the rectangle/polygon/tree draw tools, the two measure tools, the three gizmo modes and Duplicate, undo/redo, and the four flyout buttons (search, options, model tree, drafts). Icon-only and stateless — every button is a callback into `ifc-site`, and what is *offered* is derived from `view`, `hasScene`, `rect` and `selection` rather than stored. |
 | [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections, plus a **Drape onto terrain** group of five per-layer checkboxes (IGN-only, dimmed under OSM, since OSM ways are 2D and there would be nothing to fall back to). Every tunable is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
 | [crs-field.tsx](components/crs-field.tsx) | The projected CRS, as a searchable list of the systems valid where the site actually is. It carries its own loading rather than sitting in the dock, because the list is a function of a rectangle drawn on the other side of the app — and it is inert until there is one, since a CRS list has nothing to be evaluated against and any choice made early is one the first rectangle invalidates. The hint line doubles as the loading and failure channel. |
 | [search-flyout.tsx](components/search-flyout.tsx) | The place search on its own rail button rather than folded into Options — finding a place is the first thing you do, before there is anything to configure. It opens on arrival while no rectangle exists and collapses to an icon the moment one does. |
 | [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
 | [file-flyout.tsx](components/file-flyout.tsx) | Drafts. Save into this browser, list/open/rename/delete the slots, open a dropped or picked `.ifcsite.json`, export one. **Save and Export are deliberately not synonyms** and the copy says so: Save keeps a site in this browser, Export writes a file you can move. Slot rows are sized and dated from `SlotMeta` alone (see §14) — `Intl.RelativeTimeFormat` in the *active* language, not the browser's. |
 | [model-tree.tsx](components/model-tree.tsx) | The scene by layer: visibility, colour and a filter, with the leaves under each layer. **Windowed** — `ROW_H = 24` and ten visible rows, because a scene is capped at four thousand buildings and four thousand DOM rows is a panel that stutters on every expand. Keep `ROW_H` in step with `.treeItem` in [globals.css](app/globals.css); the row is a fixed height there for exactly this reason. Rows take the same Ctrl/Shift modifiers as a click in the 3D view, and highlight the whole selection rather than one row — which is the only way to reach an element buried inside another. |
-| [element-editor.tsx](components/element-editor.tsx) | The selection panel, in four shapes depending on *what* is selected: an element (name, colour, opacity, height, X/Y/Z position/rotation/scale with a uniform-scale lock, reset, delete), a layer (colour, opacity and an offset applied to every element in it at once), the origin marker (its projected position, plus the local project placement — coordinates and angle, typed rather than dragged, and outside the undo history), or nothing. With several elements selected it keeps the element shape, showing the anchor's values under a `{n} elements` header; writing any field applies it to all of them. |
+| [element-editor.tsx](components/element-editor.tsx) | The selection panel, in five shapes depending on *what* is selected: an element (name, colour, opacity, height, X/Y/Z position/rotation/scale with a uniform-scale lock, reset, delete), a layer (colour, opacity and an offset applied to every element in it at once), the origin marker (its projected position, plus the local project placement — coordinates and angle, typed rather than dragged, and outside the undo history), a drawn shape (its layer, a position row of X/Y and a rotation of Z — the two moves a shape has — "back to where drawn", and Delete), or nothing. A building also gets **Cut the terrain under it**, dimmed without a terrain mesh. With several elements selected it keeps the element shape, showing the anchor's values under a `{n} elements` header; writing any field applies it to all of them. |
+| [draw-panel.tsx](components/draw-panel.tsx) | What the next rectangle, polygon or tree becomes, in the element editor's corner and type while a draw tool is armed: the **layer** (building, vegetation, road, water, or a void through the terrain), the **height** (buildings and trees only — the surfaces are flat slabs like the fetched ones of their layer), and **Drape onto terrain** for the three layers that lie on the ground. Drape and Void are dimmed without a terrain mesh. Stateless: every value is `ifc-site`'s and reaches the viewer through `setDrawOptions`. It shows only while nothing is selected, so the two panels never compete for the spot — arming a tool clears the selection, and a model-tree pick made mid-tool gives the corner back to the editor. Shrink-wrapped (`.drawPanel`) where the editor stretches, and a bottom sheet like it below 860 px. The height field used to sit alone in the status bar. |
 | [confirm-card.tsx](components/confirm-card.tsx) | A yes/no card for the one decision `Ctrl+Z` cannot take back: rebuilding or opening a draft over hand-drawn elements, which are not in any source and cannot be re-fetched. Not `window.confirm` — a native dialog is styled by the browser, sits outside the app's language, and cannot say how many buildings are about to go. It stacks above the info overlay because it is the only thing here that blocks. |
 | [colour-field.tsx](components/colour-field.tsx) | The colour swatch, its own module because the element editor and the model tree both need it — and the live/commit split below is exactly the part that would go wrong if the second one were written again from scratch. |
 | [status-line.tsx](components/status-line.tsx) | Renders a `StatusState` — a *key plus params*, a `BuildSummary`, or an error. The closing summary is composed from clauses here, not stored as one template, because the clauses order differently in French. |
 | [place-search.tsx](components/place-search.tsx) | Debounced (500 ms) Nominatim search with a sequence guard against out-of-order responses, plus four city presets that also set the matching EPSG. Failure is reported and drawing keeps working. |
-| [info-overlay.tsx](components/info-overlay.tsx) / [notes.tsx](components/notes.tsx) | The header prose and notes, behind the (i) button — full-bleed viewers left no room for prose, and none of it is needed to draw a rectangle. Note bodies mark code spans with backticks so prose stays a plain string in the dictionary — no `dangerouslySetInnerHTML`. The repo URL is the one string on this surface that does not translate, so it lives in the component. |
+| [info-overlay.tsx](components/info-overlay.tsx) / [notes.tsx](components/notes.tsx) | The header prose and notes, behind the (i) button — full-bleed viewers left no room for prose, and none of it is needed to draw a rectangle. Note bodies mark code spans with backticks so prose stays a plain string in the dictionary — no `dangerouslySetInnerHTML`. The repo URL is the one string on this surface that does not translate, so it lives in the component. The footer is pinned outside the scroller, like the head, and holds the repo link, the author credit and the build's commit and commit date: [next.config.ts](next.config.ts) reads them from git (or the host's SHA variable) and inlines them as `NEXT_PUBLIC_COMMIT*`, read through [lib/version.ts](lib/version.ts). |
 | [lang-toggle.tsx](components/lang-toggle.tsx) | FR/EN select. Flags are inline SVG, not emoji: Chrome and Edge on Windows render regional-indicator pairs as bare letter boxes. |
 | [icons.tsx](components/icons.tsx) | Every icon in the rail and the tree, including `LAYER_ICON` — the one mapping from a `LayerId` to its glyph. |
 
@@ -349,7 +350,43 @@ threshold, InstancedMesh trees, and an undo stack keyed on live mesh state.
   plus `renderOrder = 2` so they always win against it. `depthTest` stays on throughout —
   turning it off would draw roads straight through buildings.
 - **Only buildings enter `buildingMeshes`**, so the raycaster can never select scenery and
-  the gizmo never latches onto context.
+  the gizmo never latches onto context. The one exception is what was drawn here:
+  `shapeObjs` holds the drawn surfaces' meshes and each void's group, and a click reaches
+  them only when nothing nearer — a building, a tree, the terrain in front — is in the
+  way. A `'shape'` selection stands alone like the origin and a layer, and is added and
+  removed by a `shapeLife` command, the `life` command again with an index into
+  `surfaces` or `voids`.
+- **Moving a shape.** A draped skin cannot move rigidly — slid across a slope it floats on
+  one side and buries itself on the other — but the gizmo only moves objects rigidly. So
+  each shape's object carries the shape's move as its own transform, centred on the ring
+  (`shapeFrame`), with the geometry written in that frame. The gizmo drags the object as
+  a preview (`readShapeInto` carries the numbers live); letting go calls `reshape`, which
+  rebuilds the surface through `buildDrawn` where it landed, or redraws a void's rim and
+  marks the ground stale. `lockAxes` hides the vertical arrow and the two tilting rings,
+  and Scale is refused. Typed position/rotation go through the same `Editable` path as a
+  building's, whose `apply` is `reshape`; a move is a `'shape'` command holding the move
+  before and after.
+- **Buildings that cut the ground.** `xf.cut` holes the terrain under the footprint
+  (`cutRings`) and drops the base to the lowest ground beneath it (`plinthOf`, folded into
+  `buildingGeometry` as extra depth below the base, divided by the Z scale so the roof
+  stays put). Anything that can move one, or add, remove or re-toggle one, marks
+  `groundStale`; `flushGround` re-cuts once per gesture — in `pushCmd`, `undo`, `redo`,
+  and `settleCuts` at the end of a drag or a typed edit — so a batch of fifty does not
+  re-cut the lattice fifty times.
+- **Drawing onto a layer.** `commitFootprint` branches on the draw panel's layer: a
+  building is extruded as before; vegetation, road and water go through `drawnSurface`
+  ([lib/scene/drawn.ts](lib/scene/drawn.ts)); a void keeps only its ring. The viewer has no
+  projection of its own, so `setScene` takes a `ToGeo` alongside the scene
+  (`toGeoOf(meta)`, [lib/geo/inverse.ts](lib/geo/inverse.ts)) — the terrain is sampled on
+  lat/lon, and a drape needs to find the ground under every corner.
+- **Voids** are cut where the ground is drawn: `groundGeometry` runs `cutTerrain` over
+  the lattice with `cutRings` (voids and cutting buildings), and `rebuildGround` swaps the
+  buffer when one comes, goes or moves, keeping the
+  mesh object that `pickSupport` holds. A hole has nothing in it to click, so each void
+  also carries its rim (a `LineLoop` densified along the slope) and an invisible pick
+  plane at its highest rim point. Three ignores `.visible` when raycasting — the quirk the
+  `shown()` guards exist to work round — and here it is the point; `pickMeasure` filters
+  on `.visible` so the plane is never measured to.
 - **Picking**: `pointerdown` records the position and whether the gizmo was hovered;
   `pointerup` ignores the event if the pointer travelled more than 5 px — that was an orbit.
 - **Multi-selection**: `selection` is an array and `selected` is a getter for its last
@@ -563,6 +600,8 @@ A five-result search. Explicitly a convenience — the caller reports failure an
 | [grid.ts](lib/geo/grid.ts) | `gridSampler` — elevation lookup that interpolates the DEM lattice over the *same* two triangles the terrain mesh is drawn from, rather than bilinearly. A bilinear value sags below those triangles on a twisted cell, so anything placed with it sinks into the ground the user actually sees. Both providers return one. |
 | [mesh.ts](lib/geo/mesh.ts) | The parts that genuinely need three: `triangulate` (three's own earcut), `drape` (a clipped ring onto terrain, lifted by `dz` against z-fighting), `prismInto` (extrude into shared arrays for merged layers; the base comes from a per-*point* callback, not a number, so the underside can follow the terrain — point rather than index because the ring is reordered and deduplicated inside), `treeProxy` (a 6-sided trunk and canopy cone, ~24 triangles, returned as two separate parts — they are two colours, and a style attaches to a whole item). |
 | [sourcez.ts](lib/geo/sourcez.ts) | Elevation from the source geometry rather than the DEM, for a layer whose drape has been turned off. `zLineFrom` pulls the third ordinate out of a BD TOPO ring into local metres and returns `null` when there is none — which doubles as the "does this feature carry elevation" test, since the answer varies per layer and cannot be known before the fetch. A position is kept only if `plausibleZ` accepts it: BD TOPO's nodata sentinel is exactly `-1000` and is finite, so `isFinite` alone lets it through and it drags a ribbon corner a kilometre down. The band is deliberately wide — real altitudes here go negative (−2.3 m water near Bordeaux), so "reject negatives" would delete true data. `polylineZAt` answers a query at a local XY off the nearest point of those lines, interpolating along the segment and clamping past either end; nearest-point rather than per-vertex because the ring being sampled is not the polyline being sampled from — a carriageway's outline is offset half a width sideways and carries arc and clip corners no source position corresponds to. Segments are bucketed on a uniform grid, and the search widens a ring of cells at a time until the best distance found is inside the ring already searched. Pure: no projection, no fetch, no terrain. |
+| [voids.ts](lib/geo/voids.ts) | `minGroundUnder` — the lowest the terrain gets under a ring, exact over the drawn surface (per triangle: ring corners inside it, its corners inside the ring, and edge crossings), which is what a cutting building's base drops to; `groundAt` — the terrain's height at one point, off its triangle. Both query a per-terrain face index (`BoxGrid`, cached in a `WeakMap` on the faces array). `cutTerrain` — the terrain with every hole (drawn voids, cutting buildings) taken out, as a vertex/face pair. `SceneData.terrain` itself stays whole: it is also what every drape and every elevation lookup reads. Per terrain triangle, and nearly every one takes a fast path: a box that misses every void keeps its indices; one no void rim crosses is wholly in or out, and its centroid says which; only the triangles a rim runs through go to `differencePolygons` ([boolean.ts](lib/geo/boolean.ts)), with new corners placed on that triangle's own plane so the rim sits on the ground the user sees. No voids hands the lattice back unchanged, which is what keeps an existing export entity-for-entity what it was. |
+| [inverse.ts](lib/geo/inverse.ts) | `toGeoOf(meta)` — local metres back to lon/lat through the site's own proj4 definition, built once. What the viewer is handed with a scene, because it drapes drawn shapes and never imports proj4 itself. |
 | [euler.ts](lib/geo/euler.ts) | `xfAxes` — an XYZ Euler as the local Z and X unit vectors `IfcAxis2Placement3D` wants, expanded in closed form from three's own `'XYZ'` branch so the serialiser stays renderer-free. Returns `null` when unrotated, which keeps unedited files small. |
 
 ### The CRS index
@@ -643,6 +682,58 @@ it. The centreline is filtered against the box first (grown by half a carriagewa
 running just outside still contributes the half of its surface that is inside), and only what
 survives is buffered — the other way round pays thousands of projection inversions per way to
 produce a handful of quads.
+
+### Drawn shapes and voids
+
+The rectangle and polygon tools draw onto a layer chosen on the draw panel. What each
+becomes is decided by where it has to end up in the file:
+
+- **Vegetation, road, water** are a `Surface` each, built by `drawnSurface`
+  ([lib/scene/drawn.ts](lib/scene/drawn.ts)) through the same `conformToTerrain` +
+  `skirtInto` a fetched layer uses, at that layer's rung on `LAYER_DZ` (`DRAWN_TIER` in
+  [stack.ts](lib/scene/stack.ts) bridges the scene's plural `roads` to the ladder's
+  `road`). They carry `id` and `src: 'user'`, no colour of their own (so a layer recolour
+  reaches them), and `props.Source = 'drawn'`. Drape off, or started on a roof, the skin
+  is held level — at the lowest corner, the rule a drawn building's base follows, or on
+  the roof plane — and says so in `props.z_source`.
+- **A drawn road is not spliced into `SceneData.roads`.** That array is one merged ribbon
+  with no way to take one road back out of it, so `SurfaceLayer` gained `roads` for
+  hand-drawn areas alone. They draw unlit like the ribbon, in the roads group, and export
+  as elements of their own.
+- **A void** is `SceneData.voids`, only a ring. The cut is derived wherever the ground is
+  drawn or written (`cutTerrain`), so deleting one puts the ground back exactly. A flat
+  scene has no terrain in the file to hole, so the panel does not offer one there and the
+  viewer refuses it.
+
+All three count in `drawnCount`, so a rebuild or an open asks before discarding them;
+they are listed in the model tree (surfaces under their layer, voids under the terrain)
+and travel in a draft. None of them is credited to a dataset.
+
+**They move by being rebuilt.** A drawn surface keeps its recipe, `Surface.drawn`
+(`DrawnSpec`: the ring as drawn, the drape flag, the roof it started on, and an `Xf` for
+the move); a void keeps its ring and an `Xf`. Only `pos[0..1]` and `rot[2]` are read —
+`placeRing` turns the ring about its own centre and offsets it — and `buildDrawn` builds
+the surface wherever that puts it, looking each corner's ground up afresh so "level at
+the lowest corner" still holds after a move across a slope. The surface's `verts`/`faces`
+are that build's output, kept current, so the writer reads a moved shape like any other.
+
+### Buildings that cut the terrain — [lib/scene/cut.ts](lib/scene/cut.ts)
+
+`Xf.cut`, beside colour and opacity, because it has their lifetime: one element's choice,
+carried into the file, undone by the same Ctrl+Z, applied across a multi-selection, copied
+by Duplicate, saved in a draft. Optional, and written only when set, so every existing
+record and file reads as uncut.
+
+- **`cutRings(scene)`** is the one list of what holes the ground: every void where it has
+  been moved to, plus `footprintOf` every cutting building (its ring through scale, the
+  turn about Z and the offset — tilts are ignored, a tipped prism has no single footprint).
+  The viewer's ground mesh and `emitIFC` both read it, so the holes agree.
+- **`plinthOf(b, terrain)`** is how far the base drops: the gap between the base and
+  `minGroundUnder` the footprint, or zero. Derived, never stored — it depends on where the
+  building stands. The roof stays put; the extra depth is at the bottom, so nothing hangs
+  over the hole on a downhill side. In the file it is the wall solid starting that far
+  down and that much deeper — still one `SweptSolid` over the same profile; an uncut
+  building is written on the shared axes exactly as before.
 
 ### [layers.ts](lib/scene/layers.ts) — what a layer *is*, in one place
 
@@ -835,8 +926,8 @@ Element mapping:
 
 | Scene item | IFC |
 | --- | --- |
-| Building | `IfcBuildingElementProxy` + `IfcExtrudedAreaSolid` over an `IfcArbitraryClosedProfileDef`. One solid where the wall and cap colours agree (every sourced building at its default — there the preview's roof/wall separation is the light, not the palette); where they differ, two stacked extrusions over the *same* profile, a wall body and a thin roof band, so the roof can carry its own `IfcStyledItem`. Both stay `SweptSolid` and the total height is unchanged — a split brep would have cost the parametric profile on the most numerous element in the file, to say one colour |
-| Terrain, roads, draped layers | `IfcGeographicElement` + `IfcPolygonalFaceSet`, `PredefinedType` clamped to what the schema actually defines — anything outside it is demoted to `USERDEFINED` and says what it meant in `ObjectType` |
+| Building | `IfcBuildingElementProxy` + `IfcExtrudedAreaSolid` over an `IfcArbitraryClosedProfileDef`. A building set to cut the terrain starts its wall solid `plinthOf` below its base and is that much deeper, so it reaches the lowest ground under it with the roof unmoved. One solid where the wall and cap colours agree (every sourced building at its default — there the preview's roof/wall separation is the light, not the palette); where they differ, two stacked extrusions over the *same* profile, a wall body and a thin roof band, so the roof can carry its own `IfcStyledItem`. Both stay `SweptSolid` and the total height is unchanged — a split brep would have cost the parametric profile on the most numerous element in the file, to say one colour |
+| Terrain, roads, draped layers | The terrain goes out through `cutTerrain`, so a drawn void is a hole in the faceset. `IfcGeographicElement` + `IfcPolygonalFaceSet`, `PredefinedType` clamped to what the schema actually defines — anything outside it is demoted to `USERDEFINED` and says what it meant in `ObjectType` |
 | Tree | `IfcBuildingElementProxy` + `IfcPolygonalFaceSet`, one element per tree from `treeProxy` — the same shape the viewer draws. Trunk and canopy are two items in the one representation, styled separately, so the brown trunk survives the trip; a per-tree colour override recolours the canopy alone, as it does on screen |
 | Source attributes | `Pset_SiteContext` via `IfcPropertySet` / `IfcRelDefinesByProperties` |
 | Colour | `IfcStyledItem` → `IfcSurfaceStyle` directly (IFC4 allows it; the wrapper it deprecated goes back in only under IFC2X3, whose `Styles` holds nothing else). The `IfcSurfaceStyleRendering` is written as explicit matte — `.MATT.`, `DiffuseColour` reusing the surface colour, `SpecularColour` a shared black `IfcColourRgb`, `IfcSpecularExponent` 1 — rather than left `.NOTDEFINED.` with null rendering attributes. Left undefined, every viewer substitutes a Phong default with a white specular highlight, and the flat draped layers (water, vegetation, roads) face straight up and bounce it into the camera. Said in colours rather than the tidier `IfcNormalisedRatioMeasure` factors, and with the exponent rather than `IfcSpecularRoughness`, because those are the branches of each select that Revit and ArchiCAD emit and viewers are therefore known to read. Don't simplify it back. Colours themselves go out verbatim: `lib/scene/stack` and `lib/scene/xf` hold one value per thing and the file states exactly that, so the preview and the deliverable cannot disagree about what colour something is. There used to be an export-only highlight knee here on the theory that a viewer with more ambient gain would clip the near-whites to paper; it cost more than it insured against, leaving terrain and massing several shades under their palette in every viewer. If an export ever does read blown out, the fix belongs in the palette — where the preview would show it too |

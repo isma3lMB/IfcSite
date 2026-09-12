@@ -415,9 +415,12 @@ export function ControlsPanel(p: ControlsPanelProps) {
           reason the element editor's placement block is — it is a second
           subject, not more fields belonging to the accuracy control above.
 
-          The body is always rendered and `hidden` rather than mounted on
-          demand, so aria-controls always resolves to something; `hidden` keeps
-          the ten sliders out of the tab order and out of layout either way. */}
+          The wrapper is always rendered so aria-controls always resolves to
+          something, but what is inside it mounts only while open. An
+          edge-aligned Base UI thumb measures its control on mount, and one
+          mounted under `display:none` measures 0 and stays invisible until
+          its value next changes. The tunables live in the form, so unmounting
+          on collapse loses nothing. */}
       <div className="field editSection">
         <button
           type="button"
@@ -434,179 +437,183 @@ export function ControlsPanel(p: ControlsPanelProps) {
         </button>
 
         <div id="advBody" hidden={!advOpen}>
-          <div className="fieldHint">{t('ctl.advancedHint')}</div>
+          {advOpen && (
+            <>
+              <div className="fieldHint">{t('ctl.advancedHint')}</div>
 
-          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advFetch')}</span>
+              <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advFetch')}</span>
 
-          <TuneRow
-            id="advBuildingCap"
-            label={t('ctl.advBuildingCap')}
-            hint={t('ctl.advBuildingCapHint')}
-            value={tune.buildingCap}
-            range={TUNE_RANGE.buildingCap}
-            step={100}
-            disabled={!p.form.buildings}
-            format={(v) => n(v)}
-            onChange={(buildingCap) => setTune({ buildingCap })}
-          />
-
-          <TuneRow
-            id="advTreeCap"
-            label={t('ctl.advTreeCap')}
-            value={tune.treeCap}
-            range={TUNE_RANGE.treeCap}
-            step={100}
-            disabled={!p.form.trees}
-            format={(v) => n(v)}
-            onChange={(treeCap) => setTune({ treeCap })}
-          />
-
-          <TuneRow
-            id="advSiteMax"
-            label={t('ctl.advSiteMax')}
-            hint={t('ctl.advSiteMaxHint')}
-            value={tune.siteMax}
-            range={TUNE_RANGE.siteMax}
-            step={100}
-            format={(v) => `${n(v)} m`}
-            onChange={(siteMax) => setTune({ siteMax })}
-          />
-
-          {/* Held in ms because that is what AbortSignal.timeout takes, but
-              nobody thinks in milliseconds — so the slider steps in whole
-              seconds and converts at the boundary. */}
-          <TuneRow
-            id="advTimeout"
-            label={t('ctl.advTimeout')}
-            hint={t('ctl.advTimeoutHint')}
-            value={tune.overpassTimeoutMs / 1000}
-            range={[TUNE_RANGE.overpassTimeoutMs[0] / 1000, TUNE_RANGE.overpassTimeoutMs[1] / 1000]}
-            step={5}
-            format={(v) => `${n(v)} s`}
-            onChange={(s) => setTune({ overpassTimeoutMs: s * 1000 })}
-          />
-
-          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advTerrainSec')}</span>
-
-          <TuneRow
-            id="advGridMax"
-            label={t('ctl.advGridMax')}
-            hint={t('ctl.advGridMaxHint')}
-            value={tune.maxGridN}
-            range={TUNE_RANGE.maxGridN}
-            step={1}
-            disabled={!p.form.terrain}
-            format={(v) => t('ctl.advGridCells', { n: v })}
-            onChange={(maxGridN) => setTune({ maxGridN })}
-          />
-
-          <TuneRow
-            id="advConformStep"
-            label={t('ctl.advConformStep')}
-            hint={t('ctl.advConformStepHint')}
-            value={tune.conformStep}
-            range={TUNE_RANGE.conformStep}
-            step={1}
-            disabled={!p.form.terrain}
-            format={(v) => `${n(v)} m`}
-            onChange={(conformStep) => setTune({ conformStep })}
-          />
-
-          {/* Ticked means draped, which is what every one of these layers did
-              before the group existed. Unticking asks for the elevation the
-              source geometry carries instead — a bridge deck at its surveyed
-              height rather than flattened onto the ground it crosses.
-
-              IGN-gated, and not merely as a courtesy: OSM ways are 2D, so there
-              would be nothing to fall back to. The layers whose BD TOPO
-              geometry turns out to be flat as well are handled at build time
-              rather than here — that cannot be known before the fetch, so they
-              stay draped and say so in the element editor's z_source. */}
-          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advDrape')}</span>
-
-          <div className="field dimmed ign-only" aria-disabled={!ign}>
-            {DRAPE_ROWS.map((r) => (
-              <TuneToggle
-                key={r.key}
-                label={t(r.label)}
-                icon={r.icon}
-                checked={p.form.drape[r.key]}
-                disabled={!ign}
-                onChange={(v) => p.onChange({ drape: { ...p.form.drape, [r.key]: v } })}
+              <TuneRow
+                id="advBuildingCap"
+                label={t('ctl.advBuildingCap')}
+                hint={t('ctl.advBuildingCapHint')}
+                value={tune.buildingCap}
+                range={TUNE_RANGE.buildingCap}
+                step={100}
+                disabled={!p.form.buildings}
+                format={(v) => n(v)}
+                onChange={(buildingCap) => setTune({ buildingCap })}
               />
-            ))}
-            <div className="fieldHint">{t('ctl.advDrapeHint')}</div>
-          </div>
 
-          {/* None of these three is provider-gated: each was written down twice,
-              once for OSM and once for BD TOPO, and now is not. */}
-          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advGeometry')}</span>
+              <TuneRow
+                id="advTreeCap"
+                label={t('ctl.advTreeCap')}
+                value={tune.treeCap}
+                range={TUNE_RANGE.treeCap}
+                step={100}
+                disabled={!p.form.trees}
+                format={(v) => n(v)}
+                onChange={(treeCap) => setTune({ treeCap })}
+              />
 
-          <TuneRow
-            id="advStoreyHeight"
-            label={t('ctl.advStoreyHeight')}
-            hint={t('ctl.advStoreyHeightHint')}
-            value={tune.storeyHeight}
-            range={TUNE_RANGE.storeyHeight}
-            step={0.1}
-            disabled={!p.form.buildings}
-            format={(v) => `${n(v)} m`}
-            onChange={(storeyHeight) => setTune({ storeyHeight })}
-          />
+              <TuneRow
+                id="advSiteMax"
+                label={t('ctl.advSiteMax')}
+                hint={t('ctl.advSiteMaxHint')}
+                value={tune.siteMax}
+                range={TUNE_RANGE.siteMax}
+                step={100}
+                format={(v) => `${n(v)} m`}
+                onChange={(siteMax) => setTune({ siteMax })}
+              />
 
-          <TuneRow
-            id="advLaneWidth"
-            label={t('ctl.advLaneWidth')}
-            value={tune.laneWidth}
-            range={TUNE_RANGE.laneWidth}
-            step={0.25}
-            disabled={!p.form.roads}
-            format={(v) => `${n(v)} m`}
-            onChange={(laneWidth) => setTune({ laneWidth })}
-          />
+              {/* Held in ms because that is what AbortSignal.timeout takes, but
+                  nobody thinks in milliseconds — so the slider steps in whole
+                  seconds and converts at the boundary. */}
+              <TuneRow
+                id="advTimeout"
+                label={t('ctl.advTimeout')}
+                hint={t('ctl.advTimeoutHint')}
+                value={tune.overpassTimeoutMs / 1000}
+                range={[TUNE_RANGE.overpassTimeoutMs[0] / 1000, TUNE_RANGE.overpassTimeoutMs[1] / 1000]}
+                step={5}
+                format={(v) => `${n(v)} s`}
+                onChange={(s) => setTune({ overpassTimeoutMs: s * 1000 })}
+              />
 
-          <TuneRow
-            id="advTrackWidth"
-            label={t('ctl.advTrackWidth')}
-            value={tune.railTrackWidth}
-            range={TUNE_RANGE.railTrackWidth}
-            step={0.25}
-            disabled={!p.form.railways}
-            format={(v) => `${n(v)} m`}
-            onChange={(railTrackWidth) => setTune({ railTrackWidth })}
-          />
+              <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advTerrainSec')}</span>
 
-          {/* The one setting here that changes nothing a build fetches or
-              produces, and the only one whose effect you can watch while you
-              drag it — the orbit changes pace under a camera that stays put. */}
-          <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advPresentation')}</span>
+              <TuneRow
+                id="advGridMax"
+                label={t('ctl.advGridMax')}
+                hint={t('ctl.advGridMaxHint')}
+                value={tune.maxGridN}
+                range={TUNE_RANGE.maxGridN}
+                step={1}
+                disabled={!p.form.terrain}
+                format={(v) => t('ctl.advGridCells', { n: v })}
+                onChange={(maxGridN) => setTune({ maxGridN })}
+              />
 
-          {/* Held in ms because that is what the viewer's clock is in, shown in
-              whole seconds for the same reason the timeout above is. */}
-          <TuneRow
-            id="advOrbitCycle"
-            label={t('ctl.advOrbitCycle')}
-            hint={t('ctl.advOrbitCycleHint')}
-            value={tune.orbitCycleMs / 1000}
-            range={[TUNE_RANGE.orbitCycleMs[0] / 1000, TUNE_RANGE.orbitCycleMs[1] / 1000]}
-            step={5}
-            format={(v) => `${n(v)} s`}
-            onChange={(s) => setTune({ orbitCycleMs: s * 1000 })}
-          />
+              <TuneRow
+                id="advConformStep"
+                label={t('ctl.advConformStep')}
+                hint={t('ctl.advConformStepHint')}
+                value={tune.conformStep}
+                range={TUNE_RANGE.conformStep}
+                step={1}
+                disabled={!p.form.terrain}
+                format={(v) => `${n(v)} m`}
+                onChange={(conformStep) => setTune({ conformStep })}
+              />
 
-          {/* Always present, disabled at defaults, rather than appearing when
-              something is customised — a control that comes and goes moves
-              every slider above it. DEFAULT_TUNABLES is complete, so this one
-              patch resets all ten. */}
-          <div className="presets">
-            <button
-              type="button"
-              disabled={isDefaultTunables(tune)}
-              onClick={() => p.onChange({ tune: { ...DEFAULT_TUNABLES } })}
-            >
-              {t('ctl.advReset')}
-            </button>
-          </div>
+              {/* Ticked means draped, which is what every one of these layers did
+                  before the group existed. Unticking asks for the elevation the
+                  source geometry carries instead — a bridge deck at its surveyed
+                  height rather than flattened onto the ground it crosses.
+
+                  IGN-gated, and not merely as a courtesy: OSM ways are 2D, so there
+                  would be nothing to fall back to. The layers whose BD TOPO
+                  geometry turns out to be flat as well are handled at build time
+                  rather than here — that cannot be known before the fetch, so they
+                  stay draped and say so in the element editor's z_source. */}
+              <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advDrape')}</span>
+
+              <div className="field dimmed ign-only" aria-disabled={!ign}>
+                {DRAPE_ROWS.map((r) => (
+                  <TuneToggle
+                    key={r.key}
+                    label={t(r.label)}
+                    icon={r.icon}
+                    checked={p.form.drape[r.key]}
+                    disabled={!ign}
+                    onChange={(v) => p.onChange({ drape: { ...p.form.drape, [r.key]: v } })}
+                  />
+                ))}
+                <div className="fieldHint">{t('ctl.advDrapeHint')}</div>
+              </div>
+
+              {/* None of these three is provider-gated: each was written down twice,
+                  once for OSM and once for BD TOPO, and now is not. */}
+              <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advGeometry')}</span>
+
+              <TuneRow
+                id="advStoreyHeight"
+                label={t('ctl.advStoreyHeight')}
+                hint={t('ctl.advStoreyHeightHint')}
+                value={tune.storeyHeight}
+                range={TUNE_RANGE.storeyHeight}
+                step={0.1}
+                disabled={!p.form.buildings}
+                format={(v) => `${n(v)} m`}
+                onChange={(storeyHeight) => setTune({ storeyHeight })}
+              />
+
+              <TuneRow
+                id="advLaneWidth"
+                label={t('ctl.advLaneWidth')}
+                value={tune.laneWidth}
+                range={TUNE_RANGE.laneWidth}
+                step={0.25}
+                disabled={!p.form.roads}
+                format={(v) => `${n(v)} m`}
+                onChange={(laneWidth) => setTune({ laneWidth })}
+              />
+
+              <TuneRow
+                id="advTrackWidth"
+                label={t('ctl.advTrackWidth')}
+                value={tune.railTrackWidth}
+                range={TUNE_RANGE.railTrackWidth}
+                step={0.25}
+                disabled={!p.form.railways}
+                format={(v) => `${n(v)} m`}
+                onChange={(railTrackWidth) => setTune({ railTrackWidth })}
+              />
+
+              {/* The one setting here that changes nothing a build fetches or
+                  produces, and the only one whose effect you can watch while you
+                  drag it — the orbit changes pace under a camera that stays put. */}
+              <span className="eyebrow block mb-1.5 advGroup">{t('ctl.advPresentation')}</span>
+
+              {/* Held in ms because that is what the viewer's clock is in, shown in
+                  whole seconds for the same reason the timeout above is. */}
+              <TuneRow
+                id="advOrbitCycle"
+                label={t('ctl.advOrbitCycle')}
+                hint={t('ctl.advOrbitCycleHint')}
+                value={tune.orbitCycleMs / 1000}
+                range={[TUNE_RANGE.orbitCycleMs[0] / 1000, TUNE_RANGE.orbitCycleMs[1] / 1000]}
+                step={5}
+                format={(v) => `${n(v)} s`}
+                onChange={(s) => setTune({ orbitCycleMs: s * 1000 })}
+              />
+
+              {/* Always present, disabled at defaults, rather than appearing when
+                  something is customised — a control that comes and goes moves
+                  every slider above it. DEFAULT_TUNABLES is complete, so this one
+                  patch resets all ten. */}
+              <div className="presets">
+                <button
+                  type="button"
+                  disabled={isDefaultTunables(tune)}
+                  onClick={() => p.onChange({ tune: { ...DEFAULT_TUNABLES } })}
+                >
+                  {t('ctl.advReset')}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
