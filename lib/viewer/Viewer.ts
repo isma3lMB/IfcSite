@@ -3827,6 +3827,8 @@ export class Viewer {
       return { label, kind: 'shape', rec: p.rec, before: p.before, after };
     }
 
+  /** One closed part as a command, or null when nothing about it moved. */
+  private cmdOf(p: Pending, label: EditLabelKey): Cmd | null {
     if (p.kind === 'origin') {
       const after = this.originOffset.toArray() as Vec3;
       if (p.before.every((v, i) => v === after[i])) return null;

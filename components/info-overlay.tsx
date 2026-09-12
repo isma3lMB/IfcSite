@@ -40,6 +40,29 @@ const CREDITS: SourceLicence[] = [
 ];
 
 /**
+ * The credits, in the order the pipeline uses them.
+ *
+ * DATA_SOURCES covers what reaches the IFC. Nominatim never does — it answers
+ * the place search and nothing it returns is written to the file — but ODbL
+ * asks a work that *displays* OSM data to credit it, and a searched-for place
+ * name is displayed data, so it is credited here and not there. The basemap
+ * tiles are attributed by Leaflet itself, in the corner of the map.
+ */
+const CREDITS: SourceLicence[] = [
+  DATA_SOURCES.osm,
+  DATA_SOURCES.terrarium,
+  DATA_SOURCES.bdtopo,
+  DATA_SOURCES.rgealti,
+  DATA_SOURCES.pci,
+  {
+    source: 'Nominatim',
+    licence: 'ODbL 1.0',
+    url: 'https://www.openstreetmap.org/copyright',
+    attribution: '© OpenStreetMap contributors.',
+  },
+];
+
+/**
  * What used to be the page header and the footer notes. Full-bleed viewers left
  * no room for prose, and none of it is needed to draw a rectangle — so it waits
  * behind the (i) button instead of taking a third of the window forever.

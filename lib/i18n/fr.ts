@@ -85,7 +85,7 @@ export const fr: Dict = {
   /* ---- barre d’état : le seul endroit où quelque chose est énoncé ---- */
   'bar.site': 'Site',
   'bar.origin': 'Origine',
-  'bar.rebuild': 'Reconstruire',
+  'bar.rebuild': 'Reconstruire la maquette',
   'bar.stale': 'Site déplacé depuis la dernière construction — reconstruisez avant d’exporter.',
   'bar.presenting': 'Présentation — Échap pour quitter.',
   'bar.drawHintRect': 'Glissez sur le sol pour tracer un rectangle. Échap annule.',
