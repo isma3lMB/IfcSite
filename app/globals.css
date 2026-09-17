@@ -1067,6 +1067,47 @@ html.dark {
     white-space: nowrap;
     flex: none;
   }
+  /* The repo link and the support link, held together so .infoFoot still has
+     the two children its space-between is written for. They stay one unit when
+     the card narrows; the break goes between this and .infoMeta. */
+  .infoActions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+  }
+  /* The support link, on .iconBtn for its geometry: the same 28px disc as the
+     close button, and the 32px touch bump at the bottom of this file for free.
+     Everything else has to give, because .iconBtn was written for a monochrome
+     glyph that follows the ink, and this is a two-tone brand mark that cannot.
+
+     So the chip is the one object on this overlay that does not theme. Its
+     ground and its border are literals, not tokens, and they are the same in
+     light and in dark. Both of the obvious tokens invert underneath it:
+     --color-paper is #fafafa here and #14171a under html.dark, and --color-ink
+     the other way about, so either one would turn the disc near-black in dark
+     mode and bury the mark's own #0D0C22 outline in it — leaving a yellow cup
+     body floating with no edges. A brand mark reproduced in brand colours needs
+     the ground it was drawn for, in every theme, so it brings its own.
+
+     That makes it read as what it is: a sticker, the only third-party badge on
+     a panel where everything else is drawn in this palette.
+
+     Hover cannot be .iconBtn's ink fill either — it would swallow the outline
+     the same way — so it goes to the brand yellow, which the mark is designed
+     to sit on. Raw #ffdd00, not a token and not --color-yellow: this palette's
+     accent is #f0fb29, a far colder acid, and the two should not be mistaken
+     for one another just because both are yellow. */
+  .infoFoot .bmcBtn {
+    background: #fafafa;
+    border-color: #202020;
+    overflow: hidden;
+    text-decoration: none;
+  }
+  .infoFoot .bmcBtn:hover {
+    background: #ffdd00;
+    border-color: #202020;
+  }
   /* Author, then commit and date. The two spans wrap as units, so a narrow card
      breaks between them rather than inside "Version 7a4f826". */
   .infoMeta {

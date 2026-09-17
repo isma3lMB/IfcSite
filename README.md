@@ -311,11 +311,12 @@ requests light:
 
 - **[OpenStreetMap](https://www.openstreetmap.org/copyright)** contributors — buildings,
   roads and trees, under ODbL. Queried through the [Overpass API](https://overpass-api.de/).
+  The 2D map's basemap tiles come from the same project, served by
+  [tile.openstreetmap.org](https://tile.openstreetmap.org/).
 - **[IGN Géoplateforme](https://geoservices.ign.fr/)** — BD TOPO, RGE ALTI and the French
   cadastre.
 - **[Nominatim](https://nominatim.org/)** — place search.
 - **[AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/)** — worldwide
   elevation.
-- **[CARTO](https://carto.com/attributions)** — the dark basemap tiles.
 
 Source: **https://github.com/isma3lMB/IfcSite**

@@ -196,12 +196,11 @@ The single stateful component. It owns:
   east-then-north order the georeferencing is written in. The name is a pure function of
   where the site is, so re-exporting the same site overwrites rather than accumulating
   numbered copies in the downloads folder.
-- **Theme push.** Both viewers own a backdrop CSS cannot reach — a shader dome and a tile
-  URL — so the class on `<html>` is not enough for either. An effect on `theme` calls
-  `Viewer.setTheme` and `MapController.setTheme`; both return early when the theme has not
-  moved. The map is constructed from a promise (Leaflet is imported dynamically), so it
-  reads the theme off `themeRef` when it lands rather than relying on that effect, which
-  has usually already run against a null ref.
+- **Theme push.** The 3D viewer owns a backdrop CSS cannot reach — a shader dome — so the
+  class on `<html>` is not enough for it. An effect on `theme` calls `Viewer.setTheme`,
+  which returns early when the theme has not moved. The map needs no push of its own: its
+  basemap is one tile source in either theme, turned dark by a CSS filter over the tile pane
+  (see **Basemap** below).
 
 ### The bottom of the window, split three ways
 
@@ -330,11 +329,15 @@ threshold, InstancedMesh trees, and an undo stack keyed on live mesh state.
   produce identical files.** The edge lines are left alone for a plainer reason — they are
   drawn over those same near-white surfaces in both themes, so a dark edge is still the
   readable one, and lightening them for the dark theme would erase them.
-- **Basemap** — `MapController.setTheme` swaps the tile URL via `setUrl()` on the existing
-  layer (remove/add would blank the map for a beat and drop it below the site rectangle in
-  the pane order). Dark is CARTO `dark_all`; the attribution is part of the same tuple and
-  is moved by hand, because Leaflet reads that option once when the layer is added — and
-  swapping the URL without the credit would be a licence breach, not a styling bug.
+- **Basemap** — one OpenStreetMap tile source for both themes (`BASEMAP` in
+  [MapController.ts](lib/viewer/MapController.ts), added once at construction and never
+  swapped). Dark is the `html.dark .leaflet-tile-pane` rule in
+  [app/globals.css](app/globals.css) — an invert plus a hue rotation that puts water and land
+  back — not a second provider, so the map keeps the same labels and style either way, and
+  the OpenStreetMap credit never has to move. Filtering that one pane rather than the map
+  container is what leaves the site rectangle, the drag handles and the controls uninverted:
+  they are siblings of the tile pane, not descendants. The comment above the rule carries the
+  brightness/contrast/saturate knobs to retune.
 - **Scene construction** (`setScene`): the site outline (the drawn rectangle, readable in
   3D too), roads as a translucent double-sided mesh plus edges, one
   `ExtrudeGeometry` mesh per building with a two-material side/top split and an outline as

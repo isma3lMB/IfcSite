@@ -24,6 +24,11 @@ export const en = {
   /* The info panel's pinned footer. The author's name and every URL live in the
      component — proper nouns, the same in every language. */
   'info.github': 'Source code',
+  /* The support link, which is an icon and nothing else — so this string is
+     never read on screen: it is the hover title and the accessible name. Buy Me
+     a Coffee is a product name and stays in English; what translates is the
+     invitation around it. */
+  'info.support': 'Buy me a coffee',
   /* Followed by the author's name, linked to their about page. */
   'info.madeBy': 'Author',
   /* Followed by the commit id and its date, both filled in by the component. */

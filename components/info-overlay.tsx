@@ -1,6 +1,6 @@
 'use client';
 
-import { IconGitHub } from '@/components/icons';
+import { IconBuyMeACoffee, IconGitHub } from '@/components/icons';
 import { Notes } from '@/components/notes';
 import { useT } from '@/lib/i18n/context';
 import { DATA_SOURCES, type SourceLicence } from '@/lib/sources/licence';
@@ -15,6 +15,7 @@ export type InfoOverlayProps = {
 const REPO_URL = 'https://github.com/isma3lMB/IfcSite';
 const AUTHOR_NAME = 'isma3lMB';
 const AUTHOR_URL = 'https://www.bim-lane.blog/about';
+const SUPPORT_URL = 'https://buymeacoffee.com/isma3lmb';
 
 /**
  * The credits, in the order the pipeline uses them.
@@ -112,10 +113,28 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
         {/* Outside the scroller, like the head: who made it, where the source
             is and which build this is stay in view however far the prose runs. */}
         <div className="infoFoot">
-          <a className="btn-ghost" href={REPO_URL} target="_blank" rel="noopener noreferrer">
-            <IconGitHub />
-            {t('info.github')}
-          </a>
+          {/* Grouped, so the footer keeps the two children its space-between
+              expects: a third one would be pushed into the middle of the row. */}
+          <div className="infoActions">
+            <a className="btn-ghost" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+              <IconGitHub />
+              {t('info.github')}
+            </a>
+            {/* Deliberately wordless: the mark is the label. Which means the
+                link has no accessible name of its own — the svg is aria-hidden
+                like every icon in the set — so it carries both the title for
+                the pointer and the aria-label for everything else. */}
+            <a
+              className="iconBtn bmcBtn"
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t('info.support')}
+              aria-label={t('info.support')}
+            >
+              <IconBuyMeACoffee />
+            </a>
+          </div>
           <p className="infoMeta">
             <span>
               {t('info.madeBy')}{' '}
