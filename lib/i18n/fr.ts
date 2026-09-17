@@ -26,6 +26,7 @@ export const fr: Dict = {
   'ui.info': 'À propos de cet outil',
   'ui.close': 'Fermer',
   'info.github': 'Code source',
+  'info.support': 'Offrez-moi un café',
   'info.madeBy': 'Développé par',
   'info.version': 'Version',
   'info.credits': 'Sources de données et licences',
