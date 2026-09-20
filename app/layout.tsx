@@ -19,7 +19,7 @@ const plexMono = IBM_Plex_Mono({
 // Static metadata is in the default language, matching the lang attribute
 // below. LangProvider rewrites both once the stored/URL preference is known.
 export const metadata: Metadata = {
-  title: 'IFC SITE - Environnement en BIM',
+  title: 'IFC SITE - Le contexte en BIM',
   description:
     'Générer une maquette site IFC géoréférencée entièrement dans le navigateur.',
 };

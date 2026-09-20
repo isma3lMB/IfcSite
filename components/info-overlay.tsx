@@ -67,7 +67,7 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="infoHead">
-          <div>
+          <div className="infoTitle">
             <div className="tag">{t('app.tag')}</div>
             <h1 className="h1">
               {t('app.h1a')} <span>{t('app.h1b')}</span>

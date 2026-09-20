@@ -20,6 +20,12 @@ export type BrandChipProps = {
  * The wordmark is split on the same two i18n keys the display lockup in the
  * info overlay uses, so the plated half is the same word in both and the two
  * cannot drift apart. There is no separate icon: the lockup is the mark.
+ *
+ * Each tab carries both its labels and CSS picks one — `Carte 2D` down to `2D`
+ * on a phone, where the chip shares a 375 px row with nothing to spare. Two
+ * spans rather than a breakpoint read in JS, deliberately: the page is
+ * prerendered, so a JS answer would be the desktop one for the first paint and
+ * the tabs would visibly re-label themselves on arrival.
  */
 export function BrandChip(p: BrandChipProps) {
   const { t } = useT();
@@ -35,10 +41,12 @@ export function BrandChip(p: BrandChipProps) {
 
       <div className="viewtabs">
         <button type="button" className={isMap ? 'on' : undefined} onClick={() => p.onView('map')}>
-          {t('sheet.tabMap')}
+          <span className="tabLong">{t('sheet.tabMap')}</span>
+          <span className="tabShort">{t('sheet.tabMapShort')}</span>
         </button>
         <button type="button" className={!isMap ? 'on' : undefined} onClick={() => p.onView('3d')}>
-          {t('sheet.tab3d')}
+          <span className="tabLong">{t('sheet.tab3d')}</span>
+          <span className="tabShort">{t('sheet.tab3dShort')}</span>
         </button>
       </div>
     </div>

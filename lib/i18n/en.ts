@@ -264,6 +264,12 @@ export const en = {
   /* ---- sheet ---- */
   'sheet.tabMap': '2D map',
   'sheet.tab3d': '3D preview',
+  /* The same two switches, for the phone tier where the pair has to sit beside
+     the wordmark in a 375 px row. Their own keys rather than a truncation:
+     abbreviating is a translation decision, and that these two come out
+     identical in both languages is a coincidence, not a rule to lean on. */
+  'sheet.tabMapShort': '2D',
+  'sheet.tab3dShort': '3D',
 
   /* ---- readout. What the build produced, in the status bar. Road faces, tree
      and layer counts are gone: the only signal they carried — a layer came back
