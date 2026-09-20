@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/logo_light.svg">
+    <img alt="IFC Site" src="public/logo.svg" width="260">
+  </picture>
+</p>
+
 # IFC Site
 
 **Extract and build a georeferenced IFC site context model from public cartographic datasets**

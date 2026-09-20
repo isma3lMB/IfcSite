@@ -11,7 +11,7 @@ import type { Dict } from '@/lib/i18n/en';
  */
 export const fr: Dict = {
   /* ---- chrome ---- */
-  'app.title': 'IFC SITE - Environnement en BIM',
+  'app.title': 'IFC SITE - Le contexte en BIM',
   'app.description':
     'Génération d’une maquette IFC du contexte de site à partir de données cartographiques publiques — bâtiments, voiries et terrain, géoréférencés, dans le navigateur.',
   'app.wordmark': 'IFC Site',
@@ -250,6 +250,8 @@ export const fr: Dict = {
   /* ---- sheet ---- */
   'sheet.tabMap': 'Carte 2D',
   'sheet.tab3d': 'Aperçu 3D',
+  'sheet.tabMapShort': '2D',
+  'sheet.tab3dShort': '3D',
 
   /* ---- readout : ce que la construction a produit, dans la barre d’état ---- */
   'read.buildings': 'Bâtiments',

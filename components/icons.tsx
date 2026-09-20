@@ -241,6 +241,25 @@ export const IconUndo = () => (
   </Svg>
 );
 
+/* The two ends of the phone dock, saying there is more strip past the edge.
+   Bare chevrons with no stem: at the size these are drawn, next to a row of
+   real tools, anything with more in it than a direction reads as a fourteenth
+   button. Mirrored rather than drawn twice, for the reason given on IconRedo
+   below. */
+export const IconChevronRight = () => (
+  <Svg>
+    <path d="m6 3.5 4.5 4.5L6 12.5" />
+  </Svg>
+);
+
+export const IconChevronLeft = () => (
+  <Svg>
+    <g transform="translate(16,0) scale(-1,1)">
+      <path d="m6 3.5 4.5 4.5L6 12.5" />
+    </g>
+  </Svg>
+);
+
 /* The same paths, mirrored — drawing a second set by hand would let the two
    drift apart at the pixel level, which is exactly where it would show. */
 export const IconRedo = () => (

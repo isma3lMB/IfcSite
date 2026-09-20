@@ -7,7 +7,15 @@ import { ControlsPanel } from '@/components/controls-panel';
 import { DrawPanel } from '@/components/draw-panel';
 import { type AxisKey, ElementEditor } from '@/components/element-editor';
 import { FileFlyout } from '@/components/file-flyout';
+import {
+  IconMoon,
+  IconOrigin,
+  IconPresentation,
+  IconProjection,
+  IconSun,
+} from '@/components/icons';
 import { InfoOverlay } from '@/components/info-overlay';
+import { LangToggle } from '@/components/lang-toggle';
 import { ModelTree } from '@/components/model-tree';
 import { SearchFlyout } from '@/components/search-flyout';
 import { SiteReadout } from '@/components/site-readout';
@@ -72,6 +80,7 @@ import type {
   ViewTab,
 } from '@/lib/types';
 import { useUnloadGuard } from '@/lib/ui/unload-guard';
+import { PHONE_QUERY, useMedia } from '@/lib/ui/useMedia';
 import { paint } from '@/lib/ui/yield';
 import { MapController } from '@/lib/viewer/MapController';
 import {
@@ -148,7 +157,14 @@ type Pending =
 
 export function IfcSite() {
   const { t, lang } = useT();
-  const { theme } = useTheme();
+  const { theme, toggle: toggleTheme } = useTheme();
+
+  /* Phone, as opposed to merely narrow. CSS owns the layout at every width; this
+     one is read here as well because what changes at it is which parent some
+     nodes are rendered into — the top-right cluster empties and its buttons join
+     the rail's dock — and no media query can move a node between two parents.
+     The other such read is `wideEditor`, further down. See lib/ui/useMedia. */
+  const phone = useMedia(PHONE_QUERY);
 
   /* ---- imperative state, deliberately outside React ------------------
      The scene is thousands of buildings with their rings; the viewer mutates
@@ -231,8 +247,21 @@ export function IfcSite() {
   const awakeRef = useRef(false);
   /** Not a mirror either but a one-shot: armed when a site gesture commits, and
       consumed by the click that same press is about to produce. See the
-      click-outside effect, which is what it exists to except. */
+      click-outside effect, which is what it exists to except.
+
+      On touch that click may never arrive — a browser is not obliged to
+      synthesise one — which would leave this armed. It costs nothing: the same
+      effect clears it on the next pointerdown, ahead of that gesture's own
+      click, so a stale flag excepts nothing that was going to happen anyway. */
   const drawEndClickRef = useRef(false);
+  /** Whether this site has had its options panel opened for it yet.
+
+      The panel is a prompt, not a consequence: the first rectangle of a session
+      is the moment to ask which sources to build it from, and every nudge of a
+      corner afterwards is not. Without this the panel reopened over the map on
+      every committed drag of a handle. Reset when the rectangle is cleared, so
+      a genuinely new site is prompted for again. */
+  const sitedOnceRef = useRef(false);
 
   /* ---- React state --------------------------------------------------- */
   const [form, setForm] = useState<BuildOptions>(DEFAULT_FORM);
@@ -421,6 +450,9 @@ export function IfcSite() {
       onSite: (r, live) => {
         setRect(r);
         setSiteDirty(true);
+        // A cleared site is a fresh start, so the next rectangle is prompted for
+        // again — see sitedOnceRef.
+        if (!r) sitedOnceRef.current = false;
         // Only once the gesture finishes — not on every drag frame — so the
         // panel doesn't pop open mid-drag and the source doesn't flicker.
         if (r && !live) {
@@ -429,11 +461,18 @@ export function IfcSite() {
               ? { ...f, provider: 'osm', veg: false, water: false, parcels: false }
               : f,
           );
-          setFlyout('options', true);
-          // Every one of these commits fires from a mouseup, so the browser is
+          // Only for the first rectangle — see sitedOnceRef. Resizing or moving
+          // a site you have already answered for is not a question.
+          if (!sitedOnceRef.current) {
+            sitedOnceRef.current = true;
+            setFlyout('options', true);
+          }
+          // Every one of these commits fires from a pointerup, so the browser is
           // about to dispatch that press's click on the map — outside the rail
           // zone, and so a dismissal by the rule below. It is the end of the
-          // gesture that just opened this panel, not a click away from it.
+          // gesture, not a click away from the panel. Armed on every commit and
+          // not just the first: whatever is open when a drag ends is entitled to
+          // survive that drag, whether or not this one opened it.
           drawEndClickRef.current = true;
         }
       },
@@ -468,12 +507,12 @@ export function IfcSite() {
      push the widget off the left edge; hold it at the plain margin there and
      let the editor cover it.
 
-     Bound to resize as well as to the selection. This is the one place in the
-     app where a breakpoint is read in JS rather than in CSS, and on [selection]
-     alone it only re-read it when something was picked — so a tablet rotated
+     Bound to the breakpoint as well as to the selection: on [selection] alone
+     it only re-read the width when something was picked, so a tablet rotated
      across 860 kept whichever inset it happened to have until the next click,
      with the widget either overlapped by the editor or floating inboard of it.
-     The listener costs nothing on a desktop that never crosses the threshold. */
+     useMedia re-renders on the crossing itself and costs nothing on a desktop
+     that never crosses it. */
   /* The tool the draw panel speaks for, or null when it is down. The measure
      tools take no options, and the element editor keeps the corner whenever
      there is a selection — see the render below. */
@@ -486,13 +525,11 @@ export function IfcSite() {
       : null;
   const cornerTaken = selection !== null || panelTool !== null;
 
+  const wideEditor = useMedia('(min-width: 861px)');
+
   useEffect(() => {
-    const apply = () =>
-      viewerRef.current?.setRightInset(cornerTaken && window.innerWidth > 860 ? 332 : 12);
-    apply();
-    window.addEventListener('resize', apply);
-    return () => window.removeEventListener('resize', apply);
-  }, [cornerTaken]);
+    viewerRef.current?.setRightInset(cornerTaken && wideEditor ? 332 : 12);
+  }, [cornerTaken, wideEditor]);
 
   /* ---- theme ------------------------------------------------------------
      The 3D viewer owns a backdrop CSS cannot reach — a shader dome — so the
@@ -1616,6 +1653,82 @@ export function IfcSite() {
      by the time this runs again, the mutation it's reading has already landed. */
   const m = metaRef.current;
 
+  /* The top-right cluster, for the phone tier that has no top-right cluster —
+     see the note on UtilChip's `compact`. Same handlers, same order, dressed as
+     rail buttons instead of chrome ones; the rail renders them behind their own
+     rule at the end of the dock.
+
+     The readout toggle is the one that does not come along: the readout itself
+     is display:none below 860 (globals.css), so its switch would be a button
+     that does nothing. The three 3D toggles carry the same view guard they have
+     in the chip — they act on a scene, and in the map tab there is not one. */
+  const dockUtils = !phone ? null : (
+    <>
+      {view !== 'map' && (
+        <>
+          <button
+            type="button"
+            className={`railBtn${showOrigin ? ' on' : ''}`}
+            data-tip={t('ui.originMarker')}
+            aria-label={t('ui.originMarker')}
+            aria-pressed={showOrigin}
+            onClick={() => onShowOrigin(!showOrigin)}
+          >
+            <IconOrigin />
+          </button>
+
+          <button
+            type="button"
+            className={`railBtn${ortho ? ' on' : ''}`}
+            data-tip={t('ui.projection')}
+            aria-label={t('ui.projection')}
+            aria-pressed={ortho}
+            onClick={() => onOrtho(!ortho)}
+          >
+            <IconProjection />
+          </button>
+
+          <button
+            type="button"
+            className={`railBtn${presenting ? ' on' : ''}`}
+            data-tip={t('ui.presentation')}
+            aria-label={t('ui.presentation')}
+            aria-pressed={presenting}
+            disabled={!hasScene}
+            onClick={() => onPresent(!presenting)}
+          >
+            <IconPresentation />
+          </button>
+        </>
+      )}
+
+      {/* No `on` state, as in the chip: the icon is the state, and it shows the
+          theme the press would move to rather than the one in force. */}
+      <button
+        type="button"
+        className="railBtn"
+        data-tip={t(theme === 'dark' ? 'ui.themeLight' : 'ui.themeDark')}
+        aria-label={t(theme === 'dark' ? 'ui.themeLight' : 'ui.themeDark')}
+        onClick={toggleTheme}
+      >
+        {theme === 'dark' ? <IconSun /> : <IconMoon />}
+      </button>
+
+      <button
+        type="button"
+        className={`railBtn${infoOpen ? ' on' : ''}`}
+        data-tip={t('ui.info')}
+        aria-label={t('ui.info')}
+        aria-expanded={infoOpen}
+        onClick={toggleInfo}
+      >
+        i
+      </button>
+
+      <LangToggle variant="rail" />
+    </>
+  );
+
   /* The tab is on the root as a class as well as on the Stage: the two viewers
      put different furniture at the foot of the window — the map draws Leaflet's
      attribution along the very bottom — and the overlay has to know which one is
@@ -1634,6 +1747,7 @@ export function IfcSite() {
 
         <UtilChip
           view={view}
+          compact={phone}
           compassRef={compassRef}
           hasScene={hasScene}
           showOrigin={showOrigin}
@@ -1656,6 +1770,8 @@ export function IfcSite() {
         <div className="railZone">
           <ToolRail
             view={view}
+            horizontal={phone}
+            utils={phone ? dockUtils : undefined}
             hasScene={hasScene}
             rect={rect}
             armed={armed}

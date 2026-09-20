@@ -19,9 +19,16 @@ const plexMono = IBM_Plex_Mono({
 // Static metadata is in the default language, matching the lang attribute
 // below. LangProvider rewrites both once the stored/URL preference is known.
 export const metadata: Metadata = {
-  title: 'IFC SITE - Environnement en BIM',
+  title: 'IFC SITE - Le contexte en BIM',
   description:
     'Générer une maquette site IFC géoréférencée entièrement dans le navigateur.',
+  // public/favicon.svg rather than the app/icon.svg file convention, which
+  // would fingerprint the file and move it out of public/ where the rest of
+  // the brand assets live. This is the square cut of the mark — the tab is
+  // 16px, where the full lockup in public/logo.svg would be illegible.
+  // Declaring `type` is what stops Chrome probing for a /favicon.ico that
+  // does not exist.
+  icons: { icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }] },
 };
 
 /**

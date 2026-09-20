@@ -67,19 +67,57 @@ const ITEM =
   'langItem gap-2.5 py-2 pr-7 pl-2.5 text-xs font-mono cursor-pointer ' +
   'hover:bg-yellow hover:text-[var(--color-on-yellow)] focus:bg-yellow focus:text-[var(--color-on-yellow)]';
 
-export function LangToggle() {
+/* The same control on the phone dock, where it sits in a row of square tool
+   buttons rather than beside round chrome ones. Square, 44 px — the dock's touch
+   target — and the flag alone: the two-letter code is what the pill had room for
+   and this has not, and the flag is the half that reads at a glance anyway. The
+   aria-label is unchanged, so what it announces does not depend on the width.
+
+   Written out in Tailwind rather than by borrowing .railBtn from the component
+   layer, for the reason at the head of TRIGGER: these utilities are in the
+   utilities layer and would outrank that class anyway, so a half-and-half
+   version would only look like it was sharing the rail's styles. [&>svg]:hidden
+   is the chevron — SelectTrigger renders one unconditionally, and a caret on a
+   square icon button is chrome the dock does not use.
+
+   The height goes through the same data-[size] variant SelectTrigger uses rather
+   than as a plain h-11. tailwind-merge only drops a utility another one in the
+   same group replaces, and `h-11` and `data-[size=default]:h-8` are not the same
+   group — so the default survived the merge and then won on specificity, leaving
+   a 44 x 32 button in a row of 44 x 44 ones. */
+const TRIGGER_RAIL =
+  'langTrigger langTrigger--rail data-[size=default]:h-11 w-11 shrink-0 justify-center rounded-none border-transparent ' +
+  'bg-transparent p-0 [&>svg]:hidden ' +
+  'transition-colors hover:border-ink hover:bg-yellow hover:text-[var(--color-on-yellow)] ' +
+  'data-[popup-open]:border-ink data-[popup-open]:bg-ink data-[popup-open]:text-[var(--color-on-ink)]';
+
+export type LangToggleProps = {
+  /** 'rail' dresses the trigger as a tool button — see TRIGGER_RAIL. */
+  variant?: 'chip' | 'rail';
+};
+
+export function LangToggle({ variant = 'chip' }: LangToggleProps = {}) {
   const { lang, setLang, t } = useT();
   const { Flag: CurrentFlag } = LANGS.find((l) => l.lang === lang) ?? LANGS[0];
+  const rail = variant === 'rail';
 
   return (
     <Select value={lang} onValueChange={(v) => setLang(v as Lang)}>
-      <SelectTrigger className={TRIGGER} aria-label={t('app.langLabel')}>
+      <SelectTrigger className={rail ? TRIGGER_RAIL : TRIGGER} aria-label={t('app.langLabel')}>
         <SelectValue>
           <CurrentFlag className="langFlag" />
-          <span>{lang}</span>
+          {!rail && <span>{lang}</span>}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent className={MENU} align="end" alignItemWithTrigger={false}>
+      {/* The dock is at the foot of the window, so its menu has to open upward
+          and from the left edge — the chip's `end` alignment would hang it off
+          the right of a button that is no longer in the right-hand corner. */}
+      <SelectContent
+        className={MENU}
+        align={rail ? 'start' : 'end'}
+        side={rail ? 'top' : undefined}
+        alignItemWithTrigger={false}
+      >
         {LANGS.map(({ lang: l, Flag, name }) => (
           <SelectItem key={l} value={l} className={ITEM}>
             <Flag className="langFlag" />

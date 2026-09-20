@@ -473,6 +473,22 @@ html.dark {
     letter-spacing: 0.06em;
     padding: 6px 8px;
   }
+  /* A touch screen has no hover to leave, so :hover latches on whatever was
+     last tapped and stays there until something else is. On the vertical rail
+     that leaves a label hanging in the margin; in the phone dock it is a black
+     plate lying across the next two buttons, which is the overlap it was least
+     supposed to cause. Keyed to hover capability rather than to width, so it
+     also catches the tablets that are far too wide for the phone tier and are
+     still being driven with a finger.
+
+     :focus-visible is deliberately left alone. It is the keyboard's label, a
+     keyboard can be attached to any of these devices, and it only ever appears
+     on the one button that actually has focus. */
+  @media (hover: none) {
+    .railBtn[data-tip]:hover::after {
+      content: none;
+    }
+  }
 
   /* ---- options flyout ----
      Out of flow so it slides over the viewer rather than reserving a column for
@@ -1030,6 +1046,26 @@ html.dark {
     flex-wrap: wrap;
     flex: none;
   }
+  /* The lockup and the strapline beside it.
+
+     The basis is 0, not auto, and that is the whole of the fix: a wrapping flex
+     container breaks lines on each item's *base* size, and `auto` makes that the
+     max-content width of .sub — 62ch of strapline. So on a phone the head wrapped
+     and the close button dropped to a second line under the prose instead of
+     staying in its corner. min-width: 0 alone does not help, because it only
+     governs how far an item may shrink once the lines are already decided.
+
+     From 0 the item never forces a break, then grows into whatever the button
+     leaves. The paragraph reflows and the two-word lockup wraps, which is what
+     should give here; .sub keeps its 62ch cap, so nothing changes on a desktop
+     that was never short of room.
+
+     .infoHead keeps flex-wrap as the last-resort valve, the same way .utilChip
+     does — it should simply never be reached now. */
+  .infoTitle {
+    flex: 1 1 0;
+    min-width: 0;
+  }
   /* Everything below the title. The scrollbar is left visible here, unlike the
      rail's: it is the only sign that the notes run past the fold. */
   .infoBody {
@@ -1182,47 +1218,65 @@ html.dark {
     object-fit: contain;
   }
 
+  /* Both of these held type until the lockup became an image; what is left is
+     the box the mark sits in. The h1 keeps its margin because the tag above
+     and the subtitle below are still text and still need the rhythm. */
   .wordmark {
-    font: 700 13px/1 var(--font-mono);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    white-space: nowrap;
     display: flex;
-    /* flex: ; */
-    gap: 2px;
-    justify-items: center;
     align-items: center;
+    flex: none;
   }
   .h1 {
-    font: 700 44px/0.95 var(--font-sans);
-    letter-spacing: -0.02em;
+    display: flex;
     margin: 8px 0 0;
-    text-transform: uppercase;
   }
   /* The mark. One lockup at two sizes — the chip in the corner and the display
-     h1 in the info overlay — so the plate is written once here and only the
-     padding differs below. It used to be a yellow fill under a solid rule; it
-     is now the site rectangle instead, the gesture the whole app is about: the
-     same 2px of dashes that lib/viewer/MapController draws around a site on the
-     map. The letters stay ink and are the thing being read; the yellow is the
-     box drawn around them. --color-yellow-deep rather than the raw accent: the
-     map rectangle lies over imagery and carries a fill besides, where this sits
-     on bare paper with nothing behind it. inline-block because a border on
-     an inline box is drawn outside the line box, and at 44px/0.95 that would
-     put the strokes into the tag above and the subtitle below. */
-  .h1 span,
-  .wordmark span {
-    display: inline-block;
-    border: 2px dashed var(--color-yellow-deep);
-    color: inherit;
+     h1 in the info overlay — so it is written once here and only the height
+     differs. It used to be type with a dashed plate bordered around SITE; the
+     words and the plate are now vector paths in one file, which is what keeps
+     the letterforms and the site rectangle in their exact relationship at both
+     sizes instead of re-deriving it from a border and a padding.
+
+     The asset is 50.58x17, so it is nearly 3:1 — sized by height, with width
+     auto. Height rather than width because what has to line up in the chip is
+     the mark's cap height against the tab labels beside it, not its box.
+
+     Two cuts, swapped below on html.dark. The file names describe the ink and
+     not the theme: logo.svg is dark letters on the yellow plate, for paper;
+     logo_light.svg is white letters on the deeper plate, for the dark ground —
+     so the file that says "light" is the one dark mode asks for. The swap is a
+     class and not a <picture media> query, because the theme here is a stored
+     class and the OS preference a media query reads knows nothing about it. */
+  .h1 img,
+  .wordmark img {
+    display: block;
+    width: auto;
+    flex: none;
   }
-  .h1 span {
-    padding: 0 6px;
+  .h1 img {
+    height: 38px;
   }
-  /* Trailing letter-spacing hangs inside the box on the last letter, so the
-     right padding is short by that much to keep the word optically centred. */
-  .wordmark span {
-    padding: 1px 3px 1px 4px;
+  .wordmark img {
+    height: 17px;
+  }
+  /* Only one of the pair is ever in the box. display:none rather than opacity
+     or visibility so the hidden one takes no space in the flex row and the
+     chip shrink-wraps to the single mark that is showing.
+
+     These carry .h1/.wordmark rather than standing on the class alone: the
+     sizing rule above is a class *and* an element, so a bare .markDark loses
+     to it on specificity and both cuts paint at once. */
+  .h1 img.markDark,
+  .wordmark img.markDark {
+    display: none;
+  }
+  html.dark .h1 img.markLight,
+  html.dark .wordmark img.markLight {
+    display: none;
+  }
+  html.dark .h1 img.markDark,
+  html.dark .wordmark img.markDark {
+    display: block;
   }
   .sub {
     font-size: 13.5px;
@@ -1860,6 +1914,13 @@ html.dark {
       background-color 0.15s,
       color 0.15s;
   }
+  /* Each tab carries both its labels and one of them is always off — see
+     components/brand-chip. The long one is the default and the phone tier swaps
+     them; display:none is what keeps the hidden one out of the accessibility
+     tree as well as off the screen, so nothing announces "2D map 2D". */
+  .tabShort {
+    display: none;
+  }
   .viewtabs button:hover:not(.on) {
     background: var(--color-yellow);
     color: var(--color-on-yellow);
@@ -2040,9 +2101,10 @@ html.dark {
     align-self: start;
     max-width: calc(100% - 48px);
   }
-  /* The wordmark is the brand — there is no icon to fall back to — so only the
-     rule between it and the tabs goes. At 13px mono it costs about the same
-     width as the icon and its gap used to. */
+
+  /* The mark is the brand and still carries the word, so it stays; only the
+     rule between it and the tabs goes. At 17px tall the lockup is about 50px
+     wide, which is roughly what the rule and its gaps were costing. */
   .brandChip .sep {
     display: none;
   }
@@ -2104,6 +2166,12 @@ html.dark {
 
    Ordered after the 440 and 860 tiers deliberately — these selectors are no more
    specific than theirs, so source order is what decides.
+
+   560 is also written in lib/ui/useMedia.ts, as PHONE_MAX. It has to be: the top
+   right corner does not merely change shape at this width, it empties, and its
+   buttons are rendered into the rail's dock instead. Which parent a node is
+   rendered into is the one layout question CSS cannot answer. If this number
+   moves, move that one.
    --------------------------------------------------------------------- */
 @media (max-width: 560px) {
   .overlay {
@@ -2138,6 +2206,64 @@ html.dark {
   .rail::-webkit-scrollbar {
     display: none;
   }
+  /* The dock scrolls and its scrollbar is hidden, so an end with more strip
+     behind it says so itself: a chevron, on a plate that covers whatever tool
+     happens to be under it.
+
+     Covering, rather than the mask this used to be. A mask erases the rail at
+     its ends, which fades the chip's own border away and — worse — only half
+     erases the icon beneath, so the chevron landed on the ghost of a tool and
+     the pair read as one unreadable glyph.
+
+     --color-surface-solid, not the --color-surface the rail itself is painted
+     in: that one is 94%, and the 6% left over is a near-black icon or the ink
+     fill of a pressed button, which came through as a grey smudge under the
+     chevron. The solid token is there for exactly this — a surface landing on
+     top of an already-blurred one, in its own words — and over the rail's
+     blur-plus-94% the difference is not visible, where the smudge was. Both
+     themes come free with the token; the border is untouched; and the gradient
+     tail is where the next tool comes back in.
+
+     Pinned to .railZone, which on this tier is a full-width bar at the foot
+     wrapped tight to the rail, so these land on the rail's own ends without
+     either being measured. Inset a pixel so the ink border stays crisp under
+     them.
+
+     Deaf to the pointer, which is the point of putting them here rather than
+     inside the rail: they lie over the first and last button and a 375px strip
+     has nowhere else to put them, so the tap has to carry through to the tool
+     underneath. Stated with the child combinator to outweigh `.railZone > *`,
+     which hands the pointer back to every child — the same trick, for the same
+     reason, as `.overlay > .railZone` itself. */
+  .railZone > .railEdge {
+    position: absolute;
+    top: 1px;
+    bottom: 1px;
+    width: 40px;
+    display: flex;
+    align-items: center;
+    /* Over the rail, which carries z-index: 1 of its own (see .rail in the
+       component layer — it is there so the hover tip can out-rank an open
+       flyout). A later sibling at `auto` still loses to a positioned one that
+       asked for a layer, so this has to ask too, or the plate paints behind the
+       very buttons it is there to cover. The flyouts are unaffected: they open
+       clear of the rail's box, not over it. */
+    z-index: 2;
+    pointer-events: none;
+    color: var(--color-ink);
+  }
+  .railEdge--start {
+    left: 1px;
+    justify-content: flex-start;
+    padding-left: 4px;
+    background: linear-gradient(to right, var(--color-surface-solid) 70%, transparent 100%);
+  }
+  .railEdge--end {
+    right: 1px;
+    justify-content: flex-end;
+    padding-right: 4px;
+    background: linear-gradient(to left, var(--color-surface-solid) 70%, transparent 100%);
+  }
   /* `flex: none`, not the column's `flex: 0 1 32px`: on this axis that basis is
      the width, so the buttons would squeeze towards each other instead of
      scrolling — and the rail would quietly become unreadable as it grows,
@@ -2161,6 +2287,12 @@ html.dark {
      A scroller clips both axes, so wherever the tip is put it is cut off, and
      the flipped-above version this block used to carry looked correct in the
      stylesheet while being invisible on screen.
+
+     Nothing is needed here to suppress it: the hover tip is now switched off by
+     `@media (hover: none)` up in the component layer, which is the honest test —
+     it is a pointer's capability that decides, not a window's width. Before
+     that, a tap latched :hover and painted the label across the next two
+     buttons.
 
      Same trade the max-height tier above already makes, in its words: reachable
      beats readable. The buttons keep their aria-label, so the tip was never what
@@ -2208,6 +2340,13 @@ html.dark {
     max-width: none;
     max-height: 60dvh;
   }
+  /* The 860 tier holds the toast 48px short of the full width to clear the
+     vertical rail in column 1. The rail is at the foot by this tier and column 1
+     is empty, so it may have the width back. */
+  .statusToast {
+    max-width: none;
+  }
+
   /* One column at a phone's width — two would put a 13px mono input at about
      sixteen characters. The markup is in pair order, so what collapses is
      Name, Name, Long name, Long name, and the roots stay adjacent. */
@@ -2229,25 +2368,79 @@ html.dark {
   /* Row 4, and tight. The gap here is folded in from what used to be a separate
      max-width: 520px block: the bar is wanted tight from the moment the dock
      appears, and two overlapping phone tiers is the kind of thing the rest of
-     this file avoids. */
+     this file avoids.
+
+     Stretched rather than centred, and allowed to shrink. Centred, a row that is
+     wider than the window overflows it evenly in both directions, and there is
+     no width at which the French build label — "Construire la maquette site",
+     about 300px on its own — plus Download plus the gap fits a 375px phone. So
+     the bar takes the row and the buttons give (see below) instead of the window
+     giving. min-width: 0 on both, because a flex item will not shrink below its
+     content otherwise, which is the whole of the bug. */
   .statusbar {
     grid-row: 4;
     gap: 10px;
+    justify-self: stretch;
+    min-width: 0;
   }
+  /* The IFC panel is still centred on the window after that: stretched, the
+     bar's 50% is the centre of the grid area, and the grid area is the window
+     less its gutters — the same line the centred bar's 50% was on. What the
+     panel would not survive is the bar moving off-centre, which it does not. */
+
+  /* The measure tool's Clear button is a sibling of .barActions, not a child,
+     so it never picked up the `width: auto` that group's rule hands out and is
+     still the full-width button it is inside a 330px panel. Harmless while the
+     bar shrink-wrapped; now that the bar is the row, it has to be said. */
+  .statusbar > .btn-ghost {
+    width: auto;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .barActions {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* The one place these labels are allowed to wrap. They are nowrap everywhere
+     else because the bar sizes to them; here the bar is sized first and they
+     have to fit it, and two short lines in a button reads far better than a
+     button running off the side of the screen. */
   .barActions .btn-primary,
   .barActions .btn-ghost {
     padding: 10px 12px;
     letter-spacing: 0.06em;
+    white-space: normal;
+    line-height: 1.25;
+    min-width: 0;
+  }
+  .barActions .btn-primary {
+    flex: 1 1 auto;
   }
 
-  /* Seven round buttons and the brand mark, on a 375px window: 7x32 + 6x4 of gap
-     + 12 of padding = 260, the mark and its own padding another 46, the grid gap
-     12 and the overlay's padding 24 — 342, which fits. flex-wrap is the valve for
-     the 320px case, not a layout anyone should normally see. */
-  .utilChip {
-    gap: 4px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+  /* The short view labels — see .tabShort above. The lockup and "Carte 2D /
+     Aperçu 3D" together are about 220px of a 375px window, and the row has a
+     second cluster in it besides; "2D / 3D" brings that to about 150. This is
+     what makes the top row fit rather than overflow its own grid and print the
+     two chips over each other. */
+  .tabLong {
+    display: none;
+  }
+  .tabShort {
+    display: inline;
+  }
+
+  /* The top-right cluster is empty at this width — every button in it is
+     rendered into the rail's dock instead (see components/util-chip). What is
+     left is the compass, which cannot be unmounted; the chip drops the .floating
+     surface it no longer has anything to hold (in the markup, not here) and
+     keeps only its one round child, so the padding that framed a row of buttons
+     goes with it. The map tab does not even have that much: the compass is
+     display:none there, and a box around nothing is worse than no box. */
+  .utilChip--compact {
+    padding: 0;
+  }
+  .app--map .utilChip--compact {
+    display: none;
   }
 
   /* iOS zooms the page whenever a focused field is under 16px, and a zoomed page
@@ -2335,6 +2528,18 @@ html.dark .leaflet-tile-pane {
      zoom control would otherwise sit under the notch. */
   margin-right: env(safe-area-inset-right);
 }
+/* Nothing to dodge on a phone: the corner chip is empty at that width and its
+   buttons are in the dock at the foot (see the phone tier above), so the zoom
+   control has the corner to itself and may as well be in it.
+
+   Written down here rather than up in that tier because this block is unlayered
+   and comes after it — same rule this whole file runs on, that source order
+   decides between selectors of equal weight. */
+@media (max-width: 560px) {
+  .leaflet-top.leaflet-right {
+    margin-top: 0;
+  }
+}
 .leaflet-bar,
 .leaflet-bar a {
   border-radius: 0 !important;
@@ -2359,9 +2564,27 @@ html.dark .leaflet-tile-pane {
   border: 1px solid var(--color-ink);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-yellow) 85%, transparent);
   cursor: grab;
+  /* Leaflet's marker drag is ours in the same sense .site-rect is. */
+  touch-action: none;
 }
 .site-handle:active {
   cursor: grabbing;
+}
+/* The handle is 11px because that is the size a corner mark should be, and 11px
+   is a quarter of what a fingertip can hit. So the target grows and the mark
+   does not: a transparent pad centred on the square, drawn outside it.
+
+   Not the iconSize — that is set in MapController.setSite's divIcon and is what
+   lands the handle on its corner in the first place; changing it would move the
+   mark rather than widen the reach. 29px of pad, a little short of the 44 a
+   button gets: four of these meet at the corners of a small rectangle, and pads
+   that overlap would make the near corner unpickable. */
+@media (pointer: coarse) {
+  .site-handle::before {
+    content: '';
+    position: absolute;
+    inset: -9px;
+  }
 }
 /* Where the last search landed. Same vocabulary as .site-handle — yellow on an
    ink outline — because it is the same map speaking, but a teardrop rather than
@@ -2400,6 +2623,22 @@ html.dark .leaflet-tile-pane {
 .leaflet-container.drawing .leaflet-interactive {
   cursor: crosshair;
 }
+/* Leaflet puts `touch-action: pinch-zoom` on its own container whenever dragging
+   is enabled, which hands one-finger pans to the browser. That is right while
+   the map is a map, and wrong while it is a drawing surface: the browser would
+   scroll away with the very gesture that sweeps the rectangle out, and
+   lib/viewer/MapController would see a pointerdown and then a pointercancel.
+
+   So the handoff is keyed to the same class the crosshair above is — the one
+   setArmed already toggles. Armed, the pointers are ours; not armed, they are
+   Leaflet's. Pinch still zooms in both: Leaflet's touch-zoom handler is
+   JavaScript on touch events, not a browser gesture, so touch-action does not
+   reach it. */
+.leaflet-container.drawing {
+  touch-action: none;
+}
 .site-rect {
   cursor: move;
+  /* Dragging the whole rectangle is ours at every moment, armed or not. */
+  touch-action: none;
 }
