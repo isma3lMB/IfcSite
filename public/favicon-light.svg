@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="#8c9800"
+     stroke-width="1.3" stroke-linecap="square" stroke-linejoin="miter">
+  <!-- Docs-only recolour of favicon.svg. #f0fb29 measures 1.09:1 on white, so
+       the README's light-theme variant takes the colour-yellow-deep token from
+       globals.css: the same hue held, the value dropped until it clears 3:1.
+       The geometry stays in step with favicon.svg and IconDrawSite. -->
+  <rect x="2.5" y="3.5" width="11" height="9" stroke-dasharray="2.4 1.8"/>
+  <rect x="1.3" y="2.3" width="2.4" height="2.4" fill="#8c9800" stroke="none"/>
+  <rect x="12.3" y="11.3" width="2.4" height="2.4" fill="#8c9800" stroke="none"/>
+</svg>

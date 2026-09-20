@@ -1257,7 +1257,7 @@ html.dark {
     height: 38px;
   }
   .wordmark img {
-    height: 17px;
+    height: 24px;
   }
   /* Only one of the pair is ever in the box. display:none rather than opacity
      or visibility so the hidden one takes no space in the flex row and the
