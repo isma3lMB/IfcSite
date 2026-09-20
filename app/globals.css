@@ -1218,47 +1218,65 @@ html.dark {
     object-fit: contain;
   }
 
+  /* Both of these held type until the lockup became an image; what is left is
+     the box the mark sits in. The h1 keeps its margin because the tag above
+     and the subtitle below are still text and still need the rhythm. */
   .wordmark {
-    font: 700 13px/1 var(--font-mono);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    white-space: nowrap;
     display: flex;
-    /* flex: ; */
-    gap: 2px;
-    justify-items: center;
     align-items: center;
+    flex: none;
   }
   .h1 {
-    font: 700 44px/0.95 var(--font-sans);
-    letter-spacing: -0.02em;
+    display: flex;
     margin: 8px 0 0;
-    text-transform: uppercase;
   }
   /* The mark. One lockup at two sizes — the chip in the corner and the display
-     h1 in the info overlay — so the plate is written once here and only the
-     padding differs below. It used to be a yellow fill under a solid rule; it
-     is now the site rectangle instead, the gesture the whole app is about: the
-     same 2px of dashes that lib/viewer/MapController draws around a site on the
-     map. The letters stay ink and are the thing being read; the yellow is the
-     box drawn around them. --color-yellow-deep rather than the raw accent: the
-     map rectangle lies over imagery and carries a fill besides, where this sits
-     on bare paper with nothing behind it. inline-block because a border on
-     an inline box is drawn outside the line box, and at 44px/0.95 that would
-     put the strokes into the tag above and the subtitle below. */
-  .h1 span,
-  .wordmark span {
-    display: inline-block;
-    border: 2px dashed var(--color-yellow-deep);
-    color: inherit;
+     h1 in the info overlay — so it is written once here and only the height
+     differs. It used to be type with a dashed plate bordered around SITE; the
+     words and the plate are now vector paths in one file, which is what keeps
+     the letterforms and the site rectangle in their exact relationship at both
+     sizes instead of re-deriving it from a border and a padding.
+
+     The asset is 50.58x17, so it is nearly 3:1 — sized by height, with width
+     auto. Height rather than width because what has to line up in the chip is
+     the mark's cap height against the tab labels beside it, not its box.
+
+     Two cuts, swapped below on html.dark. The file names describe the ink and
+     not the theme: logo.svg is dark letters on the yellow plate, for paper;
+     logo_light.svg is white letters on the deeper plate, for the dark ground —
+     so the file that says "light" is the one dark mode asks for. The swap is a
+     class and not a <picture media> query, because the theme here is a stored
+     class and the OS preference a media query reads knows nothing about it. */
+  .h1 img,
+  .wordmark img {
+    display: block;
+    width: auto;
+    flex: none;
   }
-  .h1 span {
-    padding: 0 6px;
+  .h1 img {
+    height: 38px;
   }
-  /* Trailing letter-spacing hangs inside the box on the last letter, so the
-     right padding is short by that much to keep the word optically centred. */
-  .wordmark span {
-    padding: 1px 3px 1px 4px;
+  .wordmark img {
+    height: 17px;
+  }
+  /* Only one of the pair is ever in the box. display:none rather than opacity
+     or visibility so the hidden one takes no space in the flex row and the
+     chip shrink-wraps to the single mark that is showing.
+
+     These carry .h1/.wordmark rather than standing on the class alone: the
+     sizing rule above is a class *and* an element, so a bare .markDark loses
+     to it on specificity and both cuts paint at once. */
+  .h1 img.markDark,
+  .wordmark img.markDark {
+    display: none;
+  }
+  html.dark .h1 img.markLight,
+  html.dark .wordmark img.markLight {
+    display: none;
+  }
+  html.dark .h1 img.markDark,
+  html.dark .wordmark img.markDark {
+    display: block;
   }
   .sub {
     font-size: 13.5px;
@@ -2084,9 +2102,9 @@ html.dark {
     max-width: calc(100% - 48px);
   }
 
-  /* The wordmark is the brand — there is no icon to fall back to — so only the
-     rule between it and the tabs goes. At 13px mono it costs about the same
-     width as the icon and its gap used to. */
+  /* The mark is the brand and still carries the word, so it stays; only the
+     rule between it and the tabs goes. At 17px tall the lockup is about 50px
+     wide, which is roughly what the rule and its gaps were costing. */
   .brandChip .sep {
     display: none;
   }
@@ -2399,10 +2417,11 @@ html.dark {
     flex: 1 1 auto;
   }
 
-  /* The short view labels — see .tabShort above. "Carte 2D / Aperçu 3D" beside
-     the wordmark is about 230px of a 375px window, and the row has a second
-     cluster in it; "2D / 3D" is about 100. This is what makes the top row fit
-     rather than overflow its own grid and print the two chips over each other. */
+  /* The short view labels — see .tabShort above. The lockup and "Carte 2D /
+     Aperçu 3D" together are about 220px of a 375px window, and the row has a
+     second cluster in it besides; "2D / 3D" brings that to about 150. This is
+     what makes the top row fit rather than overflow its own grid and print the
+     two chips over each other. */
   .tabLong {
     display: none;
   }

@@ -69,8 +69,16 @@ export function InfoOverlay({ open, onClose }: InfoOverlayProps) {
         <div className="infoHead">
           <div className="infoTitle">
             <div className="tag">{t('app.tag')}</div>
-            <h1 className="h1">
-              {t('app.h1a')} <span>{t('app.h1b')}</span>
+            {/* The lockup is drawn now, so the page's only h1 has no text of
+                its own: aria-label carries the name, built from the same two
+                lockup keys, and both images go alt="" so it is announced once
+                as a heading rather than twice as an image. logo.svg is the
+                dark-ink cut and logo_light.svg the light-ink one — see
+                components/brand-chip on the naming and on why the swap is a
+                class rather than a <picture media> query. */}
+            <h1 className="h1" aria-label={`${t('app.h1a')} ${t('app.h1b')}`}>
+              <img className="markLight" src="/logo.svg" alt="" />
+              <img className="markDark" src="/logo_light.svg" alt="" />
             </h1>
             <p className="sub">{t('app.sub')}</p>
           </div>
