@@ -155,7 +155,7 @@ export const fr: Dict = {
   'ifc.siteLongName': 'Nom complet',
   'ifc.siteDescription': 'Description',
   'ifc.siteLandTitle': 'Référence cadastrale',
-  'ifc.authorship': 'Paternité',
+  'ifc.authorship': 'Edition',
   'ifc.author': 'Auteur',
   'ifc.authorHint':
     'L’organisation et le logiciel émetteur sont fixés à bim-lane et ifcsite.app.',
