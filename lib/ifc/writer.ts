@@ -77,8 +77,8 @@ export const sOrNull = (v: string): Attr => (v ? S(v) : null);
  * name and a PEP 440 version. Wherever the file carries an owner history, the
  * same three go to IfcApplication and its developer IfcOrganization.
  */
-export const SOFTWARE_COMPANY = 'bim_lane';
-export const APPLICATION_NAME = 'IFC Site';
+export const SOFTWARE_COMPANY = 'BIM_LANE';
+export const APPLICATION_NAME = 'IFC SITE';
 export const APPLICATION_VERSION: string = version;
 export const ORIGINATING_SYSTEM = `${SOFTWARE_COMPANY} - ${APPLICATION_NAME} - ${APPLICATION_VERSION}`;
 
