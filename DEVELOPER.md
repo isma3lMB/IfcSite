@@ -875,7 +875,7 @@ here produces a file strict readers reject.
 flowchart LR
     P[IfcProject] -->|"IfcRelAggregates"| S[IfcSite]
     S -->|"IfcRelContainedInSpatialStructure"| E[elements]
-    P --> G["IfcGeometricRepresentationContext<br/><i>+ &quot;Body&quot; subcontext</i>"]
+    P --> G["IfcGeometricRepresentationContext<br/><i>+ #quot;Body#quot; subcontext</i>"]
     G --> M["IfcMapConversion<br/><i>site origin E/N</i>"]
     M --> C["IfcProjectedCRS<br/><i>EPSG, datum, vertical datum</i>"]
 ```
