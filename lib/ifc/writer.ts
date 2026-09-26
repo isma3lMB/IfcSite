@@ -126,6 +126,9 @@ type SchemaCaps = {
   /** IFC4X3 gave IfcMapConversion a ScaleY and a ScaleZ: ten attributes where
    *  IFC4 has eight, and a reader handed eight fails on the count. */
   mapScaleXYZ: boolean;
+  /** IFC4X3 gave IfcCartesianPointList3D an optional TagList; IFC4 has
+   *  CoordList alone, and a reader handed two attributes fails on the count. */
+  pointListTags: boolean;
   /** IfcGeographicElement, an IFC4 addition. Without it, a proxy. */
   geoElement: boolean;
   /** The members of IfcGeographicElementTypeEnum this schema actually defines.
@@ -150,6 +153,7 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     tessellation: false,
     mapConversion: false,
     mapScaleXYZ: false,
+    pointListTags: false,
     geoElement: false,
     geoTypes: new Set(),
     styleAssignment: true,
@@ -161,6 +165,7 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     tessellation: true,
     mapConversion: true,
     mapScaleXYZ: false,
+    pointListTags: false,
     geoElement: true,
     geoTypes: new Set(['TERRAIN', 'USERDEFINED', 'NOTDEFINED']),
     styleAssignment: false,
@@ -174,6 +179,7 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     tessellation: true,
     mapConversion: true,
     mapScaleXYZ: true,
+    pointListTags: true,
     geoElement: true,
     // IFC4X3 is the schema that finally has somewhere to put a tree: VEGETATION
     // is a real predefined type here, where IFC4 has to demote it.
@@ -499,9 +505,10 @@ export class ContextModel {
     this.world = f.add('IfcAxis2Placement3D', [this.o3, this.dz, this.dx]);
     // TrueNorth is expressed in the context's own coordinate system, so turning
     // the project axes turns it too: R(-th) applied to grid north. Leaving this
-    // at (0,1,0) would georeference correctly and still tell every viewer that
-    // north runs up the model's +Y.
-    const north = f.add('IfcDirection', [[R(sin), R(cos), R(0)]]);
+    // at (0,1) would georeference correctly and still tell every viewer that
+    // north runs up the model's +Y. Two ratios, not three: IFC4's North2D rule
+    // requires TrueNorth to be a plan direction, and IFC2X3 reads it the same.
+    const north = f.add('IfcDirection', [[R(sin), R(cos)]]);
     this.ctx = f.add('IfcGeometricRepresentationContext', [
       null,
       S('Model'),
@@ -892,10 +899,8 @@ export class ContextModel {
   private mesh(verts: Vec3[], faces: number[][], closed: boolean): { item: Ref; repType: string } {
     const f = this.f;
     if (this.caps.tessellation) {
-      const coords = f.add('IfcCartesianPointList3D', [
-        verts.map((v) => [R(v[0]), R(v[1]), R(v[2])]),
-        null,
-      ]);
+      const list = verts.map((v) => [R(v[0]), R(v[1]), R(v[2])]);
+      const coords = f.add('IfcCartesianPointList3D', this.caps.pointListTags ? [list, null] : [list]);
       const fr = faces.map((t) => f.add('IfcIndexedPolygonalFace', [t.map((i) => I(i + 1))]));
       return { item: f.add('IfcPolygonalFaceSet', [coords, null, fr, null]), repType: 'Tessellation' };
     }
