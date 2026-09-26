@@ -412,9 +412,13 @@ export type IfcMeta = {
   siteDescription: string;
   siteLandTitle: string;
   /** Goes to the STEP header's author list and, where a file carries one, to
-   *  IfcOwnerHistory's person. The organisation beside it is not a field —
-   *  see ORGANISATION in lib/ifc/writer, which is fixed. */
+   *  IfcOwnerHistory's person. */
   author: string;
+  /** The author's firm: the STEP header's organization list and, where a file
+   *  carries one, the owning user's IfcOrganization. Never the software
+   *  vendor — that is fixed and goes elsewhere, see SOFTWARE_COMPANY in
+   *  lib/ifc/writer. */
+  organization: string;
 };
 
 export const newIfcMeta = (): IfcMeta => ({
@@ -429,6 +433,7 @@ export const newIfcMeta = (): IfcMeta => ({
   siteDescription: '',
   siteLandTitle: '',
   author: '',
+  organization: '',
 });
 
 /**

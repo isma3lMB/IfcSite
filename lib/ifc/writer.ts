@@ -1,4 +1,5 @@
 import proj4 from 'proj4';
+import { version } from '@/package.json';
 import { xfAxes } from '@/lib/geo/euler';
 import { treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
@@ -19,8 +20,8 @@ import type { Building, PropBag, Provider, SiteMeta, Tree, Vec2, Vec3 } from '@/
    Three schemas out of one emitter. Everything that differs between them is a
    field of SCHEMA_CAPS below rather than a version test in the emitters, so the
    differences can be read in one place and a fourth schema is a row rather than
-   a sweep. The IFC4 column is what this wrote before any of it existed, so an
-   IFC4 export is entity-for-entity what it always was.
+   a sweep. The IFC4 column is what this wrote before any of it existed, bar
+   the ViewDefinition, which now names the official ReferenceView_V1.2.
    ===================================================================== */
 
 type Real = { __t: 'real'; v: number };
@@ -66,15 +67,29 @@ export const TYPED = (t: string, i: Attr): TypedV => ({ __t: 'typed', type: t, i
 export const sOrNull = (v: string): Attr => (v ? S(v) : null);
 
 /**
- * Who wrote the file, as against who the model is about.
+ * The software that wrote the file, as against the people who own it.
  *
- * Fixed rather than typed into the panel: the author is a person and varies,
- * these two are the tool and do not. They go to the STEP header — organization
- * and originating_system — and to IfcOrganization/IfcApplication wherever the
- * file carries an owner history.
+ * Fixed rather than typed into the panel: the author and their organisation
+ * vary and are IfcMeta fields, these are the tool and do not. buildingSMART's
+ * header rules keep the two apart — FILE_NAME's organization is the user's firm
+ * and must not name the software vendor, whose place is originating_system,
+ * written exactly `Company - Application - Version` with no dash inside either
+ * name and a PEP 440 version. Wherever the file carries an owner history, the
+ * same three go to IfcApplication and its developer IfcOrganization.
  */
-export const ORGANISATION = 'bim-lane';
-export const APPLICATION = 'ifcsite.app';
+export const SOFTWARE_COMPANY = 'bim_lane';
+export const APPLICATION_NAME = 'IFC Site';
+export const APPLICATION_VERSION: string = version;
+export const ORIGINATING_SYSTEM = `${SOFTWARE_COMPANY} - ${APPLICATION_NAME} - ${APPLICATION_VERSION}`;
+
+/**
+ * The name the export is saved under, and so the one its header states.
+ *
+ * IFCSITE_<lon>_<lat>.ifc — east-then-north, the order the georeferencing itself
+ * is written in. One helper for both, so the download and FILE_NAME cannot drift.
+ */
+export const ifcFileName = (m: { lon: number; lat: number }): string =>
+  `IFCSITE_${m.lon.toFixed(4)}_${m.lat.toFixed(4)}.ifc`;
 
 /* ---------------------------------------------------------------------
    Schemas
@@ -161,7 +176,9 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
   },
   IFC4: {
     fileSchema: 'IFC4',
-    view: 'CoordinationView',
+    // The official IFC4 MVD. "CoordinationView" is the IFC2X3 one without its
+    // suffix, and no validator recognises it under this schema.
+    view: 'ReferenceView_V1.2',
     tessellation: true,
     mapConversion: true,
     mapScaleXYZ: false,
@@ -292,8 +309,34 @@ export class IfcFile {
    * file: a licence notice is no use to anyone if reading it needs an IFC
    * viewer, and a header is what you see opening the thing in a text editor.
    * The per-element property sets are the machine-readable half.
+   *
+   * Filled through attribution(), never directly: see there.
    */
-  readonly description: string[] = [];
+  private readonly description: string[] = [];
+
+  /**
+   * One `Attribution [...]` entry in FILE_DESCRIPTION.
+   *
+   * buildingSMART's header agreement (ISG/MSG-2008-001) gives every string in
+   * that list the form `<keyword> [<values>]`, each no longer than 256
+   * characters, and the validator reads it with IfcOpenShell's mvd_info
+   * grammar. One entry it cannot parse and the whole list fails — the
+   * ViewDefinition with it, so the file reports no MVD at all.
+   *
+   * Not `Comment`, which reads as the obvious keyword: that grammar restricts
+   * a Comment's body to letters, digits, space, `_ . -` and commas, and every
+   * licence notice here carries a © or a slash. Any other keyword is free text
+   * up to a bracket, so a keyword of our own keeps the notice verbatim.
+   * Brackets are stripped, since they would close the set early, and the
+   * string is capped at the limit.
+   */
+  attribution(text: string): void {
+    const body = text.replace(/[[\]]/g, '').trim();
+    const room = 256 - 'Attribution []'.length;
+    this.description.push(
+      'Attribution [' + (body.length > room ? body.slice(0, room - 3) + '...' : body) + ']',
+    );
+  }
 
   readonly caps: SchemaCaps;
 
@@ -303,6 +346,9 @@ export class IfcFile {
     /** FILE_NAME's author list, from IfcMeta.author. Empty stays `('')`, which
      *  is what this header carried before there was anywhere to type one. */
     public readonly author: string = '',
+    /** FILE_NAME's organization list, from IfcMeta.organization — the user's
+     *  firm, never the software vendor. Empty stays `('')`. */
+    public readonly organization: string = '',
   ) {
     this.caps = SCHEMA_CAPS[schema];
   }
@@ -329,10 +375,10 @@ export class IfcFile {
           .map((d) => "'" + esc(d) + "'")
           .join(',') +
         "),'2;1');",
-      // author and organization are LIST OF STRING; preprocessor_version and
-      // originating_system are single strings, and both name the tool. esc()
-      // throughout — an author is as likely to carry an accent as the
-      // attribution lines above are.
+      // author and organization are LIST OF STRING and the user's; the
+      // preprocessor_version and originating_system are single strings and
+      // the tool's — see SOFTWARE_COMPANY. esc() throughout — an author is as
+      // likely to carry an accent as the attribution lines above are.
       "FILE_NAME('" +
         esc(this.name) +
         "','" +
@@ -340,11 +386,11 @@ export class IfcFile {
         "',('" +
         esc(this.author) +
         "'),('" +
-        esc(ORGANISATION) +
+        esc(this.organization) +
         "'),'" +
-        esc(APPLICATION) +
+        esc(APPLICATION_NAME + ' ' + APPLICATION_VERSION) +
         "','" +
-        esc(APPLICATION) +
+        esc(ORIGINATING_SYSTEM) +
         "','');",
       "FILE_SCHEMA(('" + this.caps.fileSchema + "'));",
       'ENDSEC;',
@@ -412,7 +458,7 @@ export class ContextModel {
   constructor(o: SiteMeta) {
     // The schema, the names and the authorship, all from one bag — see IfcMeta.
     const a = o.ifc;
-    this.f = new IfcFile('context.ifc', a.schema, a.author);
+    this.f = new IfcFile(ifcFileName(o), a.schema, a.author, a.organization);
     this.caps = this.f.caps;
     this.origin = o.origin;
     this.off = o.exportOffset;
@@ -427,21 +473,28 @@ export class ContextModel {
        IFC2X3 declares IfcRoot.OwnerHistory mandatory, so `$` there is not a file
        that happens to say nothing about its author — it is an invalid one, and
        validators and the stricter importers treat it as such. IFC4 made the
-       attribute optional and this file left it out, which is why the second
-       clause is here: someone who types their name into the export panel expects
-       it in the file whatever the schema, and with the field blank an IFC4
-       export is entity-for-entity what it always was.
+       attribute optional and this file left it out, which is why the other
+       clauses are here: someone who types their name or their firm into the
+       export panel expects it in the file whatever the schema, and with both
+       fields blank an IFC4 export carries no owner history at all.
 
-       One instance, shared by every root entity. The person is the typed author
-       and nothing else — no user is signed in, so a given name would be a guess
-       — and the organisation is the tool. ChangeAction .ADDED. and a creation
+       One instance, shared by every root entity. The owning user is the typed
+       author and organisation and nothing else — no user is signed in, so a
+       given name would be a guess. The owning application is the tool, with
+       its developer as a second IfcOrganization: the user's firm and the
+       software vendor are different claims and each gets its own entity.
+
+       'Unknown' stands in where a field is blank but the entity is still
+       written. IfcOrganization.Name is mandatory in both schemas, and IFC2X3's
+       IfcPerson WR1 wants a FamilyName or GivenName — an unnamed person there
+       is an invalid file, not a quiet one. ChangeAction .ADDED. and a creation
        date are what the schema requires to be present. */
     this.owner =
-      caps.ownerHistory || a.author
+      caps.ownerHistory || a.author || a.organization
         ? (() => {
             const person = f.add('IfcPerson', [
               null,
-              sOrNull(a.author),
+              S(a.author || 'Unknown'),
               null,
               null,
               null,
@@ -449,18 +502,35 @@ export class ContextModel {
               null,
               null,
             ]);
-            const org = f.add('IfcOrganization', [null, S(ORGANISATION), null, null, null]);
-            const pao = f.add('IfcPersonAndOrganization', [person, org, null]);
-            const app = f.add('IfcApplication', [org, S('1.0'), S(APPLICATION), S('IFCSITE')]);
+            const userOrg = f.add('IfcOrganization', [
+              null,
+              S(a.organization || 'Unknown'),
+              null,
+              null,
+              null,
+            ]);
+            const pao = f.add('IfcPersonAndOrganization', [person, userOrg, null]);
+            const devOrg = f.add('IfcOrganization', [null, S(SOFTWARE_COMPANY), null, null, null]);
+            const app = f.add('IfcApplication', [
+              devOrg,
+              S(APPLICATION_VERSION),
+              S(APPLICATION_NAME),
+              S('IFCSITE'),
+            ]);
+            // LastModifiedDate as well as CreationDate, both now: IFC4's
+            // CorrectChangeAction rule allows .ADDED. only beside a
+            // LastModifiedDate. Optional and harmless in IFC2X3, which has no
+            // such rule, so every schema writes the same line.
+            const now = I(Math.floor(Date.now() / 1000));
             return f.add('IfcOwnerHistory', [
               pao,
               app,
               null,
               E('ADDED'),
+              now,
               null,
               null,
-              null,
-              I(Math.floor(Date.now() / 1000)),
+              now,
             ]);
           })()
         : null;
@@ -1238,7 +1308,9 @@ export class ContextModel {
       site,
     ]);
 
-    // And in the header, where it is readable without an IFC viewer at all.
-    this.f.description.push(notice);
+    // And in the header, where it is readable without an IFC viewer at all —
+    // one Comment per source rather than the joined notice, which with the
+    // three IGN datasets would run past the 256 characters each entry allows.
+    for (const l of used) this.f.attribution(l.attribution);
   }
 }

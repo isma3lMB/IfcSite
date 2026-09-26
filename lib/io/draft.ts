@@ -442,6 +442,7 @@ const ifcMeta = (v: unknown, legacy: Record<string, unknown>): IfcMeta => {
     siteDescription: str(s.siteDescription, d.siteDescription),
     siteLandTitle: str(s.siteLandTitle, d.siteLandTitle),
     author: str(s.author, d.author),
+    organization: str(s.organization, d.organization),
   };
 };
 
