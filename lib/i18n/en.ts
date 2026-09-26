@@ -169,7 +169,7 @@ export const en = {
   'ifc.authorship': 'Authorship',
   'ifc.author': 'Author',
   'ifc.organization': 'Organisation',
-  'ifc.authorHint': 'The exporting software is recorded separately, as bim_lane - IFC Site.',
+  'ifc.authorHint': 'The exporting software is recorded separately, as BIM_LANE - IFC SITE.',
   'ifc.blankHint': 'A field left blank is left out of the file.',
   'ifc.reset': 'Reset',
 

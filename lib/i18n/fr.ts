@@ -158,7 +158,7 @@ export const fr: Dict = {
   'ifc.authorship': 'Edition',
   'ifc.author': 'Auteur',
   'ifc.organization': 'Organisation',
-  'ifc.authorHint': 'Le logiciel d’export est inscrit à part, comme bim_lane - IFC Site.',
+  'ifc.authorHint': 'Le logiciel d’export est inscrit à part, comme BIM_LANE - IFC SITE.',
   'ifc.blankHint': 'Un champ laissé vide est omis du fichier.',
   'ifc.reset': 'Réinitialiser',
 
