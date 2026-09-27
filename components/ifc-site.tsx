@@ -79,6 +79,7 @@ import type {
   Vec3,
   ViewTab,
 } from '@/lib/types';
+import { ifcFileName } from '@/lib/ifc/writer';
 import { useUnloadGuard } from '@/lib/ui/unload-guard';
 import { PHONE_QUERY, useMedia } from '@/lib/ui/useMedia';
 import { paint } from '@/lib/ui/yield';
@@ -1275,13 +1276,8 @@ export function IfcSite() {
     const text = emitterRef.current?.flush();
     const meta = metaRef.current;
     if (!text || !meta) return;
-    // IFCSITE_<lon>_<lat>.ifc — east-then-north, the order the georeferencing
-    // itself is written in.
-    downloadText(
-      `IFCSITE_${meta.lon.toFixed(4)}_${meta.lat.toFixed(4)}.ifc`,
-      text,
-      'application/x-step',
-    );
+    // The same name the header states — see ifcFileName.
+    downloadText(ifcFileName(meta), text, 'application/x-step');
   }, []);
 
   /* ---- drafts -----------------------------------------------------------

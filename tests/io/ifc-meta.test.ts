@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { emitIFC } from '@/lib/ifc/emit';
-import { APPLICATION, ORGANISATION } from '@/lib/ifc/writer';
+import {
+  APPLICATION_NAME,
+  APPLICATION_VERSION,
+  ifcFileName,
+  ORIGINATING_SYSTEM,
+  SOFTWARE_COMPANY,
+} from '@/lib/ifc/writer';
 import { emptyScene, newIfcMeta, type IfcMeta, type SiteMeta } from '@/lib/types';
 
 /* -------------------------------------------------------------------------
@@ -107,18 +113,58 @@ describe('the project and site attributes', () => {
   });
 });
 
+const header = (text: string, kind: 'FILE_NAME' | 'FILE_DESCRIPTION'): string =>
+  text.split('\n').find((l) => l.startsWith(kind)) as string;
+
+/** FILE_NAME's seven attributes, split on the top-level commas. */
+const fileNameAttrs = (text: string): string[] => {
+  const body = header(text, 'FILE_NAME').replace(/^FILE_NAME\(/, '').replace(/\);$/, '');
+  const out: string[] = [];
+  let depth = 0;
+  let inStr = false;
+  let cur = '';
+  for (const c of body) {
+    if (c === "'") inStr = !inStr;
+    if (!inStr && c === '(') depth++;
+    if (!inStr && c === ')') depth--;
+    if (!inStr && depth === 0 && c === ',') {
+      out.push(cur);
+      cur = '';
+    } else cur += c;
+  }
+  out.push(cur);
+  return out;
+};
+
 describe('authorship', () => {
-  it('carries the author and the fixed organisation in the header', () => {
-    const { text } = emitIFC(emptyScene(), meta({ author: 'A. Perret' }));
-    const fileName = text.split('\n').find((l) => l.startsWith('FILE_NAME')) as string;
-    expect(fileName).toContain("('A. Perret'),('" + ORGANISATION + "')");
-    // preprocessor_version and originating_system, both the tool.
-    expect(fileName).toContain("'" + APPLICATION + "','" + APPLICATION + "',''");
+  it('carries the typed author and organisation in the header', () => {
+    const { text } = emitIFC(emptyScene(), meta({ author: 'A. Perret', organization: 'Atelier X' }));
+    expect(header(text, 'FILE_NAME')).toContain("('A. Perret'),('Atelier X')");
   });
 
-  it('leaves the author list empty when nobody is named', () => {
+  it('leaves both lists empty when nobody is named — never the vendor', () => {
     const { text } = emitIFC(emptyScene(), meta());
-    expect(text.split('\n').find((l) => l.startsWith('FILE_NAME'))).toContain("(''),('bim-lane')");
+    const [, , author, organization] = fileNameAttrs(text);
+    expect(author).toBe("('')");
+    expect(organization).toBe("('')");
+  });
+
+  /* buildingSMART's header rules: `Company - Application - Version`, a space
+     either side of each dash, no dash inside a name, a PEP 440 version. */
+  it('writes originating_system in the three-part form the validators parse', () => {
+    const attrs = fileNameAttrs(emitIFC(emptyScene(), meta()).text);
+    const originating = attrs[5];
+    expect(originating).toBe("'" + ORIGINATING_SYSTEM + "'");
+    expect(ORIGINATING_SYSTEM).toMatch(/^[^-]+ - [^-]+ - \d+(\.\d+)*$/);
+    expect(ORIGINATING_SYSTEM).toBe(
+      `${SOFTWARE_COMPANY} - ${APPLICATION_NAME} - ${APPLICATION_VERSION}`,
+    );
+    expect(attrs[4]).toBe(`'${APPLICATION_NAME} ${APPLICATION_VERSION}'`);
+  });
+
+  it('names itself in the header as the download is named', () => {
+    const m = meta();
+    expect(fileNameAttrs(emitIFC(emptyScene(), m).text)[0]).toBe(`'${ifcFileName(m)}'`);
   });
 
   /* Someone who types their name expects it in the file whatever the schema, so
@@ -128,9 +174,44 @@ describe('authorship', () => {
     expect(text).toContain('IFCOWNERHISTORY');
     // FamilyName, the second attribute — no given name is invented.
     expect(text).toContain("IFCPERSON($,'A. Perret',$,$,$,$,$,$)");
-    expect(text).toContain("IFCORGANIZATION($,'" + ORGANISATION + "',$,$,$)");
-    expect(text).toContain("IFCAPPLICATION(#");
-    expect(text).toContain("'" + APPLICATION + "','IFCSITE')");
+    expect(text).toContain("IFCORGANIZATION($,'" + SOFTWARE_COMPANY + "',$,$,$)");
+    expect(text).toContain(
+      `'${APPLICATION_VERSION}','${APPLICATION_NAME}','IFCSITE')`,
+    );
+  });
+
+  /* The user's firm and the vendor are two IfcOrganizations: the first owns
+     the data, the second developed the application. */
+  it('keeps the user organisation apart from the software developer', () => {
+    const { text } = emitIFC(emptyScene(), meta({ organization: 'Atelier X' }));
+    expect(text).toContain('IFCOWNERHISTORY');
+    expect(text).toContain("IFCORGANIZATION($,'Atelier X',$,$,$)");
+    expect(text).toContain("IFCORGANIZATION($,'" + SOFTWARE_COMPANY + "',$,$,$)");
+  });
+
+  /* IfcOwnerHistory.CorrectChangeAction (IFC4): .ADDED. is only allowed beside
+     a LastModifiedDate, so the file writes one, equal to its creation date. */
+  it('pairs ChangeAction .ADDED. with a LastModifiedDate', () => {
+    for (const schema of ['IFC2X3', 'IFC4', 'IFC4X3'] as const) {
+      const { text } = emitIFC(emptyScene(), meta({ schema, author: 'A. Perret' }));
+      const line = text.split('\n').find((l) => l.includes('=IFCOWNERHISTORY(')) as string;
+      const m = line.match(/,\.ADDED\.,(\d+),\$,\$,(\d+)\);$/);
+      expect(m).toBeTruthy();
+      expect(m![1]).toBe(m![2]);
+    }
+  });
+
+  it('writes no owner history under IFC4 with both fields blank', () => {
+    expect(emitIFC(emptyScene(), meta()).text).not.toContain('IFCOWNERHISTORY');
+  });
+
+  /* IFC2X3 always carries an owner history, and there an unnamed IfcPerson
+     breaks WR1 and an unnamed IfcOrganization a mandatory attribute. */
+  it('names every person and organisation under IFC2X3, even left blank', () => {
+    const { text } = emitIFC(emptyScene(), meta({ schema: 'IFC2X3' }));
+    expect(text).toContain('IFCOWNERHISTORY');
+    expect(text).not.toMatch(/IFCPERSON\(\$,\$/);
+    expect(text).not.toMatch(/IFCORGANIZATION\(\$,\$/);
   });
 
   /* ISO-10303-21 string literals are ASCII, and an author is at least as likely
@@ -144,9 +225,21 @@ describe('authorship', () => {
 
 describe('the schema', () => {
   it('is what FILE_SCHEMA reports', () => {
+    // IFC4X3 is written under the released schema's own name.
+    const token = { IFC2X3: 'IFC2X3', IFC4: 'IFC4', IFC4X3: 'IFC4X3_ADD2' } as const;
     for (const schema of ['IFC2X3', 'IFC4', 'IFC4X3'] as const) {
       expect(emitIFC(emptyScene(), meta({ schema })).text).toContain(
-        `FILE_SCHEMA(('${schema}'));`,
+        `FILE_SCHEMA(('${token[schema]}'));`,
+      );
+    }
+  });
+
+  /* An official MVD for each schema, or the validator reads the view as unknown. */
+  it('names an official ViewDefinition for the schema', () => {
+    const views = { IFC2X3: 'CoordinationView_V2.0', IFC4: 'ReferenceView_V1.2', IFC4X3: 'ReferenceView' };
+    for (const [schema, view] of Object.entries(views) as [keyof typeof views, string][]) {
+      expect(header(emitIFC(emptyScene(), meta({ schema })).text, 'FILE_DESCRIPTION')).toContain(
+        `'ViewDefinition [${view}]'`,
       );
     }
   });

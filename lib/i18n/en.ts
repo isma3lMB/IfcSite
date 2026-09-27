@@ -168,8 +168,8 @@ export const en = {
   'ifc.siteLandTitle': 'Land title number',
   'ifc.authorship': 'Authorship',
   'ifc.author': 'Author',
-  'ifc.authorHint':
-    'The organisation and the originating software are fixed at bim-lane and ifcsite.app.',
+  'ifc.organization': 'Organisation',
+  'ifc.authorHint': 'The exporting software is recorded separately, as BIM_LANE - IFC SITE.',
   'ifc.blankHint': 'A field left blank is left out of the file.',
   'ifc.reset': 'Reset',
 

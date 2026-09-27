@@ -185,6 +185,63 @@ describe('ePset_License', () => {
     expect(header).not.toContain('©');
   });
 
+  /* The validator reads the MVD through IfcOpenShell's mvd_info, which joins
+     the FILE_DESCRIPTION strings with spaces and parses them as a whole. One
+     entry it rejects and the ViewDefinition is lost with it — the file then
+     reports no MVD. A port of that grammar, run over the text both as written
+     and with the \X2\ escapes decoded, since either may be what it is handed. */
+  describe('the header description, as the validator parses it', () => {
+    const VALUE_LIST = /^[A-Za-z0-9 _.-]+(,[A-Za-z0-9 _.-]+)*$/;
+
+    /** The strings of FILE_DESCRIPTION's first attribute, unquoted. */
+    const entries = (text: string): string[] => {
+      const line = text.split('\n')[2];
+      const list = line.replace(/^FILE_DESCRIPTION\(\(/, '').replace(/\),'2;1'\);$/, '');
+      return (list.match(/'(?:[^']|'')*'/g) ?? []).map((q) => q.slice(1, -1).replace(/''/g, "'"));
+    };
+
+    const decode = (s: string): string =>
+      s.replace(/\\X2\\([0-9A-F]+)\\X0\\/g, (_, hex: string) =>
+        String.fromCharCode(...(hex.match(/.{4}/g) ?? []).map((h) => parseInt(h, 16))),
+      );
+
+    /** The view definitions, or null where the grammar would fail. */
+    const parse = (joined: string): string[] | null => {
+      const views: string[] = [];
+      let rest = joined.trim();
+      while (rest) {
+        const m = rest.match(/^([A-Za-z0-9_]+)\s*\[([^[\]]+)\]\s*/);
+        if (!m) return null;
+        const [, keyword, body] = m;
+        if ((keyword === 'ViewDefinition' || keyword === 'Comment') && !VALUE_LIST.test(body.trim()))
+          return null;
+        if (keyword === 'ViewDefinition') views.push(...body.split(',').map((v) => v.trim()));
+        rest = rest.slice(m[0].length);
+      }
+      return views.length ? views : null;
+    };
+
+    for (const [label, s, provider] of [
+      ['an OSM build', sceneWith(1, { tree: true }), 'osm'],
+      ['an IGN build with three sources', sceneWith(1, { tree: true, terrain: true }), 'ign'],
+    ] as const) {
+      it(`still yields the view definition for ${label}`, () => {
+        const list = entries(emitIFC(s, meta({ provider })).text);
+        expect(list.length).toBeGreaterThan(1);
+        for (const form of [list, list.map(decode)]) {
+          expect(parse(form.join(' '))).toEqual(['ReferenceView_V1.2']);
+          for (const e of form) expect(e.length).toBeLessThanOrEqual(256);
+        }
+        expect(list.filter((e) => e.startsWith('Attribution [')).length).toBe(list.length - 1);
+      });
+    }
+
+    it('keeps the notice verbatim, © and all', () => {
+      const list = entries(emitIFC(sceneWith(1), meta({})).text).map(decode);
+      expect(list).toContain(`Attribution [${DATA_SOURCES.osm.attribution}]`);
+    });
+  });
+
   /* A file with nothing sourced in it owes nobody anything, and should not
      claim otherwise. */
   it('says nothing about licences in an empty file', () => {

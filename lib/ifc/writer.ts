@@ -1,6 +1,7 @@
 import proj4 from 'proj4';
+import { version } from '@/package.json';
 import { xfAxes } from '@/lib/geo/euler';
-import { treeProxy } from '@/lib/geo/mesh';
+import { prismInto, treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
 import { TREE_CANOPY_COLOR, TREE_TRUNK_COLOR } from '@/lib/scene/stack';
 import { buildingColors } from '@/lib/scene/xf';
@@ -19,8 +20,8 @@ import type { Building, PropBag, Provider, SiteMeta, Tree, Vec2, Vec3 } from '@/
    Three schemas out of one emitter. Everything that differs between them is a
    field of SCHEMA_CAPS below rather than a version test in the emitters, so the
    differences can be read in one place and a fourth schema is a row rather than
-   a sweep. The IFC4 column is what this wrote before any of it existed, so an
-   IFC4 export is entity-for-entity what it always was.
+   a sweep. The IFC4 column is what this wrote before any of it existed, bar
+   the ViewDefinition, which now names the official ReferenceView_V1.2.
    ===================================================================== */
 
 type Real = { __t: 'real'; v: number };
@@ -66,15 +67,29 @@ export const TYPED = (t: string, i: Attr): TypedV => ({ __t: 'typed', type: t, i
 export const sOrNull = (v: string): Attr => (v ? S(v) : null);
 
 /**
- * Who wrote the file, as against who the model is about.
+ * The software that wrote the file, as against the people who own it.
  *
- * Fixed rather than typed into the panel: the author is a person and varies,
- * these two are the tool and do not. They go to the STEP header — organization
- * and originating_system — and to IfcOrganization/IfcApplication wherever the
- * file carries an owner history.
+ * Fixed rather than typed into the panel: the author and their organisation
+ * vary and are IfcMeta fields, these are the tool and do not. buildingSMART's
+ * header rules keep the two apart — FILE_NAME's organization is the user's firm
+ * and must not name the software vendor, whose place is originating_system,
+ * written exactly `Company - Application - Version` with no dash inside either
+ * name and a PEP 440 version. Wherever the file carries an owner history, the
+ * same three go to IfcApplication and its developer IfcOrganization.
  */
-export const ORGANISATION = 'bim-lane';
-export const APPLICATION = 'ifcsite.app';
+export const SOFTWARE_COMPANY = 'BIM_LANE';
+export const APPLICATION_NAME = 'IFC SITE';
+export const APPLICATION_VERSION: string = version;
+export const ORIGINATING_SYSTEM = `${SOFTWARE_COMPANY} - ${APPLICATION_NAME} - ${APPLICATION_VERSION}`;
+
+/**
+ * The name the export is saved under, and so the one its header states.
+ *
+ * IFCSITE_<lon>_<lat>.ifc — east-then-north, the order the georeferencing itself
+ * is written in. One helper for both, so the download and FILE_NAME cannot drift.
+ */
+export const ifcFileName = (m: { lon: number; lat: number }): string =>
+  `IFCSITE_${m.lon.toFixed(4)}_${m.lat.toFixed(4)}.ifc`;
 
 /* ---------------------------------------------------------------------
    Schemas
@@ -123,9 +138,9 @@ type SchemaCaps = {
    *  numbers go onto a root — IfcSite by default, see IfcGeorefTarget — as the
    *  conventional ePset_* property sets. */
   mapConversion: boolean;
-  /** IFC4X3 gave IfcMapConversion a ScaleY and a ScaleZ: ten attributes where
-   *  IFC4 has eight, and a reader handed eight fails on the count. */
-  mapScaleXYZ: boolean;
+  /** IFC4X3 gave IfcCartesianPointList3D an optional TagList; IFC4 has
+   *  CoordList alone, and a reader handed two attributes fails on the count. */
+  pointListTags: boolean;
   /** IfcGeographicElement, an IFC4 addition. Without it, a proxy. */
   geoElement: boolean;
   /** The members of IfcGeographicElementTypeEnum this schema actually defines.
@@ -141,6 +156,18 @@ type SchemaCaps = {
    *  A 2X3 file with `$` there is one validators reject and some importers
    *  refuse outright. */
   ownerHistory: boolean;
+  /** CoordinationView_V2.0's implementer agreement (validator rule SPS001)
+   *  wants at least one IfcBuilding under IfcSite. A context model has no
+   *  building of its own, so this writes an empty one — the slot the design
+   *  building goes in — and leaves every context element on the site. The
+   *  IFC4 views carry no such agreement, so they are left as they were. */
+  buildingRequired: boolean;
+  /** Whether a building may go out as IfcExtrudedAreaSolid over its footprint.
+   *  The IFC 4.3 Reference View leaves every swept solid out of scope
+   *  (validator rule IFC430), so under it a building is a tessellated prism
+   *  instead. IFC4's ReferenceView_V1.2 and CoordinationView_V2.0 both keep
+   *  the extrusion. */
+  sweptSolid: boolean;
 };
 
 const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
@@ -149,37 +176,45 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     view: 'CoordinationView_V2.0',
     tessellation: false,
     mapConversion: false,
-    mapScaleXYZ: false,
+    pointListTags: false,
     geoElement: false,
     geoTypes: new Set(),
     styleAssignment: true,
     ownerHistory: true,
+    buildingRequired: true,
+    sweptSolid: true,
   },
   IFC4: {
     fileSchema: 'IFC4',
-    view: 'CoordinationView',
+    // The official IFC4 MVD. "CoordinationView" is the IFC2X3 one without its
+    // suffix, and no validator recognises it under this schema.
+    view: 'ReferenceView_V1.2',
     tessellation: true,
     mapConversion: true,
-    mapScaleXYZ: false,
+    pointListTags: false,
     geoElement: true,
     geoTypes: new Set(['TERRAIN', 'USERDEFINED', 'NOTDEFINED']),
     styleAssignment: false,
     ownerHistory: false,
+    buildingRequired: false,
+    sweptSolid: true,
   },
   IFC4X3: {
-    // The released schema calls itself IFC4X3_ADD2 and some strict readers hold
-    // it to that; this is the plainer name, and it is one token to change.
-    fileSchema: 'IFC4X3',
+    // The released schema's own name. The bare IFC4X3 some tools write is the
+    // draft's, and strict readers hold the file to the release.
+    fileSchema: 'IFC4X3_ADD2',
     view: 'ReferenceView',
     tessellation: true,
     mapConversion: true,
-    mapScaleXYZ: true,
+    pointListTags: true,
     geoElement: true,
     // IFC4X3 is the schema that finally has somewhere to put a tree: VEGETATION
     // is a real predefined type here, where IFC4 has to demote it.
     geoTypes: new Set(['TERRAIN', 'VEGETATION', 'SOIL_BORING_POINT', 'USERDEFINED', 'NOTDEFINED']),
     styleAssignment: false,
     ownerHistory: false,
+    buildingRequired: false,
+    sweptSolid: false,
   },
 };
 
@@ -286,8 +321,34 @@ export class IfcFile {
    * file: a licence notice is no use to anyone if reading it needs an IFC
    * viewer, and a header is what you see opening the thing in a text editor.
    * The per-element property sets are the machine-readable half.
+   *
+   * Filled through attribution(), never directly: see there.
    */
-  readonly description: string[] = [];
+  private readonly description: string[] = [];
+
+  /**
+   * One `Attribution [...]` entry in FILE_DESCRIPTION.
+   *
+   * buildingSMART's header agreement (ISG/MSG-2008-001) gives every string in
+   * that list the form `<keyword> [<values>]`, each no longer than 256
+   * characters, and the validator reads it with IfcOpenShell's mvd_info
+   * grammar. One entry it cannot parse and the whole list fails — the
+   * ViewDefinition with it, so the file reports no MVD at all.
+   *
+   * Not `Comment`, which reads as the obvious keyword: that grammar restricts
+   * a Comment's body to letters, digits, space, `_ . -` and commas, and every
+   * licence notice here carries a © or a slash. Any other keyword is free text
+   * up to a bracket, so a keyword of our own keeps the notice verbatim.
+   * Brackets are stripped, since they would close the set early, and the
+   * string is capped at the limit.
+   */
+  attribution(text: string): void {
+    const body = text.replace(/[[\]]/g, '').trim();
+    const room = 256 - 'Attribution []'.length;
+    this.description.push(
+      'Attribution [' + (body.length > room ? body.slice(0, room - 3) + '...' : body) + ']',
+    );
+  }
 
   readonly caps: SchemaCaps;
 
@@ -297,6 +358,9 @@ export class IfcFile {
     /** FILE_NAME's author list, from IfcMeta.author. Empty stays `('')`, which
      *  is what this header carried before there was anywhere to type one. */
     public readonly author: string = '',
+    /** FILE_NAME's organization list, from IfcMeta.organization — the user's
+     *  firm, never the software vendor. Empty stays `('')`. */
+    public readonly organization: string = '',
   ) {
     this.caps = SCHEMA_CAPS[schema];
   }
@@ -323,10 +387,10 @@ export class IfcFile {
           .map((d) => "'" + esc(d) + "'")
           .join(',') +
         "),'2;1');",
-      // author and organization are LIST OF STRING; preprocessor_version and
-      // originating_system are single strings, and both name the tool. esc()
-      // throughout — an author is as likely to carry an accent as the
-      // attribution lines above are.
+      // author and organization are LIST OF STRING and the user's; the
+      // preprocessor_version and originating_system are single strings and
+      // the tool's — see SOFTWARE_COMPANY. esc() throughout — an author is as
+      // likely to carry an accent as the attribution lines above are.
       "FILE_NAME('" +
         esc(this.name) +
         "','" +
@@ -334,11 +398,11 @@ export class IfcFile {
         "',('" +
         esc(this.author) +
         "'),('" +
-        esc(ORGANISATION) +
+        esc(this.organization) +
         "'),'" +
-        esc(APPLICATION) +
+        esc(APPLICATION_NAME + ' ' + APPLICATION_VERSION) +
         "','" +
-        esc(APPLICATION) +
+        esc(ORIGINATING_SYSTEM) +
         "','');",
       "FILE_SCHEMA(('" + this.caps.fileSchema + "'));",
       'ENDSEC;',
@@ -371,6 +435,59 @@ const rgb01 = (hex: number): [number, number, number] => [
   ((hex >> 8) & 255) / 255,
   (hex & 255) / 255,
 ];
+
+/**
+ * Merge vertices that sit on the same point, to a micrometre, and drop the faces
+ * that collapse doing it.
+ *
+ * For the Brep path in mesh(), where two loops only share an edge if they share
+ * its coordinates exactly — which is how validators check a shell. A micrometre
+ * is a tenth of the context's own precision, so nothing a reader could tell
+ * apart gets merged. The first copy of each point is the one kept.
+ */
+export function weld(verts: Vec3[], faces: number[][]): { verts: Vec3[]; faces: number[][] } {
+  const q = 1e6;
+  const keyed = new Map<string, number>();
+  const out: Vec3[] = [];
+  const remap = verts.map((v) => {
+    const k = `${Math.round(v[0] * q)},${Math.round(v[1] * q)},${Math.round(v[2] * q)}`;
+    let i = keyed.get(k);
+    if (i === undefined) {
+      i = out.push(v) - 1;
+      keyed.set(k, i);
+    }
+    return i;
+  });
+  const kept: number[][] = [];
+  for (const t of faces) {
+    const loop = t.map((i) => remap[i]).filter((i, n, a) => i !== a[(n + 1) % a.length]);
+    if (new Set(loop).size >= 3) kept.push(loop);
+  }
+  return { verts: out, faces: kept };
+}
+
+/**
+ * Faces grouped into connected pieces, two faces being connected when they
+ * share a vertex — the reading a validator gives "connected face set".
+ */
+export function components(faces: number[][]): number[][][] {
+  const parent = new Map<number, number>();
+  const root = (i: number): number => {
+    let r = i;
+    while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(i, r);
+    return r;
+  };
+  for (const t of faces) for (const i of t.slice(1)) parent.set(root(i), root(t[0]));
+  const groups = new Map<number, number[][]>();
+  for (const t of faces) {
+    const r = root(t[0]);
+    const g = groups.get(r);
+    if (g) g.push(t);
+    else groups.set(r, [t]);
+  }
+  return [...groups.values()];
+}
 
 export class ContextModel {
   readonly f: IfcFile;
@@ -406,7 +523,7 @@ export class ContextModel {
   constructor(o: SiteMeta) {
     // The schema, the names and the authorship, all from one bag — see IfcMeta.
     const a = o.ifc;
-    this.f = new IfcFile('context.ifc', a.schema, a.author);
+    this.f = new IfcFile(ifcFileName(o), a.schema, a.author, a.organization);
     this.caps = this.f.caps;
     this.origin = o.origin;
     this.off = o.exportOffset;
@@ -421,21 +538,28 @@ export class ContextModel {
        IFC2X3 declares IfcRoot.OwnerHistory mandatory, so `$` there is not a file
        that happens to say nothing about its author — it is an invalid one, and
        validators and the stricter importers treat it as such. IFC4 made the
-       attribute optional and this file left it out, which is why the second
-       clause is here: someone who types their name into the export panel expects
-       it in the file whatever the schema, and with the field blank an IFC4
-       export is entity-for-entity what it always was.
+       attribute optional and this file left it out, which is why the other
+       clauses are here: someone who types their name or their firm into the
+       export panel expects it in the file whatever the schema, and with both
+       fields blank an IFC4 export carries no owner history at all.
 
-       One instance, shared by every root entity. The person is the typed author
-       and nothing else — no user is signed in, so a given name would be a guess
-       — and the organisation is the tool. ChangeAction .ADDED. and a creation
+       One instance, shared by every root entity. The owning user is the typed
+       author and organisation and nothing else — no user is signed in, so a
+       given name would be a guess. The owning application is the tool, with
+       its developer as a second IfcOrganization: the user's firm and the
+       software vendor are different claims and each gets its own entity.
+
+       'Unknown' stands in where a field is blank but the entity is still
+       written. IfcOrganization.Name is mandatory in both schemas, and IFC2X3's
+       IfcPerson WR1 wants a FamilyName or GivenName — an unnamed person there
+       is an invalid file, not a quiet one. ChangeAction .ADDED. and a creation
        date are what the schema requires to be present. */
     this.owner =
-      caps.ownerHistory || a.author
+      caps.ownerHistory || a.author || a.organization
         ? (() => {
             const person = f.add('IfcPerson', [
               null,
-              sOrNull(a.author),
+              S(a.author || 'Unknown'),
               null,
               null,
               null,
@@ -443,18 +567,35 @@ export class ContextModel {
               null,
               null,
             ]);
-            const org = f.add('IfcOrganization', [null, S(ORGANISATION), null, null, null]);
-            const pao = f.add('IfcPersonAndOrganization', [person, org, null]);
-            const app = f.add('IfcApplication', [org, S('1.0'), S(APPLICATION), S('IFCSITE')]);
+            const userOrg = f.add('IfcOrganization', [
+              null,
+              S(a.organization || 'Unknown'),
+              null,
+              null,
+              null,
+            ]);
+            const pao = f.add('IfcPersonAndOrganization', [person, userOrg, null]);
+            const devOrg = f.add('IfcOrganization', [null, S(SOFTWARE_COMPANY), null, null, null]);
+            const app = f.add('IfcApplication', [
+              devOrg,
+              S(APPLICATION_VERSION),
+              S(APPLICATION_NAME),
+              S('IFCSITE'),
+            ]);
+            // LastModifiedDate as well as CreationDate, both now: IFC4's
+            // CorrectChangeAction rule allows .ADDED. only beside a
+            // LastModifiedDate. Optional and harmless in IFC2X3, which has no
+            // such rule, so every schema writes the same line.
+            const now = I(Math.floor(Date.now() / 1000));
             return f.add('IfcOwnerHistory', [
               pao,
               app,
               null,
               E('ADDED'),
+              now,
               null,
               null,
-              null,
-              I(Math.floor(Date.now() / 1000)),
+              now,
             ]);
           })()
         : null;
@@ -499,9 +640,10 @@ export class ContextModel {
     this.world = f.add('IfcAxis2Placement3D', [this.o3, this.dz, this.dx]);
     // TrueNorth is expressed in the context's own coordinate system, so turning
     // the project axes turns it too: R(-th) applied to grid north. Leaving this
-    // at (0,1,0) would georeference correctly and still tell every viewer that
-    // north runs up the model's +Y.
-    const north = f.add('IfcDirection', [[R(sin), R(cos), R(0)]]);
+    // at (0,1) would georeference correctly and still tell every viewer that
+    // north runs up the model's +Y. Two ratios, not three: IFC4's North2D rule
+    // requires TrueNorth to be a plan direction, and IFC2X3 reads it the same.
+    const north = f.add('IfcDirection', [[R(sin), R(cos)]]);
     this.ctx = f.add('IfcGeometricRepresentationContext', [
       null,
       S('Model'),
@@ -603,6 +745,27 @@ export class ContextModel {
     ]);
     f.add('IfcRelAggregates', [S(ifcGuid()), this.owner, null, null, this.project, [this.site]]);
 
+    // The empty building CoordinationView_V2.0 requires — see buildingRequired.
+    // Placed on the site's own origin and holding nothing: the context stays
+    // contained in IfcSite, because none of it is part of any one building.
+    if (caps.buildingRequired) {
+      const building = f.add('IfcBuilding', [
+        S(ifcGuid()),
+        this.owner,
+        S('Building'),
+        null,
+        null,
+        f.add('IfcLocalPlacement', [this.sitePlacement, this.world]),
+        null,
+        null,
+        E('ELEMENT'),
+        null,
+        null,
+        null,
+      ]);
+      f.add('IfcRelAggregates', [S(ifcGuid()), this.owner, null, null, this.site, [building]]);
+    }
+
     /* ---- georeferencing ------------------------------------------------
        The numbers first, computed once, because both branches below want the
        same six and the arithmetic is the part worth getting right.
@@ -649,11 +812,10 @@ export class ContextModel {
         R(zHeight),
         R(cos),
         R(sin),
+        // Eight attributes in every schema that has the entity. IFC4X3_ADD2 put
+        // per-axis scale on a subtype, IfcMapConversionScaled, rather than
+        // widening this one, and a uniform 1 has no use for it.
         R(1),
-        // ScaleY/ScaleZ, IFC4X3 only. Left null rather than repeating the 1:
-        // both default to Scale when absent, which is what this means, and a
-        // stated 1 would be an anisotropic scale that happens to be uniform.
-        ...(caps.mapScaleXYZ ? [null, null] : []),
       ]);
     } else {
       /* IFC2X3 has neither entity, so the same statement goes out as the two
@@ -892,64 +1054,77 @@ export class ContextModel {
   private mesh(verts: Vec3[], faces: number[][], closed: boolean): { item: Ref; repType: string } {
     const f = this.f;
     if (this.caps.tessellation) {
-      const coords = f.add('IfcCartesianPointList3D', [
-        verts.map((v) => [R(v[0]), R(v[1]), R(v[2])]),
-        null,
-      ]);
+      const list = verts.map((v) => [R(v[0]), R(v[1]), R(v[2])]);
+      const coords = f.add('IfcCartesianPointList3D', this.caps.pointListTags ? [list, null] : [list]);
       const fr = faces.map((t) => f.add('IfcIndexedPolygonalFace', [t.map((i) => I(i + 1))]));
       return { item: f.add('IfcPolygonalFaceSet', [coords, null, fr, null]), repType: 'Tessellation' };
     }
-    const pts = verts.map((v) => f.add('IfcCartesianPoint', [[R(v[0]), R(v[1]), R(v[2])]]));
-    const fr = faces.map((t) => {
-      const loop = f.add('IfcPolyLoop', [t.map((i) => pts[i])]);
+    // Welded first: a Brep's topology is read off its point coordinates, and
+    // mesh sources repeat a vertex wherever they split one — the trunk
+    // cylinder's seam, whose two copies differ by sin(2π) ≈ -2e-16 and so left
+    // every trunk an open shell as far as a validator could tell.
+    const w = weld(verts, faces);
+    const pts = new Map<number, Ref>();
+    const pt = (i: number): Ref => {
+      let p = pts.get(i);
+      if (!p) {
+        const v = w.verts[i];
+        p = f.add('IfcCartesianPoint', [[R(v[0]), R(v[1]), R(v[2])]]);
+        pts.set(i, p);
+      }
+      return p;
+    };
+    const face = (t: number[]): Ref => {
+      const loop = f.add('IfcPolyLoop', [t.map(pt)]);
       // Orientation .T.: the loop's own winding is the face's, which is what
       // every face in this file is built to be — see ensureCCW in lib/geo/rings
       // and the fan triangulation in lib/ifc/emit.
       return f.add('IfcFace', [[f.add('IfcFaceOuterBound', [loop, B(true)])]]);
-    });
+    };
     if (closed) {
-      const shell = f.add('IfcClosedShell', [fr]);
+      const shell = f.add('IfcClosedShell', [w.faces.map(face)]);
       return { item: f.add('IfcFacetedBrep', [shell]), repType: 'Brep' };
     }
-    const shell = f.add('IfcOpenShell', [fr]);
-    return { item: f.add('IfcShellBasedSurfaceModel', [[shell]]), repType: 'SurfaceModel' };
+    // An IfcOpenShell is a connected face set, and a merged sheet often is not
+    // one — the road network, a multipart parcel, terrain cut through by a
+    // void. One shell per connected piece, all in the one surface model, which
+    // takes a set of them for exactly this.
+    const shells = components(w.faces).map((part) => f.add('IfcOpenShell', [part.map(face)]));
+    return { item: f.add('IfcShellBasedSurfaceModel', [shells]), repType: 'SurfaceModel' };
   }
 
-  // b is a scene.buildings record: ring is local to b.center, and b.xf holds the
-  // user's edits. X/Y scale is baked into the profile and Z scale into the
-  // extrusion depth; position and rotation ride on the placement. three.js
-  // composes M = T·R·S, so this is exactly the transform the preview shows.
-  //
-  // `plinth` is how far below its base the building reaches, in metres — non-zero
-  // only for one set to cut the terrain, whose base drops to the lowest ground
-  // under it (plinthOf in lib/scene/cut). The wall solid starts that far down and
-  // is that much deeper, so the roof stays exactly where it was and the element
-  // is still one SweptSolid over the same profile.
-  addBuilding(b: Building, plinth = 0): Ref | null {
+  /**
+   * A building's wall solid and, when capD is non-zero, the roof cap stacked on
+   * it: `r` already scaled and CCW, the wall running from -drop to depth - capD
+   * and the cap from there to depth.
+   *
+   * Extrusions over one shared profile wherever the MVD allows them. The IFC 4.3
+   * Reference View does not (validator rule IFC430), so there the same two
+   * volumes go out as closed tessellated prisms through mesh() — the geometry
+   * prismInto builds for a hedge, walls plus triangulated caps, identical in
+   * extent to the extrusion it replaces.
+   */
+  private buildingBody(
+    r: Vec2[],
+    depth: number,
+    capD: number,
+    drop: number,
+  ): { solid: Ref; capSolid: Ref | null; repType: string } {
     const f = this.f;
-    const xf = b.xf;
-    const [sx, sy, sz] = xf.scale;
-    const r = ensureCCW(dedupe(b.ring.map((p): Vec2 => [p[0] * sx, p[1] * sy])));
-    if (r.length < 3) return null;
+    if (!this.caps.sweptSolid) {
+      const prism = (base: number, h: number) => {
+        const verts: Vec3[] = [];
+        const faces: number[][] = [];
+        prismInto(r, () => base, h, verts, faces);
+        return this.mesh(verts, faces, true);
+      };
+      const { item: solid, repType } = prism(-drop, depth - capD + drop);
+      const capSolid = capD ? prism(depth - capD, capD).item : null;
+      return { solid, capSolid, repType };
+    }
     const prof = f.add('IfcArbitraryClosedProfileDef', [E('AREA'), null, this.poly2d(r)]);
-    const depth = Math.max(b.h * sz, 0.1);
-    const { wall, cap } = buildingColors(b);
-    // One solid when the two colours agree — every sourced building at its
-    // default, where the preview's roof/wall separation is the light's doing
-    // rather than the palette's, so there is nothing for a split to carry.
-    //
-    // When they differ (hand-drawn, or recoloured in the editor) the roof has to
-    // be its own geometric item, since an IfcStyledItem attaches to a whole item
-    // and cannot pick out the cap face of an extrusion. Two stacked extrusions
-    // over the SAME profile rather than a split brep: both stay SweptSolid, the
-    // parametric profile that makes these import cleanly survives, the total
-    // height is unchanged, and the two never share a plane so there is nothing
-    // to z-fight. A brep would have cost all of that on the most numerous
-    // element in the file, to say one colour.
-    const capD = wall === cap ? 0 : Math.min(0.3, depth * 0.1);
     // The shared world axes when there is no plinth, so every building that does
     // not cut the ground is written exactly as it was before the option existed.
-    const drop = plinth > 0 ? plinth : 0;
     const solidAt = drop
       ? f.add('IfcAxis2Placement3D', [f.add('IfcCartesianPoint', [[R(0), R(0), R(-drop)]]), null, null])
       : this.world;
@@ -966,10 +1141,47 @@ export class ContextModel {
           R(capD),
         ])
       : null;
+    return { solid, capSolid, repType: 'SweptSolid' };
+  }
+
+  // b is a scene.buildings record: ring is local to b.center, and b.xf holds the
+  // user's edits. X/Y scale is baked into the profile and Z scale into the
+  // extrusion depth; position and rotation ride on the placement. three.js
+  // composes M = T·R·S, so this is exactly the transform the preview shows.
+  //
+  // `plinth` is how far below its base the building reaches, in metres — non-zero
+  // only for one set to cut the terrain, whose base drops to the lowest ground
+  // under it (plinthOf in lib/scene/cut). The wall solid starts that far down and
+  // is that much deeper, so the roof stays exactly where it was and the element
+  // is still one body over the same footprint.
+  addBuilding(b: Building, plinth = 0): Ref | null {
+    const f = this.f;
+    const xf = b.xf;
+    const [sx, sy, sz] = xf.scale;
+    const r = ensureCCW(dedupe(b.ring.map((p): Vec2 => [p[0] * sx, p[1] * sy])));
+    if (r.length < 3) return null;
+    const depth = Math.max(b.h * sz, 0.1);
+    const { wall, cap } = buildingColors(b);
+    // One solid when the two colours agree — every sourced building at its
+    // default, where the preview's roof/wall separation is the light's doing
+    // rather than the palette's, so there is nothing for a split to carry.
+    //
+    // When they differ (hand-drawn, or recoloured in the editor) the roof has to
+    // be its own geometric item, since an IfcStyledItem attaches to a whole item
+    // and cannot pick out the cap face of an extrusion. Two stacked extrusions
+    // over the SAME profile rather than a split brep: both stay SweptSolid, the
+    // parametric profile that makes these import cleanly survives, the total
+    // height is unchanged, and the two never share a plane so there is nothing
+    // to z-fight. A brep would have cost all of that on the most numerous
+    // element in the file, to say one colour. Under IFC4X3 the two are
+    // tessellated prisms instead — see buildingBody — split the same way.
+    const capD = wall === cap ? 0 : Math.min(0.3, depth * 0.1);
+    const drop = plinth > 0 ? plinth : 0;
+    const { solid, capSolid, repType } = this.buildingBody(r, depth, capD, drop);
     const shp = f.add('IfcShapeRepresentation', [
       this.body,
       S('Body'),
-      S('SweptSolid'),
+      S(repType),
       capSolid ? [solid, capSolid] : [solid],
     ]);
     const pds = f.add('IfcProductDefinitionShape', [null, null, [shp]]);
@@ -1125,7 +1337,10 @@ export class ContextModel {
     // IFC2X3 has no IfcGeographicElement at all, so the context layers go out
     // as the same IfcBuildingElementProxy the buildings and trees use — the
     // schema's own catch-all, and the one element every 2X3 reader handles.
-    // The type still travels, in the ObjectType it would have used anyway.
+    // The type still travels, in the ObjectType it would have used anyway. The
+    // proxy's last slot there is CompositionType, not a predefined type, so it
+    // says ELEMENT the way the buildings and trees do — USERDEFINED is not a
+    // member of that enum and a validator rejects the line.
     const geo = this.caps.geoElement;
     const pre = type && geo && this.caps.geoTypes.has(type) ? type : 'USERDEFINED';
     const el = f.add(geo ? 'IfcGeographicElement' : 'IfcBuildingElementProxy', [
@@ -1139,7 +1354,7 @@ export class ContextModel {
       this.placement(offset ?? null, null, null, false),
       pds,
       null,
-      E(pre),
+      E(geo ? pre : 'ELEMENT'),
     ]);
     if (color !== undefined && color !== null) this.style(fs, color, transparency);
     if (props) this.pset(el, 'ePset_SiteContext', props);
@@ -1233,7 +1448,9 @@ export class ContextModel {
       site,
     ]);
 
-    // And in the header, where it is readable without an IFC viewer at all.
-    this.f.description.push(notice);
+    // And in the header, where it is readable without an IFC viewer at all —
+    // one Comment per source rather than the joined notice, which with the
+    // three IGN datasets would run past the 256 characters each entry allows.
+    for (const l of used) this.f.attribution(l.attribution);
   }
 }

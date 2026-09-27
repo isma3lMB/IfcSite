@@ -251,9 +251,15 @@ export function IfcFlyout(p: IfcFlyoutProps) {
           value={a.author}
           onChange={(author) => p.onChange({ author })}
         />
-        {/* Said here rather than left as a gap: the STEP header carries an
-            organisation and an originating system beside the author, and
-            without this line the missing two fields read as an oversight. */}
+        <Attr
+          id="ifcOrganization"
+          label={t('ifc.organization')}
+          value={a.organization}
+          onChange={(organization) => p.onChange({ organization })}
+        />
+        {/* Said here rather than left as a gap: the STEP header also names the
+            software that wrote it, and without this line a reader might type
+            the tool into Organisation, which the header rules forbid. */}
         <div className="fieldHint">{t('ifc.authorHint')}</div>
       </div>
 

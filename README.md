@@ -232,7 +232,7 @@ on the ground exports near `z = 0` rather than carrying the site's altitude.
 
 | Scene item | IFC |
 | --- | --- |
-| Building | `IfcBuildingElementProxy` + `IfcExtrudedAreaSolid` over an `IfcArbitraryClosedProfileDef` |
+| Building | `IfcBuildingElementProxy` + `IfcExtrudedAreaSolid` over an `IfcArbitraryClosedProfileDef`; a closed `IfcPolygonalFaceSet` prism under IFC4X3 |
 | Terrain, roads, railways, draped layers | `IfcGeographicElement` + `IfcPolygonalFaceSet` (a proxy under IFC2X3) |
 | Tree | `IfcBuildingElementProxy`, trunk and canopy styled separately |
 | Source attributes | `Pset_SiteContext` |

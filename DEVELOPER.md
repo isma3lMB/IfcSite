@@ -735,7 +735,7 @@ record and file reads as uncut.
   `minGroundUnder` the footprint, or zero. Derived, never stored — it depends on where the
   building stands. The roof stays put; the extra depth is at the bottom, so nothing hangs
   over the hole on a downhill side. In the file it is the wall solid starting that far
-  down and that much deeper — still one `SweptSolid` over the same profile; an uncut
+  down and that much deeper — still one body over the same footprint; an uncut
   building is written on the shared axes exactly as before.
 
 ### [layers.ts](lib/scene/layers.ts) — what a layer *is*, in one place
@@ -841,7 +841,7 @@ fourth schema would be a row rather than a sweep:
 | --- | --- | --- | --- |
 | Meshes | `IfcFacetedBrep` / `IfcShellBasedSurfaceModel` | `IfcPolygonalFaceSet` | `IfcPolygonalFaceSet` |
 | Context layers | `IfcBuildingElementProxy` | `IfcGeographicElement` | `IfcGeographicElement` |
-| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on a chosen root | `IfcMapConversion` + `IfcProjectedCRS` | same, +`ScaleY`/`ScaleZ` (10 attributes, not 8) |
+| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on a chosen root | `IfcMapConversion` + `IfcProjectedCRS` | same, 8 attributes as in IFC4 (ADD2 moved per-axis scale to `IfcMapConversionScaled`) |
 | `OwnerHistory` | mandatory — one shared instance | omitted (optional) | omitted (optional) |
 | Styles | `IfcPresentationStyleAssignment` wrapper | `IfcSurfaceStyle` directly | `IfcSurfaceStyle` directly |
 | Vegetation | `USERDEFINED` + `ObjectType` | `USERDEFINED` + `ObjectType` | **`.VEGETATION.`** |
@@ -875,7 +875,7 @@ here produces a file strict readers reject.
 flowchart LR
     P[IfcProject] -->|"IfcRelAggregates"| S[IfcSite]
     S -->|"IfcRelContainedInSpatialStructure"| E[elements]
-    P --> G["IfcGeometricRepresentationContext<br/><i>+ &quot;Body&quot; subcontext</i>"]
+    P --> G["IfcGeometricRepresentationContext<br/><i>+ #quot;Body#quot; subcontext</i>"]
     G --> M["IfcMapConversion<br/><i>site origin E/N</i>"]
     M --> C["IfcProjectedCRS<br/><i>EPSG, datum, vertical datum</i>"]
 ```
@@ -929,7 +929,7 @@ Element mapping:
 
 | Scene item | IFC |
 | --- | --- |
-| Building | `IfcBuildingElementProxy` + `IfcExtrudedAreaSolid` over an `IfcArbitraryClosedProfileDef`. A building set to cut the terrain starts its wall solid `plinthOf` below its base and is that much deeper, so it reaches the lowest ground under it with the roof unmoved. One solid where the wall and cap colours agree (every sourced building at its default — there the preview's roof/wall separation is the light, not the palette); where they differ, two stacked extrusions over the *same* profile, a wall body and a thin roof band, so the roof can carry its own `IfcStyledItem`. Both stay `SweptSolid` and the total height is unchanged — a split brep would have cost the parametric profile on the most numerous element in the file, to say one colour |
+| Building | `IfcBuildingElementProxy` + `IfcExtrudedAreaSolid` over an `IfcArbitraryClosedProfileDef` — except under IFC4X3, whose Reference View leaves swept solids out of scope (validator rule IFC430), where the same volumes go out as closed `IfcPolygonalFaceSet` prisms built by `prismInto`. A building set to cut the terrain starts its wall solid `plinthOf` below its base and is that much deeper, so it reaches the lowest ground under it with the roof unmoved. One solid where the wall and cap colours agree (every sourced building at its default — there the preview's roof/wall separation is the light, not the palette); where they differ, two stacked extrusions over the *same* profile, a wall body and a thin roof band, so the roof can carry its own `IfcStyledItem`. Both stay `SweptSolid` and the total height is unchanged — a split brep would have cost the parametric profile on the most numerous element in the file, to say one colour |
 | Terrain, roads, draped layers | The terrain goes out through `cutTerrain`, so a drawn void is a hole in the faceset. `IfcGeographicElement` + `IfcPolygonalFaceSet`, `PredefinedType` clamped to what the schema actually defines — anything outside it is demoted to `USERDEFINED` and says what it meant in `ObjectType` |
 | Tree | `IfcBuildingElementProxy` + `IfcPolygonalFaceSet`, one element per tree from `treeProxy` — the same shape the viewer draws. Trunk and canopy are two items in the one representation, styled separately, so the brown trunk survives the trip; a per-tree colour override recolours the canopy alone, as it does on screen |
 | Source attributes | `Pset_SiteContext` via `IfcPropertySet` / `IfcRelDefinesByProperties` |

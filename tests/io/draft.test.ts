@@ -300,6 +300,7 @@ describe('parseDraft', () => {
       expect(out.projectName).toBe('Older site');
       expect(out.schema).toBe('IFC2X3');
       expect(out.author).toBe('');
+      expect(out.organization).toBe('');
     });
 
     /* Not a text field like the rest of the bag, so it needs its own line here:
