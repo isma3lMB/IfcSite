@@ -225,9 +225,11 @@ describe('authorship', () => {
 
 describe('the schema', () => {
   it('is what FILE_SCHEMA reports', () => {
+    // IFC4X3 is written under the released schema's own name.
+    const token = { IFC2X3: 'IFC2X3', IFC4: 'IFC4', IFC4X3: 'IFC4X3_ADD2' } as const;
     for (const schema of ['IFC2X3', 'IFC4', 'IFC4X3'] as const) {
       expect(emitIFC(emptyScene(), meta({ schema })).text).toContain(
-        `FILE_SCHEMA(('${schema}'));`,
+        `FILE_SCHEMA(('${token[schema]}'));`,
       );
     }
   });

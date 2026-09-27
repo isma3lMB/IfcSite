@@ -102,3 +102,119 @@ describe('IfcCartesianPointList3D', () => {
     expect(c.every((n) => n === 2)).toBe(true);
   });
 });
+
+/** Two triangles sharing nothing: a sheet in two pieces, as a parcel or a road
+ *  network often is. */
+const withSplitSurface = (): SceneData => ({
+  ...emptyScene(),
+  surfaces: [
+    {
+      verts: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [5, 5, 0],
+        [6, 5, 0],
+        [5, 6, 0],
+      ],
+      faces: [
+        [0, 1, 2],
+        [3, 4, 5],
+      ],
+      name: 'Parcel',
+      type: 'USERDEFINED',
+      layer: 'parcel',
+      src: 'user',
+    },
+  ],
+});
+
+/** Each face of a shell as the coordinate text of its loop's points — what a
+ *  validator compares, rather than the point entities. */
+const shellLoops = (text: string, shell: string): string[][] => {
+  const faces = bodies(text, 'IFCFACE');
+  const bounds = bodies(text, 'IFCFACEOUTERBOUND');
+  const loops = bodies(text, 'IFCPOLYLOOP');
+  const points = bodies(text, 'IFCCARTESIANPOINT');
+  const refs = (s: string) => s.match(/#\d+/g) ?? [];
+  return refs(shell).map((fc) => {
+    const bound = refs(faces.get(fc) as string)[0] as string;
+    const loop = refs(bounds.get(bound) as string)[0] as string;
+    return refs(loops.get(loop) as string).map((p) => points.get(p) as string);
+  });
+};
+
+const edgeKey = (a: string, b: string) => (a < b ? a + '|' + b : b + '|' + a);
+
+describe('IfcMapConversion', () => {
+  for (const schema of ['IFC4', 'IFC4X3'] as const) {
+    it(`has eight attributes under ${schema}`, () => {
+      const convs = [...bodies(emitIFC(emptyScene(), meta(schema)).text, 'IFCMAPCONVERSION').values()];
+      expect(convs).toHaveLength(1);
+      expect(topLevel(convs[0] as string)).toHaveLength(8);
+    });
+  }
+});
+
+describe('IFC2X3 Brep topology', () => {
+  it('uses every closed-shell edge exactly twice (GEM001)', () => {
+    const text = emitIFC(withTree(), meta('IFC2X3')).text;
+    const shells = [...bodies(text, 'IFCCLOSEDSHELL').values()];
+    expect(shells).toHaveLength(2);
+    for (const s of shells) {
+      const uses = new Map<string, number>();
+      for (const loop of shellLoops(text, s))
+        loop.forEach((p, i) => {
+          const k = edgeKey(p, loop[(i + 1) % loop.length]);
+          uses.set(k, (uses.get(k) ?? 0) + 1);
+        });
+      expect([...uses.values()].every((n) => n === 2)).toBe(true);
+    }
+  });
+
+  it('writes one connected open shell per piece (BRP002)', () => {
+    const text = emitIFC(withSplitSurface(), meta('IFC2X3')).text;
+    const shells = [...bodies(text, 'IFCOPENSHELL').values()];
+    expect(shells).toHaveLength(2);
+    for (const s of shells) {
+      const loops = shellLoops(text, s);
+      const seen = new Set(loops[0]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const l of loops)
+          if (l.some((p) => seen.has(p)) && l.some((p) => !seen.has(p))) {
+            l.forEach((p) => seen.add(p));
+            grew = true;
+          }
+      }
+      expect(loops.every((l) => l.every((p) => seen.has(p)))).toBe(true);
+    }
+  });
+});
+
+describe('IfcBuildingElementProxy under IFC2X3', () => {
+  it('writes a CompositionType, never a predefined type', () => {
+    const text = emitIFC(withSplitSurface(), meta('IFC2X3')).text;
+    const proxies = [...bodies(text, 'IFCBUILDINGELEMENTPROXY').values()];
+    expect(proxies.length).toBeGreaterThan(0);
+    for (const p of proxies) expect(['.ELEMENT.', '.COMPLEX.', '.PARTIAL.']).toContain(topLevel(p).at(-1));
+  });
+});
+
+describe('IfcBuilding (SPS001)', () => {
+  it('is one, aggregated under the site, under IFC2X3', () => {
+    const text = emitIFC(emptyScene(), meta('IFC2X3')).text;
+    const buildings = [...bodies(text, 'IFCBUILDING').keys()];
+    expect(buildings).toHaveLength(1);
+    const [site] = [...bodies(text, 'IFCSITE').keys()];
+    const aggs = [...bodies(text, 'IFCRELAGGREGATES').values()].map(topLevel);
+    expect(aggs.some((a) => a[4] === site && a[5] === `(${buildings[0]})`)).toBe(true);
+  });
+
+  for (const schema of ['IFC4', 'IFC4X3'] as const) {
+    it(`is not written under ${schema}`, () => {
+      expect(bodies(emitIFC(emptyScene(), meta(schema)).text, 'IFCBUILDING').size).toBe(0);
+    });
+  }
+});

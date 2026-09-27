@@ -138,9 +138,6 @@ type SchemaCaps = {
    *  numbers go onto a root — IfcSite by default, see IfcGeorefTarget — as the
    *  conventional ePset_* property sets. */
   mapConversion: boolean;
-  /** IFC4X3 gave IfcMapConversion a ScaleY and a ScaleZ: ten attributes where
-   *  IFC4 has eight, and a reader handed eight fails on the count. */
-  mapScaleXYZ: boolean;
   /** IFC4X3 gave IfcCartesianPointList3D an optional TagList; IFC4 has
    *  CoordList alone, and a reader handed two attributes fails on the count. */
   pointListTags: boolean;
@@ -159,6 +156,12 @@ type SchemaCaps = {
    *  A 2X3 file with `$` there is one validators reject and some importers
    *  refuse outright. */
   ownerHistory: boolean;
+  /** CoordinationView_V2.0's implementer agreement (validator rule SPS001)
+   *  wants at least one IfcBuilding under IfcSite. A context model has no
+   *  building of its own, so this writes an empty one — the slot the design
+   *  building goes in — and leaves every context element on the site. The
+   *  IFC4 views carry no such agreement, so they are left as they were. */
+  buildingRequired: boolean;
 };
 
 const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
@@ -167,12 +170,12 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     view: 'CoordinationView_V2.0',
     tessellation: false,
     mapConversion: false,
-    mapScaleXYZ: false,
     pointListTags: false,
     geoElement: false,
     geoTypes: new Set(),
     styleAssignment: true,
     ownerHistory: true,
+    buildingRequired: true,
   },
   IFC4: {
     fileSchema: 'IFC4',
@@ -181,21 +184,20 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     view: 'ReferenceView_V1.2',
     tessellation: true,
     mapConversion: true,
-    mapScaleXYZ: false,
     pointListTags: false,
     geoElement: true,
     geoTypes: new Set(['TERRAIN', 'USERDEFINED', 'NOTDEFINED']),
     styleAssignment: false,
     ownerHistory: false,
+    buildingRequired: false,
   },
   IFC4X3: {
-    // The released schema calls itself IFC4X3_ADD2 and some strict readers hold
-    // it to that; this is the plainer name, and it is one token to change.
-    fileSchema: 'IFC4X3',
+    // The released schema's own name. The bare IFC4X3 some tools write is the
+    // draft's, and strict readers hold the file to the release.
+    fileSchema: 'IFC4X3_ADD2',
     view: 'ReferenceView',
     tessellation: true,
     mapConversion: true,
-    mapScaleXYZ: true,
     pointListTags: true,
     geoElement: true,
     // IFC4X3 is the schema that finally has somewhere to put a tree: VEGETATION
@@ -203,6 +205,7 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     geoTypes: new Set(['TERRAIN', 'VEGETATION', 'SOIL_BORING_POINT', 'USERDEFINED', 'NOTDEFINED']),
     styleAssignment: false,
     ownerHistory: false,
+    buildingRequired: false,
   },
 };
 
@@ -423,6 +426,59 @@ const rgb01 = (hex: number): [number, number, number] => [
   ((hex >> 8) & 255) / 255,
   (hex & 255) / 255,
 ];
+
+/**
+ * Merge vertices that sit on the same point, to a micrometre, and drop the faces
+ * that collapse doing it.
+ *
+ * For the Brep path in mesh(), where two loops only share an edge if they share
+ * its coordinates exactly — which is how validators check a shell. A micrometre
+ * is a tenth of the context's own precision, so nothing a reader could tell
+ * apart gets merged. The first copy of each point is the one kept.
+ */
+export function weld(verts: Vec3[], faces: number[][]): { verts: Vec3[]; faces: number[][] } {
+  const q = 1e6;
+  const keyed = new Map<string, number>();
+  const out: Vec3[] = [];
+  const remap = verts.map((v) => {
+    const k = `${Math.round(v[0] * q)},${Math.round(v[1] * q)},${Math.round(v[2] * q)}`;
+    let i = keyed.get(k);
+    if (i === undefined) {
+      i = out.push(v) - 1;
+      keyed.set(k, i);
+    }
+    return i;
+  });
+  const kept: number[][] = [];
+  for (const t of faces) {
+    const loop = t.map((i) => remap[i]).filter((i, n, a) => i !== a[(n + 1) % a.length]);
+    if (new Set(loop).size >= 3) kept.push(loop);
+  }
+  return { verts: out, faces: kept };
+}
+
+/**
+ * Faces grouped into connected pieces, two faces being connected when they
+ * share a vertex — the reading a validator gives "connected face set".
+ */
+export function components(faces: number[][]): number[][][] {
+  const parent = new Map<number, number>();
+  const root = (i: number): number => {
+    let r = i;
+    while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(i, r);
+    return r;
+  };
+  for (const t of faces) for (const i of t.slice(1)) parent.set(root(i), root(t[0]));
+  const groups = new Map<number, number[][]>();
+  for (const t of faces) {
+    const r = root(t[0]);
+    const g = groups.get(r);
+    if (g) g.push(t);
+    else groups.set(r, [t]);
+  }
+  return [...groups.values()];
+}
 
 export class ContextModel {
   readonly f: IfcFile;
@@ -680,6 +736,27 @@ export class ContextModel {
     ]);
     f.add('IfcRelAggregates', [S(ifcGuid()), this.owner, null, null, this.project, [this.site]]);
 
+    // The empty building CoordinationView_V2.0 requires — see buildingRequired.
+    // Placed on the site's own origin and holding nothing: the context stays
+    // contained in IfcSite, because none of it is part of any one building.
+    if (caps.buildingRequired) {
+      const building = f.add('IfcBuilding', [
+        S(ifcGuid()),
+        this.owner,
+        S('Building'),
+        null,
+        null,
+        f.add('IfcLocalPlacement', [this.sitePlacement, this.world]),
+        null,
+        null,
+        E('ELEMENT'),
+        null,
+        null,
+        null,
+      ]);
+      f.add('IfcRelAggregates', [S(ifcGuid()), this.owner, null, null, this.site, [building]]);
+    }
+
     /* ---- georeferencing ------------------------------------------------
        The numbers first, computed once, because both branches below want the
        same six and the arithmetic is the part worth getting right.
@@ -726,11 +803,10 @@ export class ContextModel {
         R(zHeight),
         R(cos),
         R(sin),
+        // Eight attributes in every schema that has the entity. IFC4X3_ADD2 put
+        // per-axis scale on a subtype, IfcMapConversionScaled, rather than
+        // widening this one, and a uniform 1 has no use for it.
         R(1),
-        // ScaleY/ScaleZ, IFC4X3 only. Left null rather than repeating the 1:
-        // both default to Scale when absent, which is what this means, and a
-        // stated 1 would be an anisotropic scale that happens to be uniform.
-        ...(caps.mapScaleXYZ ? [null, null] : []),
       ]);
     } else {
       /* IFC2X3 has neither entity, so the same statement goes out as the two
@@ -974,20 +1050,38 @@ export class ContextModel {
       const fr = faces.map((t) => f.add('IfcIndexedPolygonalFace', [t.map((i) => I(i + 1))]));
       return { item: f.add('IfcPolygonalFaceSet', [coords, null, fr, null]), repType: 'Tessellation' };
     }
-    const pts = verts.map((v) => f.add('IfcCartesianPoint', [[R(v[0]), R(v[1]), R(v[2])]]));
-    const fr = faces.map((t) => {
-      const loop = f.add('IfcPolyLoop', [t.map((i) => pts[i])]);
+    // Welded first: a Brep's topology is read off its point coordinates, and
+    // mesh sources repeat a vertex wherever they split one — the trunk
+    // cylinder's seam, whose two copies differ by sin(2π) ≈ -2e-16 and so left
+    // every trunk an open shell as far as a validator could tell.
+    const w = weld(verts, faces);
+    const pts = new Map<number, Ref>();
+    const pt = (i: number): Ref => {
+      let p = pts.get(i);
+      if (!p) {
+        const v = w.verts[i];
+        p = f.add('IfcCartesianPoint', [[R(v[0]), R(v[1]), R(v[2])]]);
+        pts.set(i, p);
+      }
+      return p;
+    };
+    const face = (t: number[]): Ref => {
+      const loop = f.add('IfcPolyLoop', [t.map(pt)]);
       // Orientation .T.: the loop's own winding is the face's, which is what
       // every face in this file is built to be — see ensureCCW in lib/geo/rings
       // and the fan triangulation in lib/ifc/emit.
       return f.add('IfcFace', [[f.add('IfcFaceOuterBound', [loop, B(true)])]]);
-    });
+    };
     if (closed) {
-      const shell = f.add('IfcClosedShell', [fr]);
+      const shell = f.add('IfcClosedShell', [w.faces.map(face)]);
       return { item: f.add('IfcFacetedBrep', [shell]), repType: 'Brep' };
     }
-    const shell = f.add('IfcOpenShell', [fr]);
-    return { item: f.add('IfcShellBasedSurfaceModel', [[shell]]), repType: 'SurfaceModel' };
+    // An IfcOpenShell is a connected face set, and a merged sheet often is not
+    // one — the road network, a multipart parcel, terrain cut through by a
+    // void. One shell per connected piece, all in the one surface model, which
+    // takes a set of them for exactly this.
+    const shells = components(w.faces).map((part) => f.add('IfcOpenShell', [part.map(face)]));
+    return { item: f.add('IfcShellBasedSurfaceModel', [shells]), repType: 'SurfaceModel' };
   }
 
   // b is a scene.buildings record: ring is local to b.center, and b.xf holds the
@@ -1200,7 +1294,10 @@ export class ContextModel {
     // IFC2X3 has no IfcGeographicElement at all, so the context layers go out
     // as the same IfcBuildingElementProxy the buildings and trees use — the
     // schema's own catch-all, and the one element every 2X3 reader handles.
-    // The type still travels, in the ObjectType it would have used anyway.
+    // The type still travels, in the ObjectType it would have used anyway. The
+    // proxy's last slot there is CompositionType, not a predefined type, so it
+    // says ELEMENT the way the buildings and trees do — USERDEFINED is not a
+    // member of that enum and a validator rejects the line.
     const geo = this.caps.geoElement;
     const pre = type && geo && this.caps.geoTypes.has(type) ? type : 'USERDEFINED';
     const el = f.add(geo ? 'IfcGeographicElement' : 'IfcBuildingElementProxy', [
@@ -1214,7 +1311,7 @@ export class ContextModel {
       this.placement(offset ?? null, null, null, false),
       pds,
       null,
-      E(pre),
+      E(geo ? pre : 'ELEMENT'),
     ]);
     if (color !== undefined && color !== null) this.style(fs, color, transparency);
     if (props) this.pset(el, 'ePset_SiteContext', props);

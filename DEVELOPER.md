@@ -841,7 +841,7 @@ fourth schema would be a row rather than a sweep:
 | --- | --- | --- | --- |
 | Meshes | `IfcFacetedBrep` / `IfcShellBasedSurfaceModel` | `IfcPolygonalFaceSet` | `IfcPolygonalFaceSet` |
 | Context layers | `IfcBuildingElementProxy` | `IfcGeographicElement` | `IfcGeographicElement` |
-| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on a chosen root | `IfcMapConversion` + `IfcProjectedCRS` | same, +`ScaleY`/`ScaleZ` (10 attributes, not 8) |
+| Georeferencing | `ePset_MapConversion` + `ePset_ProjectedCRS` on a chosen root | `IfcMapConversion` + `IfcProjectedCRS` | same, 8 attributes as in IFC4 (ADD2 moved per-axis scale to `IfcMapConversionScaled`) |
 | `OwnerHistory` | mandatory — one shared instance | omitted (optional) | omitted (optional) |
 | Styles | `IfcPresentationStyleAssignment` wrapper | `IfcSurfaceStyle` directly | `IfcSurfaceStyle` directly |
 | Vegetation | `USERDEFINED` + `ObjectType` | `USERDEFINED` + `ObjectType` | **`.VEGETATION.`** |
