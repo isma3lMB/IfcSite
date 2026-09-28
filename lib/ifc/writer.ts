@@ -1,7 +1,7 @@
 import proj4 from 'proj4';
 import { version } from '@/package.json';
 import { xfAxes } from '@/lib/geo/euler';
-import { prismInto, treeProxy } from '@/lib/geo/mesh';
+import { treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
 import { TREE_CANOPY_COLOR, TREE_TRUNK_COLOR } from '@/lib/scene/stack';
 import { buildingColors } from '@/lib/scene/xf';
@@ -162,12 +162,6 @@ type SchemaCaps = {
    *  building goes in — and leaves every context element on the site. The
    *  IFC4 views carry no such agreement, so they are left as they were. */
   buildingRequired: boolean;
-  /** Whether a building may go out as IfcExtrudedAreaSolid over its footprint.
-   *  The IFC 4.3 Reference View leaves every swept solid out of scope
-   *  (validator rule IFC430), so under it a building is a tessellated prism
-   *  instead. IFC4's ReferenceView_V1.2 and CoordinationView_V2.0 both keep
-   *  the extrusion. */
-  sweptSolid: boolean;
 };
 
 const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
@@ -182,7 +176,6 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     styleAssignment: true,
     ownerHistory: true,
     buildingRequired: true,
-    sweptSolid: true,
   },
   IFC4: {
     fileSchema: 'IFC4',
@@ -197,7 +190,6 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     styleAssignment: false,
     ownerHistory: false,
     buildingRequired: false,
-    sweptSolid: true,
   },
   IFC4X3: {
     // The released schema's own name. The bare IFC4X3 some tools write is the
@@ -214,7 +206,6 @@ const SCHEMA_CAPS: Record<IfcSchema, SchemaCaps> = {
     styleAssignment: false,
     ownerHistory: false,
     buildingRequired: false,
-    sweptSolid: false,
   },
 };
 
@@ -1093,38 +1084,41 @@ export class ContextModel {
     return { item: f.add('IfcShellBasedSurfaceModel', [shells]), repType: 'SurfaceModel' };
   }
 
-  /**
-   * A building's wall solid and, when capD is non-zero, the roof cap stacked on
-   * it: `r` already scaled and CCW, the wall running from -drop to depth - capD
-   * and the cap from there to depth.
-   *
-   * Extrusions over one shared profile wherever the MVD allows them. The IFC 4.3
-   * Reference View does not (validator rule IFC430), so there the same two
-   * volumes go out as closed tessellated prisms through mesh() — the geometry
-   * prismInto builds for a hedge, walls plus triangulated caps, identical in
-   * extent to the extrusion it replaces.
-   */
-  private buildingBody(
-    r: Vec2[],
-    depth: number,
-    capD: number,
-    drop: number,
-  ): { solid: Ref; capSolid: Ref | null; repType: string } {
+  // b is a scene.buildings record: ring is local to b.center, and b.xf holds the
+  // user's edits. X/Y scale is baked into the profile and Z scale into the
+  // extrusion depth; position and rotation ride on the placement. three.js
+  // composes M = T·R·S, so this is exactly the transform the preview shows.
+  //
+  // `plinth` is how far below its base the building reaches, in metres — non-zero
+  // only for one set to cut the terrain, whose base drops to the lowest ground
+  // under it (plinthOf in lib/scene/cut). The wall solid starts that far down and
+  // is that much deeper, so the roof stays exactly where it was and the element
+  // is still one SweptSolid over the same profile.
+  addBuilding(b: Building, plinth = 0): Ref | null {
     const f = this.f;
-    if (!this.caps.sweptSolid) {
-      const prism = (base: number, h: number) => {
-        const verts: Vec3[] = [];
-        const faces: number[][] = [];
-        prismInto(r, () => base, h, verts, faces);
-        return this.mesh(verts, faces, true);
-      };
-      const { item: solid, repType } = prism(-drop, depth - capD + drop);
-      const capSolid = capD ? prism(depth - capD, capD).item : null;
-      return { solid, capSolid, repType };
-    }
+    const xf = b.xf;
+    const [sx, sy, sz] = xf.scale;
+    const r = ensureCCW(dedupe(b.ring.map((p): Vec2 => [p[0] * sx, p[1] * sy])));
+    if (r.length < 3) return null;
     const prof = f.add('IfcArbitraryClosedProfileDef', [E('AREA'), null, this.poly2d(r)]);
+    const depth = Math.max(b.h * sz, 0.1);
+    const { wall, cap } = buildingColors(b);
+    // One solid when the two colours agree — every sourced building at its
+    // default, where the preview's roof/wall separation is the light's doing
+    // rather than the palette's, so there is nothing for a split to carry.
+    //
+    // When they differ (hand-drawn, or recoloured in the editor) the roof has to
+    // be its own geometric item, since an IfcStyledItem attaches to a whole item
+    // and cannot pick out the cap face of an extrusion. Two stacked extrusions
+    // over the SAME profile rather than a split brep: both stay SweptSolid, the
+    // parametric profile that makes these import cleanly survives, the total
+    // height is unchanged, and the two never share a plane so there is nothing
+    // to z-fight. A brep would have cost all of that on the most numerous
+    // element in the file, to say one colour.
+    const capD = wall === cap ? 0 : Math.min(0.3, depth * 0.1);
     // The shared world axes when there is no plinth, so every building that does
     // not cut the ground is written exactly as it was before the option existed.
+    const drop = plinth > 0 ? plinth : 0;
     const solidAt = drop
       ? f.add('IfcAxis2Placement3D', [f.add('IfcCartesianPoint', [[R(0), R(0), R(-drop)]]), null, null])
       : this.world;
@@ -1141,47 +1135,10 @@ export class ContextModel {
           R(capD),
         ])
       : null;
-    return { solid, capSolid, repType: 'SweptSolid' };
-  }
-
-  // b is a scene.buildings record: ring is local to b.center, and b.xf holds the
-  // user's edits. X/Y scale is baked into the profile and Z scale into the
-  // extrusion depth; position and rotation ride on the placement. three.js
-  // composes M = T·R·S, so this is exactly the transform the preview shows.
-  //
-  // `plinth` is how far below its base the building reaches, in metres — non-zero
-  // only for one set to cut the terrain, whose base drops to the lowest ground
-  // under it (plinthOf in lib/scene/cut). The wall solid starts that far down and
-  // is that much deeper, so the roof stays exactly where it was and the element
-  // is still one body over the same footprint.
-  addBuilding(b: Building, plinth = 0): Ref | null {
-    const f = this.f;
-    const xf = b.xf;
-    const [sx, sy, sz] = xf.scale;
-    const r = ensureCCW(dedupe(b.ring.map((p): Vec2 => [p[0] * sx, p[1] * sy])));
-    if (r.length < 3) return null;
-    const depth = Math.max(b.h * sz, 0.1);
-    const { wall, cap } = buildingColors(b);
-    // One solid when the two colours agree — every sourced building at its
-    // default, where the preview's roof/wall separation is the light's doing
-    // rather than the palette's, so there is nothing for a split to carry.
-    //
-    // When they differ (hand-drawn, or recoloured in the editor) the roof has to
-    // be its own geometric item, since an IfcStyledItem attaches to a whole item
-    // and cannot pick out the cap face of an extrusion. Two stacked extrusions
-    // over the SAME profile rather than a split brep: both stay SweptSolid, the
-    // parametric profile that makes these import cleanly survives, the total
-    // height is unchanged, and the two never share a plane so there is nothing
-    // to z-fight. A brep would have cost all of that on the most numerous
-    // element in the file, to say one colour. Under IFC4X3 the two are
-    // tessellated prisms instead — see buildingBody — split the same way.
-    const capD = wall === cap ? 0 : Math.min(0.3, depth * 0.1);
-    const drop = plinth > 0 ? plinth : 0;
-    const { solid, capSolid, repType } = this.buildingBody(r, depth, capD, drop);
     const shp = f.add('IfcShapeRepresentation', [
       this.body,
       S('Body'),
-      S(repType),
+      S('SweptSolid'),
       capSolid ? [solid, capSolid] : [solid],
     ]);
     const pds = f.add('IfcProductDefinitionShape', [null, null, [shp]]);
