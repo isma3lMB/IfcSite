@@ -11,7 +11,7 @@
 
 IFC Site pulls the buildings, roads, terrain and context layers under a rectangle you draw,
 extrudes them into an *LOD100* massing model, lets you edit it, and writes an IFC file you can
-open in Revit, ArchiCAD, Blender, BlenderBIM, Solibri or any IFC viewer.
+open in Revit, ArchiCAD, Blender/Bonsai, BIMcollab Zoom or any IFC viewer.
 
 There is no backend. No account, no API key, no upload. Every query goes straight from your
 browser to a public service, and the projection, the geometry and the IFC serialisation all
