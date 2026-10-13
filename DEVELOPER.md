@@ -54,6 +54,7 @@ lib/
   geo/               pure geometry: CRS, rings, meshes, rectangles, Euler decomposition
   i18n/              FR/EN dictionaries, key vocabulary, React context
   ifc/               SPF serialiser (three schemas) and the scene → IFC pass
+  gltf/              glTF 2.0 serialiser (GLB / .gltf) and the scene → glTF pass
   io/                the draft document: snapshot, IndexedDB slots, download/read
   scene/             scene-record construction, layer table, per-element transform
   sources/           network adapters: Overpass, IGN, Nominatim, Terrarium
@@ -246,7 +247,7 @@ agree — the bar offers Rebuild in the same step the toast calls the scene stal
 | [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections, plus a **Drape onto terrain** group of five per-layer checkboxes (IGN-only, dimmed under OSM, since OSM ways are 2D and there would be nothing to fall back to). Every tunable is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
 | [crs-field.tsx](components/crs-field.tsx) | The projected CRS, as a searchable list of the systems valid where the site actually is. It carries its own loading rather than sitting in the dock, because the list is a function of a rectangle drawn on the other side of the app — and it is inert until there is one, since a CRS list has nothing to be evaluated against and any choice made early is one the first rectangle invalidates. The hint line doubles as the loading and failure channel. |
 | [search-flyout.tsx](components/search-flyout.tsx) | The place search on its own rail button rather than folded into Options — finding a place is the first thing you do, before there is anything to configure. It opens on arrival while no rectangle exists and collapses to an icon the moment one does. |
-| [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
+| [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the format Download writes (IFC, GLB or glTF — see §11), the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. Under a glTF format the schema and georeferencing-target fields are hidden; the names and authorship still travel, in the glTF's `extras`. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
 | [file-flyout.tsx](components/file-flyout.tsx) | Drafts. Save into this browser, list/open/rename/delete the slots, open a dropped or picked `.ifcsite.json`, export one. **Save and Export are deliberately not synonyms** and the copy says so: Save keeps a site in this browser, Export writes a file you can move. Slot rows are sized and dated from `SlotMeta` alone (see §14) — `Intl.RelativeTimeFormat` in the *active* language, not the browser's. |
 | [model-tree.tsx](components/model-tree.tsx) | The scene by layer: visibility, colour and a filter, with the leaves under each layer. **Windowed** — `ROW_H = 24` and ten visible rows, because a scene is capped at four thousand buildings and four thousand DOM rows is a panel that stutters on every expand. Keep `ROW_H` in step with `.treeItem` in [globals.css](app/globals.css); the row is a fixed height there for exactly this reason. Rows take the same Ctrl/Shift modifiers as a click in the 3D view, and highlight the whole selection rather than one row — which is the only way to reach an element buried inside another. |
 | [element-editor.tsx](components/element-editor.tsx) | The selection panel, in five shapes depending on *what* is selected: an element (name, colour, opacity, height, X/Y/Z position/rotation/scale with a uniform-scale lock, reset, delete), a layer (colour, opacity and an offset applied to every element in it at once), the origin marker (its projected position, plus the local project placement — coordinates and angle, typed rather than dragged, and outside the undo history), a drawn shape (its layer, a position row of X/Y and a rotation of Z — the two moves a shape has — "back to where drawn", and Delete), or nothing. A building also gets **Cut the terrain under it**, dimmed without a terrain mesh. With several elements selected it keeps the element shape, showing the anchor's values under a `{n} elements` header; writing any field applies it to all of them. |
@@ -945,6 +946,31 @@ Re-runnable, which is what lets post-build edits reach the download. Walks the s
 order (terrain, buildings, roads, railways, surfaces, trees), reconstructs the road and
 railway surface meshes from the stored quads, and returns the text plus `IfcStats` as data
 for React to render.
+
+### glTF output (`lib/gltf/`)
+
+The wrench panel's **Format** field switches Download between the IFC and the same model as
+glTF 2.0, binary (`.glb`) or JSON with the buffer inlined (`.gltf`). The choice is app state
+in `ifc-site`, not part of `IfcMeta`, so it never travels in a draft.
+
+- [writer.ts](lib/gltf/writer.ts) — `GltfDoc`, a dependency-free glTF serialiser: one
+  buffer, positions and normals, matte materials deduplicated by colour. Deliberately not
+  three's `GLTFExporter`, which would export the viewer's scene graph — sky dome, gizmo, edge
+  overlays — in theme-dependent lighting. Colours are converted sRGB → linear, as
+  `baseColorFactor` requires; normals follow three's `computeVertexNormals`, so smooth/flat
+  shading matches the preview.
+- [emit.ts](lib/gltf/emit.ts) — `emitGLTF(scene, meta, format)`, element for element the
+  pass `emitIFC` makes, through the same colour, opacity, plinth, cut and layer-offset
+  helpers. Coordinates are the IFC's model coordinates (re-based on the origin marker, then
+  the project base and angle on the site node) inside one root node that turns Z-up into
+  glTF's Y-up. glTF has no CRS or property sets, so the map conversion, CRS, element
+  properties and data credits go into `extras` (and the licence notice into
+  `asset.copyright`). Written at click time from the live scene rather than kept warm like
+  the IFC — nothing on screen reads it.
+
+The map conversion numbers both writers state come from one place,
+[lib/geo/georef.ts](lib/geo/georef.ts), so the `.ifc` and the `.glb` cannot disagree about
+where model zero is.
 
 ---
 
