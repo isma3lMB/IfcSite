@@ -608,6 +608,10 @@ export type BuildSummary = {
   capAt: number;
   treesCapped: boolean;
   treeCap: number;
+  /** The tree fetch ran out of its overall budget (TREES_DEADLINE_MS) and the
+   *  scene was built without them. An error, not a footnote: it holds the toast. */
+  treesTimedOut: boolean;
+  treesDeadlineS: number;
   skipped: LayerKey[];
   /** Fetches this build answered out of the session cache rather than off the
    *  network. Reported because a build that normally takes forty seconds

@@ -427,6 +427,7 @@ export const en = {
   'sum.treesCapped': 'Trees capped at {cap}.',
   'sum.reused': 'Reused {n} downloads from earlier in this session.',
   'sum.skipped': 'No {layers} returned.',
+  'sum.treesTimedOut': 'No trees received within {secs} s — built without them.',
 
   /* ---- layer names (UI only; the IFC keeps stable English names) ---- */
   'layer.terrain': 'terrain',
@@ -490,6 +491,7 @@ export const en = {
   'err.overpassAllRefused': 'Every Overpass mirror refused the request.',
   'err.overpassTimeout': '{host} timed out',
   'err.overpassStatus': '{host} returned {status}',
+  'err.treesTimeout': 'No trees received within {secs} s.',
   'err.ignWfsStatus': 'IGN {layer} returned {status}',
   'err.altiStatus': 'RGE ALTI returned {status}',
   'err.altiShortGrid': 'RGE ALTI returned a short grid',

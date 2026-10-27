@@ -401,6 +401,7 @@ export const fr: Dict = {
   'sum.treesCapped': 'Arbres limités à {cap}.',
   'sum.reused': '{n} téléchargements réutilisés depuis le début de la session.',
   'sum.skipped': 'Aucune donnée renvoyée : {layers}.',
+  'sum.treesTimedOut': 'Aucun arbre reçu en {secs} s — modèle construit sans eux.',
 
   /* ---- layer names ---- */
   'layer.terrain': 'terrain',
@@ -463,6 +464,7 @@ export const fr: Dict = {
   'err.overpassAllRefused': 'Tous les miroirs Overpass ont refusé la requête.',
   'err.overpassTimeout': '{host} n’a pas répondu à temps',
   'err.overpassStatus': '{host} a renvoyé {status}',
+  'err.treesTimeout': 'Aucun arbre reçu en {secs} s.',
   'err.ignWfsStatus': 'IGN {layer} a renvoyé {status}',
   'err.altiStatus': 'RGE ALTI a renvoyé {status}',
   'err.altiShortGrid': 'RGE ALTI a renvoyé une grille incomplète',
