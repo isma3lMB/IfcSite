@@ -131,6 +131,13 @@ export const fr: Dict = {
 
   /* ---- the IFC panel ---- */
   'ifc.title': 'Fichier IFC',
+  'gltf.title': 'Fichier glTF',
+  'exp.format': 'Format',
+  'exp.formatIfc': 'IFC — maquette BIM',
+  'exp.formatGlb': 'GLB — glTF binaire',
+  'exp.formatGltf': 'glTF — JSON',
+  'exp.gltfHint':
+    'Un maillage pour les outils 3D et de visualisation : le même modèle, dans les mêmes couleurs, axe Y vers le haut et en mètres, avec le zéro sur le marqueur d’origine. Le géoréférencement, les noms ci-dessous et les crédits des données voyagent dans les extras du fichier.',
   'ifc.lead':
     'Ce que le fichier dit de lui-même. Rien n’est reconstruit : le modèle à l’écran est ré-sérialisé au fil de la saisie.',
   'ifc.schema': 'Schéma IFC',
@@ -246,6 +253,8 @@ export const fr: Dict = {
   'ctl.build': 'Construire la maquette site',
   'ctl.building': 'Construction…',
   'ctl.download': 'Télécharger l’IFC',
+  'ctl.downloadGlb': 'Télécharger le GLB',
+  'ctl.downloadGltf': 'Télécharger le glTF',
 
   /* ---- sheet ---- */
   'sheet.tabMap': 'Carte 2D',
@@ -401,6 +410,7 @@ export const fr: Dict = {
   'sum.treesCapped': 'Arbres limités à {cap}.',
   'sum.reused': '{n} téléchargements réutilisés depuis le début de la session.',
   'sum.skipped': 'Aucune donnée renvoyée : {layers}.',
+  'sum.treesTimedOut': 'Aucun arbre reçu en {secs} s — modèle construit sans eux.',
 
   /* ---- layer names ---- */
   'layer.terrain': 'terrain',
@@ -463,6 +473,7 @@ export const fr: Dict = {
   'err.overpassAllRefused': 'Tous les miroirs Overpass ont refusé la requête.',
   'err.overpassTimeout': '{host} n’a pas répondu à temps',
   'err.overpassStatus': '{host} a renvoyé {status}',
+  'err.treesTimeout': 'Aucun arbre reçu en {secs} s.',
   'err.ignWfsStatus': 'IGN {layer} a renvoyé {status}',
   'err.altiStatus': 'RGE ALTI a renvoyé {status}',
   'err.altiShortGrid': 'RGE ALTI a renvoyé une grille incomplète',

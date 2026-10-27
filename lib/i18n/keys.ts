@@ -67,6 +67,7 @@ export type ErrorCode =
   | 'err.overpassAllRefused'
   | 'err.overpassTimeout'
   | 'err.overpassStatus'
+  | 'err.treesTimeout'
   | 'err.ignWfsStatus'
   | 'err.altiStatus'
   | 'err.altiShortGrid'

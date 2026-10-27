@@ -49,7 +49,7 @@ import {
   parseDraft,
   toDraft,
 } from '@/lib/io/draft';
-import { downloadText, readDraftFile, safeFileStem } from '@/lib/io/file';
+import { downloadBytes, downloadText, readDraftFile, safeFileStem } from '@/lib/io/file';
 import {
   type SlotMeta,
   deleteSlot,
@@ -79,6 +79,8 @@ import type {
   Vec3,
   ViewTab,
 } from '@/lib/types';
+import { GLTF_MIME, emitGLTF, gltfFileName } from '@/lib/gltf/emit';
+import type { ExportFormat } from '@/lib/gltf/writer';
 import { ifcFileName } from '@/lib/ifc/writer';
 import { useUnloadGuard } from '@/lib/ui/unload-guard';
 import { PHONE_QUERY, useMedia } from '@/lib/ui/useMedia';
@@ -313,6 +315,11 @@ export function IfcSite() {
       runBuildNow stamps this bag into the meta it is handed. */
   const [ifcOpen, setIfcOpenState] = useState(false);
   const [ifc, setIfc] = useState<IfcMeta>(newIfcMeta);
+  /** Which file Download writes. Not in IfcMeta, and so not in a draft: it says
+      nothing about the document, only which of its two renderings this click
+      wants, and a draft opened elsewhere should not change someone's download
+      into a format they did not pick. */
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('ifc');
   /** The stamp above happens inside a callback that must not re-create itself on
       every keystroke, so it reads the bag through a ref rather than closing over
       it. Kept in step below. */
@@ -1272,13 +1279,26 @@ export function IfcSite() {
   }, [openConfirm, runBuildNow]);
 
   const onDownload = useCallback(() => {
+    const meta = metaRef.current;
+    if (!meta) return;
+    if (exportFormat !== 'ifc') {
+      // Written from the live scene at the click rather than kept warm like the
+      // IFC: nothing on screen reads from it, so there is no readout to feed and
+      // no debounce to flush. The same object the viewer mutates, so the file is
+      // what is on screen.
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const name = gltfFileName(meta, exportFormat);
+      if (exportFormat === 'glb') downloadBytes(name, emitGLTF(scene, meta, 'glb'), GLTF_MIME.glb);
+      else downloadText(name, emitGLTF(scene, meta, 'gltf'), GLTF_MIME.gltf);
+      return;
+    }
     // pick up any edit still inside the debounce window
     const text = emitterRef.current?.flush();
-    const meta = metaRef.current;
-    if (!text || !meta) return;
+    if (!text) return;
     // The same name the header states — see ifcFileName.
     downloadText(ifcFileName(meta), text, 'application/x-step');
-  }, []);
+  }, [exportFormat]);
 
   /* ---- drafts -----------------------------------------------------------
      The document half, as against the deliverable onDownload writes. Save keeps
@@ -1920,6 +1940,8 @@ export function IfcSite() {
           onBuild={onBuild}
           onDownload={onDownload}
           ifc={ifc}
+          format={exportFormat}
+          onFormat={setExportFormat}
           ifcOpen={ifcOpen}
           ifcBtnRef={ifcBtnRef}
           /* The placeholder the name field shows, which is what the file will

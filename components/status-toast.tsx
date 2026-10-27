@@ -62,6 +62,8 @@ function holdFor(s: StatusState, working: boolean): number | null {
   // not a clock. The fade starts when working drops — see the effect below.
   if (working && s.kind === 'msg') return null;
   if (s.kind === 'msg') return s.tone === 'err' ? null : 5000;
+  // A summary carrying a failure is held like any other error.
+  if (s.summary.treesTimedOut) return null;
   // The closing summary is six clauses long and is the report on a twenty-second
   // build — it gets read, so it gets nearly twice as long.
   return 9000;

@@ -142,6 +142,15 @@ export const en = {
   /* ---- the IFC panel: everything the exported file says about itself, off the
      wrench beside Download. None of it is a build input — see IfcMeta. ---- */
   'ifc.title': 'IFC file',
+  /* The same panel with a glTF format chosen: the title follows what Download
+     is about to write. */
+  'gltf.title': 'glTF file',
+  'exp.format': 'Format',
+  'exp.formatIfc': 'IFC — BIM model',
+  'exp.formatGlb': 'GLB — binary glTF',
+  'exp.formatGltf': 'glTF — JSON',
+  'exp.gltfHint':
+    'A mesh for 3D and visualisation tools: the same model, in the same colours, Y-up and in metres, with zero on the origin marker. The georeferencing, the names below and the data credits travel in the file’s extras.',
   'ifc.lead':
     'What the file says about itself. None of it is rebuilt — the model on screen is re-serialised as you type.',
   'ifc.schema': 'IFC schema',
@@ -260,6 +269,8 @@ export const en = {
   'ctl.build': 'Build model',
   'ctl.building': 'Building…',
   'ctl.download': 'Download IFC',
+  'ctl.downloadGlb': 'Download GLB',
+  'ctl.downloadGltf': 'Download glTF',
 
   /* ---- sheet ---- */
   'sheet.tabMap': '2D map',
@@ -427,6 +438,7 @@ export const en = {
   'sum.treesCapped': 'Trees capped at {cap}.',
   'sum.reused': 'Reused {n} downloads from earlier in this session.',
   'sum.skipped': 'No {layers} returned.',
+  'sum.treesTimedOut': 'No trees received within {secs} s — built without them.',
 
   /* ---- layer names (UI only; the IFC keeps stable English names) ---- */
   'layer.terrain': 'terrain',
@@ -490,6 +502,7 @@ export const en = {
   'err.overpassAllRefused': 'Every Overpass mirror refused the request.',
   'err.overpassTimeout': '{host} timed out',
   'err.overpassStatus': '{host} returned {status}',
+  'err.treesTimeout': 'No trees received within {secs} s.',
   'err.ignWfsStatus': 'IGN {layer} returned {status}',
   'err.altiStatus': 'RGE ALTI returned {status}',
   'err.altiShortGrid': 'RGE ALTI returned a short grid',
