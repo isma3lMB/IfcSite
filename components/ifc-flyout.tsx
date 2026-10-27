@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { EXPORT_FORMATS, type ExportFormat } from '@/lib/gltf/writer';
 import { useT } from '@/lib/i18n/context';
 import { IFC_GEOREF_TARGETS, IFC_SCHEMAS } from '@/lib/ifc/writer';
 import {
@@ -23,6 +24,10 @@ import {
 
 export type IfcFlyoutProps = {
   ifc: IfcMeta;
+  /** Which file Download writes. The panel is the one place to choose it,
+   *  since it is already where everything about the download is said. */
+  format: ExportFormat;
+  onFormat: (f: ExportFormat) => void;
   /** What IfcProject.Name will say with the field blank — the site's own
    *  coordinates. Passed in rather than derived: only the caller has the meta. */
   defaultProjectName: string;
@@ -101,10 +106,18 @@ export function IfcFlyout(p: IfcFlyoutProps) {
     both: t('ifc.georefBoth'),
   };
 
+  const formatItems: Record<ExportFormat, string> = {
+    ifc: t('exp.formatIfc'),
+    glb: t('exp.formatGlb'),
+    gltf: t('exp.formatGltf'),
+  };
+  const isIfc = p.format === 'ifc';
+  const title = isIfc ? t('ifc.title') : t('gltf.title');
+
   return (
-    <div className="flyout floating ifcFlyout" id="ifcFlyout" aria-label={t('ifc.title')}>
+    <div className="flyout floating ifcFlyout" id="ifcFlyout" aria-label={title}>
       <div className="dockHead">
-        <span className="eyebrow">{t('ifc.title')}</span>
+        <span className="eyebrow">{title}</span>
         <button
           type="button"
           className="iconBtn"
@@ -118,39 +131,67 @@ export function IfcFlyout(p: IfcFlyoutProps) {
 
       <div className="fieldHint mb-4">{t('ifc.lead')}</div>
 
+      {/* First, because it decides which of the fields below mean anything.
+          The names and the authorship travel in either format; the schema and
+          the georeferencing target are IFC's alone and leave with it. */}
       <div className="field">
-        <label className="eyebrow flex items-center gap-1.5 mb-1.5" htmlFor="ifcSchema">
-          <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
-          {t('ifc.schema')}
+        <label className="eyebrow block mb-1.5" htmlFor="exportFormat">
+          {t('exp.format')}
         </label>
         <Select
-          items={schemaItems}
-          value={a.schema}
-          onValueChange={(v) => p.onChange({ schema: v as IfcSchema })}
+          items={formatItems}
+          value={p.format}
+          onValueChange={(v) => p.onFormat(v as ExportFormat)}
         >
-          <SelectTrigger id="ifcSchema" className={SELECT_TRIGGER}>
+          <SelectTrigger id="exportFormat" className={SELECT_TRIGGER}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent className={SELECT_CONTENT}>
-            {IFC_SCHEMAS.map((v) => (
+            {EXPORT_FORMATS.map((v) => (
               <SelectItem key={v} value={v} className={SELECT_ITEM}>
-                {schemaItems[v]}
+                {formatItems[v]}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {/* Only under IFC2X3, and only because it is a surprise: the schema has
-            no tessellation, so every mesh goes out as boundary representation
-            and the file is several times the size. Nothing is lost from it. */}
-        {a.schema === 'IFC2X3' && <div className="fieldHint">{t('ifc.schemaBrepHint')}</div>}
+        {!isIfc && <div className="fieldHint">{t('exp.gltfHint')}</div>}
       </div>
+
+      {isIfc && (
+        <div className="field">
+          <label className="eyebrow flex items-center gap-1.5 mb-1.5" htmlFor="ifcSchema">
+            <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
+            {t('ifc.schema')}
+          </label>
+          <Select
+            items={schemaItems}
+            value={a.schema}
+            onValueChange={(v) => p.onChange({ schema: v as IfcSchema })}
+          >
+            <SelectTrigger id="ifcSchema" className={SELECT_TRIGGER}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className={SELECT_CONTENT}>
+              {IFC_SCHEMAS.map((v) => (
+                <SelectItem key={v} value={v} className={SELECT_ITEM}>
+                  {schemaItems[v]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Only under IFC2X3, and only because it is a surprise: the schema has
+              no tessellation, so every mesh goes out as boundary representation
+              and the file is several times the size. Nothing is lost from it. */}
+          {a.schema === 'IFC2X3' && <div className="fieldHint">{t('ifc.schemaBrepHint')}</div>}
+        </div>
+      )}
 
       {/* Also IFC2X3 only, and hidden rather than disabled under the other two
           for the same reason the hint above is: there is nothing to choose when
           the schema has IfcMapConversion, which names its own source context.
           The value stays in the bag either way, so switching to IFC4 and back
           returns to the option that was picked. */}
-      {a.schema === 'IFC2X3' && (
+      {isIfc && a.schema === 'IFC2X3' && (
         <div className="field">
           <span className="eyebrow block mb-1.5" id="ifcGeorefTarget">
             {t('ifc.georefTarget')}

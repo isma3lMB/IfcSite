@@ -142,6 +142,15 @@ export const en = {
   /* ---- the IFC panel: everything the exported file says about itself, off the
      wrench beside Download. None of it is a build input — see IfcMeta. ---- */
   'ifc.title': 'IFC file',
+  /* The same panel with a glTF format chosen: the title follows what Download
+     is about to write. */
+  'gltf.title': 'glTF file',
+  'exp.format': 'Format',
+  'exp.formatIfc': 'IFC — BIM model',
+  'exp.formatGlb': 'GLB — binary glTF',
+  'exp.formatGltf': 'glTF — JSON',
+  'exp.gltfHint':
+    'A mesh for 3D and visualisation tools: the same model, in the same colours, Y-up and in metres, with zero on the origin marker. The georeferencing, the names below and the data credits travel in the file’s extras.',
   'ifc.lead':
     'What the file says about itself. None of it is rebuilt — the model on screen is re-serialised as you type.',
   'ifc.schema': 'IFC schema',
@@ -260,6 +269,8 @@ export const en = {
   'ctl.build': 'Build model',
   'ctl.building': 'Building…',
   'ctl.download': 'Download IFC',
+  'ctl.downloadGlb': 'Download GLB',
+  'ctl.downloadGltf': 'Download glTF',
 
   /* ---- sheet ---- */
   'sheet.tabMap': '2D map',

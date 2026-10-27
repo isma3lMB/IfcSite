@@ -42,7 +42,9 @@ Then, in the app:
    definition; nothing is selected until you draw one.
 3. **Build model** — watch the status line. A first build in a French town takes a few
    seconds.
-4. **Download IFC** — the file lands as `IFCSITE_<lon>_<lat>.ifc`.
+4. **Download IFC** — the file lands as `IFCSITE_<lon>_<lat>.ifc`. The wrench on the button
+   switches it to **GLB** or **glTF** for 3D and visualisation tools — the same model, in
+   the same colours, as `IFCSITE_<lon>_<lat>.glb` / `.gltf`.
 
 Everything between steps 3 and 4 — editing, drawing extra buildings, measuring, restyling
 layers — is optional.
