@@ -85,6 +85,10 @@ export function StatusToast(p: StatusToastProps) {
       ? t('bar.drawHintRect')
       : p.drawTool === 'tree'
         ? t('bar.drawHintTree')
+        : p.drawTool === 'sculpt'
+          ? t('bar.sculptHint')
+        : p.drawTool === 'measureElev'
+          ? t('bar.elevHint')
         : p.drawTool === 'measure'
           ? // Points here is the leg in progress, not corners placed: one means
             // the second click is the one that completes a distance.

@@ -123,7 +123,9 @@ export type EditLabelKey =
   | 'edit.duplicate'
   | 'edit.reset'
   | 'edit.origin'
-  | 'edit.originReset';
+  | 'edit.originReset'
+  | 'edit.sculpt'
+  | 'edit.sculptReset';
 
 /**
  * Substituted into `{placeholders}` by the `t()` helper.

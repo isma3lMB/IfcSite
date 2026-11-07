@@ -65,7 +65,17 @@ export const DRAFT_MIME = 'application/json';
  * gridFrom in lib/geo/grid is what both the DEM providers and this go through, so
  * the reconstruction is exact by construction rather than by two loops agreeing.
  */
-export type DraftGrid = { n: number; zn: number[] };
+export type DraftGrid = {
+  n: number;
+  zn: number[];
+  /**
+   * The heights the DEM delivered at every vertex sculpted since, as flat
+   * `[k, z, k, z, ...]` pairs — only where they differ from `zn`, so an edit to
+   * a few hundred vertices costs a few kilobytes rather than a second lattice.
+   * Absent for a terrain nobody has edited. See Grid.z0 in lib/types.
+   */
+  z0?: number[];
+};
 
 export type DraftScene = Omit<SceneData, 'terrain'> & { terrain: DraftGrid | null };
 
@@ -129,9 +139,24 @@ export function toDraft(p: {
     scene: {
       ...rest,
       // verts[k][2] is zn[k] in both DEM producers, by construction.
-      terrain: terrain ? { n: terrain.n, zn: terrain.verts.map((v) => v[2]) } : null,
+      terrain: terrain ? draftGrid(terrain) : null,
     },
   };
+}
+
+/** A terrain as the draft keeps it: the heights, and the way back to the
+ *  delivered ones where they were sculpted. */
+function draftGrid(g: Grid): DraftGrid {
+  const zn = g.verts.map((v) => v[2]);
+  const out: DraftGrid = { n: g.n, zn };
+  if (g.z0) {
+    const pairs: number[] = [];
+    g.z0.forEach((z, k) => {
+      if (z !== zn[k]) pairs.push(k, z);
+    });
+    if (pairs.length) out.z0 = pairs;
+  }
+  return out;
 }
 
 /**
@@ -513,7 +538,26 @@ const terrainGrid = (v: unknown, rect: SiteRect, toLocal: ToLocal): Grid | null 
   // mesh that cannot be rebuilt, and a flat scene is a better answer than a
   // ragged one.
   if (!Number.isInteger(n) || n < 1 || zn.length !== (n + 1) * (n + 1)) return null;
-  return gridFrom(rect, n, zn, toLocal);
+  const g = gridFrom(rect, n, zn, toLocal);
+  // The delivered heights, put back over a copy of the current ones. A pair
+  // naming a vertex that does not exist, or carrying a height that is not a
+  // number, is dropped on its own: the edit it describes simply cannot be
+  // reset, which is better than losing the terrain it belongs to.
+  const pairs = arr(v.z0);
+  if (pairs.length) {
+    const z0 = [...zn];
+    let any = false;
+    for (let i = 0; i + 1 < pairs.length; i += 2) {
+      const k = pairs[i];
+      const z = pairs[i + 1];
+      if (!Number.isInteger(k) || (k as number) < 0 || (k as number) >= zn.length) continue;
+      if (typeof z !== 'number' || !Number.isFinite(z)) continue;
+      z0[k as number] = z;
+      any = true;
+    }
+    if (any) g.z0 = z0;
+  }
+  return g;
 };
 
 const scene = (v: unknown, rect: SiteRect, toLocal: ToLocal): SceneData => {

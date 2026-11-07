@@ -54,6 +54,8 @@ export const fr: Dict = {
   'rail.drawTree': 'Planter un arbre',
   'rail.measure': 'Mesurer une distance',
   'rail.measureArea': 'Mesurer une surface',
+  'rail.measureElev': 'Marquer une altitude',
+  'rail.sculpt': 'Modeler le terrain',
   'rail.model': 'Couches',
   'rail.file': 'Ébauches',
 
@@ -104,6 +106,12 @@ export const fr: Dict = {
     'Cliquez les sommets d’une surface — sommets et arêtes sont magnétiques. Échap quitte l’outil.',
   'bar.areaHintPoints': '{n} sommets — le premier sommet ou Entrée ferme, Échap annule.',
   'bar.measureClear': 'Effacer ({n})',
+  'bar.elevHint':
+    'Cliquez un point pour en marquer l’altitude — sommets et arêtes s’accrochent. Échap quitte l’outil.',
+  'measure.levelAbs': '▼ {v} {datum}',
+  'measure.levelFile': 'Niveau IFC {v}',
+  'bar.sculptHint':
+    'Cliquez ou glissez sur le sol pour le modeler. Alt+clic relève une altitude, [ et ] redimensionnent la brosse, Échap quitte l’outil.',
 
   /* ---- le panneau de tracé : ce que devient le prochain rectangle ou polygone.
      Il prend la place de l’éditeur d’élément tant qu’un outil est armé. ---- */
@@ -128,6 +136,36 @@ export const fr: Dict = {
     'Perce un trou dans le terrain. Les bâtiments et les surfaces au-dessus restent tels quels.',
   'draw.noTerrain':
     'Cette scène n’a pas de maillage de terrain : rien sur quoi draper, rien à percer.',
+
+  /* ---- le panneau de modelage : la brosse du terrain, à la place du panneau de
+     tracé tant que l’outil est armé. ---- */
+  'sculpt.title': 'Terrain',
+  'sculpt.tool': 'Modeler',
+  'sculpt.mode': 'Brosse',
+  'sculpt.raise': 'Relever',
+  'sculpt.lower': 'Abaisser',
+  'sculpt.flatten': 'Aplanir',
+  'sculpt.smooth': 'Lisser',
+  'sculpt.set': 'Fixer l’altitude',
+  'sculpt.radius': 'Rayon (m)',
+  'sculpt.radiusTitle': 'Rayon de la brosse (m)',
+  'sculpt.strength': 'Pas (m)',
+  'sculpt.strengthTitle': 'De combien un clic relève ou abaisse le centre de la brosse (m)',
+  'sculpt.target': 'Altitude (m)',
+  'sculpt.targetTitle': 'L’altitude à laquelle la brosse amène le sol (m)',
+  'sculpt.targetHint': 'Alt+clic sur le sol pour en relever l’altitude.',
+  'sculpt.flattenHint': 'Aplanit au niveau du sol là où le geste commence.',
+  'sculpt.falloff': 'Atténuation',
+  'sculpt.falloffSmooth': 'Douce',
+  'sculpt.falloffLinear': 'Linéaire',
+  'sculpt.falloffFlat': 'Aucune',
+  'sculpt.vertexHint': 'Sous {half} m, la brosse modifie le seul sommet le plus proche — la maille fait {cell} m.',
+  'sculpt.under': 'Sous la brosse',
+  'sculpt.follows':
+    'Voirie, surfaces et arbres suivent le nouveau sol. Les bâtiments restent en place ; un bâtiment qui découpe le terrain recalcule son socle.',
+  'sculpt.edited': '{n} sommets modifiés',
+  'sculpt.reset': 'Réinitialiser le terrain',
+  'sculpt.resetTitle': 'Ramener chaque sommet modelé à son altitude relevée',
 
   /* ---- the IFC panel ---- */
   'ifc.title': 'Fichier IFC',
@@ -439,6 +477,8 @@ export const fr: Dict = {
   'edit.reset': 'Élément réinitialisé',
   'edit.origin': 'Déplacement de l’origine',
   'edit.originReset': 'Origine recentrée',
+  'edit.sculpt': 'Modelage',
+  'edit.sculptReset': 'Terrain réinitialisé',
 
   /* ---- confirmations ---- */
   'confirm.discardTitle': 'Supprimer les éléments tracés ?',

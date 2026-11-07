@@ -55,7 +55,8 @@ export function StatusBar(p: StatusBarProps) {
   const { t } = useT();
 
   const step: Step = buildStep(p);
-  const measuring = p.drawTool === 'measure' || p.drawTool === 'measureArea';
+  const measuring =
+    p.drawTool === 'measure' || p.drawTool === 'measureArea' || p.drawTool === 'measureElev';
   const clearable = measuring && p.measureCount > 0;
   /* Whether Download — and so the wrench, and so the panel — is in the row at
      all. Named because the chip and the panel are rendered in two different

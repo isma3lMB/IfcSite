@@ -117,11 +117,18 @@ export function gridFrom(box: SiteRect, n: number, zn: number[], toLocal: ToLoca
     const p = toLocal(lo, la);
     return [p[0], p[1], zn[k]];
   });
-  return { n, verts, faces: gridFaces(n), sample: gridSampler(zn, n, box) };
+  // The sampler reads the vertices rather than `zn`, so a height sculpted into
+  // the mesh (lib/scene/sculpt) is the height every later drape and lookup sees
+  // too. A copy of the column would answer with the ground as it was fetched.
+  return { n, verts, faces: gridFaces(n), sample: gridSampler((k) => verts[k][2], n, box) };
 }
 
-export function gridSampler(zn: number[], N: number, box: SiteRect): SampleZ {
-  const at = (a: number, b: number) => zn[b * (N + 1) + a];
+/**
+ * The lattice's barycentric lookup. `zAt(k)` is the height of lattice point k —
+ * a function rather than an array so it can read a mesh that is edited in place.
+ */
+export function gridSampler(zAt: (k: number) => number, N: number, box: SiteRect): SampleZ {
+  const at = (a: number, b: number) => zAt(b * (N + 1) + a);
   return (la, lo) => {
     const fx = Math.max(
       0,

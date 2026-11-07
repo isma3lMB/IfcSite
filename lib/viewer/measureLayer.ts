@@ -3,8 +3,9 @@ import { signedArea } from '@/lib/geo/rings';
 import { type SnapKind, toScreen } from '@/lib/viewer/snap';
 import type { Vec2 } from '@/lib/types';
 
-/** A length between two points, or a region enclosed by a ring of them. */
-export type MeasureKind = 'dist' | 'area';
+/** A length between two points, a region enclosed by a ring of them, or the
+ *  elevation of a single point — a spot level. */
+export type MeasureKind = 'dist' | 'area' | 'elev';
 
 export type Measure = { id: number; kind: MeasureKind; pts: THREE.Vector3[] };
 
@@ -18,6 +19,14 @@ export type Measure = { id: number; kind: MeasureKind; pts: THREE.Vector3[] };
 export type MeasureFormat = {
   length: (m: number) => string;
   area: (m2: number) => string;
+  /**
+   * A spot level for a point at model z, as one or two lines joined by `\n`.
+   * React's, because what a level is read against — the vertical datum, the
+   * model origin, the project base — is the site's metadata, which nothing
+   * here holds. A change to any of those arrives as a new formatter, which is
+   * what re-renders every label already on screen (see sync).
+   */
+  level: (z: number) => string;
 };
 
 export type MeasureLayer = {
@@ -297,6 +306,7 @@ export function createMeasureLayer(): MeasureLayer {
   };
 
   const anchorOf = (kind: MeasureKind, pts: THREE.Vector3[]): THREE.Vector3 => {
+    if (kind === 'elev') return pts[0].clone();
     if (kind === 'dist' && pts.length >= 2)
       return new THREE.Vector3().addVectors(pts[0], pts[1]).multiplyScalar(0.5);
     const c = new THREE.Vector3();
@@ -305,6 +315,7 @@ export function createMeasureLayer(): MeasureLayer {
   };
 
   const textOf = (kind: MeasureKind, pts: THREE.Vector3[], fmt: MeasureFormat): string => {
+    if (kind === 'elev') return pts.length ? fmt.level(pts[0].z) : '';
     if (kind === 'dist') {
       if (pts.length < 2) return '';
       const [a, b] = pts;
@@ -370,7 +381,9 @@ export function createMeasureLayer(): MeasureLayer {
     const obj = buildGeometry(kind, pts, live);
     group.add(obj);
     const el = document.createElement('div');
-    el.className = live ? 'measureLabel live' : 'measureLabel';
+    // A spot level stands over its point on a leader rather than across it, the
+    // way a level is drawn on a plan — see .measureLabel.elev in globals.css.
+    el.className = `measureLabel${live ? ' live' : ''}${kind === 'elev' ? ' elev' : ''}`;
     el.hidden = true;
     dom.append(el);
     const held = pts.map((p) => p.clone());
@@ -446,7 +459,11 @@ export function createMeasureLayer(): MeasureLayer {
         // `behind` is tested separately, because the anchor can be on screen
         // while the tip is not.
         let spot: Pt2 = s;
-        if (id === LIVE_ID && e.pts.length) {
+        // A spot level, live or taken, sits straight above its point: labelSpot
+        // with the anchor on the tip goes up by exactly the box's half height
+        // plus CLEAR, and the CSS leader spans that CLEAR down to the point.
+        if (e.kind === 'elev') spot = labelSpot(s, s, e.w, e.h);
+        else if (id === LIVE_ID && e.pts.length) {
           const t = toScreen(e.pts[e.pts.length - 1], camera, rect);
           if (!t.behind) spot = labelSpot(s, t, e.w, e.h);
         }
