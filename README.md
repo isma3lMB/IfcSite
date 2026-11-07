@@ -161,7 +161,10 @@ before 1 m, and the panel tells you the grid you will actually get:
   axes to its grid. It becomes the IFC site placement; the georeferencing is untouched.
 - **Undo/redo**, 100 deep, one command per gesture.
 - **Model layers** — every layer and element, with visibility, colour and a filter.
-- **Measure** distance and area, snapping to vertices, midpoints and edges.
+- **Measure** distance and area, and **mark elevations** — a spot level on any point,
+  reading its altitude against the vertical datum and the level the exported IFC gives it
+  (relative to the model origin and project base). All three snap to vertices, midpoints
+  and edges.
 
 ### Drafts
 

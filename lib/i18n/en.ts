@@ -67,6 +67,7 @@ export const en = {
   'rail.drawTree': 'Plant a tree',
   'rail.measure': 'Measure a distance',
   'rail.measureArea': 'Measure an area',
+  'rail.measureElev': 'Mark an elevation',
   'rail.sculpt': 'Sculpt the terrain',
   'rail.model': 'Layers',
   'rail.file': 'Drafts',
@@ -114,6 +115,11 @@ export const en = {
   'bar.areaHintStart': 'Click the corners of an area — corners and edges snap. Esc leaves the tool.',
   'bar.areaHintPoints': '{n} corners — the first corner or Enter closes, Esc cancels.',
   'bar.measureClear': 'Clear ({n})',
+  'bar.elevHint': 'Click a point to mark its elevation — corners and edges snap. Esc leaves the tool.',
+  /* A spot level's two lines: the altitude against the scene's vertical datum,
+     then the level the exported file gives the point. */
+  'measure.levelAbs': '▼ {v} {datum}',
+  'measure.levelFile': 'IFC level {v}',
   'bar.sculptHint':
     'Click or drag on the ground to sculpt it. Alt+click reads an elevation, [ and ] resize the brush, Esc leaves the tool.',
 

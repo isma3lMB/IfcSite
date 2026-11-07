@@ -54,6 +54,7 @@ export const fr: Dict = {
   'rail.drawTree': 'Planter un arbre',
   'rail.measure': 'Mesurer une distance',
   'rail.measureArea': 'Mesurer une surface',
+  'rail.measureElev': 'Marquer une altitude',
   'rail.sculpt': 'Modeler le terrain',
   'rail.model': 'Couches',
   'rail.file': 'Ébauches',
@@ -105,6 +106,10 @@ export const fr: Dict = {
     'Cliquez les sommets d’une surface — sommets et arêtes sont magnétiques. Échap quitte l’outil.',
   'bar.areaHintPoints': '{n} sommets — le premier sommet ou Entrée ferme, Échap annule.',
   'bar.measureClear': 'Effacer ({n})',
+  'bar.elevHint':
+    'Cliquez un point pour en marquer l’altitude — sommets et arêtes s’accrochent. Échap quitte l’outil.',
+  'measure.levelAbs': '▼ {v} {datum}',
+  'measure.levelFile': 'Niveau IFC {v}',
   'bar.sculptHint':
     'Cliquez ou glissez sur le sol pour le modeler. Alt+clic relève une altitude, [ et ] redimensionnent la brosse, Échap quitte l’outil.',
 

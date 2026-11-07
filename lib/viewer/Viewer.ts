@@ -237,12 +237,25 @@ export type LayerNode = {
  * would mean a second copy of all four. The handful of places that assume a
  * footprint guard on measureKindOf instead.
  */
-export type DrawTool = 'rect' | 'polygon' | 'tree' | 'measure' | 'measureArea' | 'sculpt';
+export type DrawTool =
+  | 'rect'
+  | 'polygon'
+  | 'tree'
+  | 'measure'
+  | 'measureArea'
+  | 'measureElev'
+  | 'sculpt';
 
 /** Which kind of measurement a tool makes, or null when it makes none. Doubles
  *  as the "is this a measure tool" test, so there is only one list of them. */
 const measureKindOf = (tool: DrawTool | null): MeasureKind | null =>
-  tool === 'measure' ? 'dist' : tool === 'measureArea' ? 'area' : null;
+  tool === 'measure'
+    ? 'dist'
+    : tool === 'measureArea'
+      ? 'area'
+      : tool === 'measureElev'
+        ? 'elev'
+        : null;
 
 /** The two backdrops. Named here rather than imported from lib/theme so nothing
  *  under lib/viewer depends on a React context. */
@@ -727,8 +740,9 @@ export class Viewer {
      coordinates against geometry that is being replaced. */
   private readonly measure: MeasureLayer;
   /**
-   * Points placed in the measurement being made. One list serves both tools —
-   * a distance completes at two, a ring closes on demand — and it is separate
+   * Points placed in the measurement being made. One list serves the two tools
+   * that build up points — a distance completes at two, a ring closes on demand
+   * (a spot level is one click and never waits here) — and it is separate
    * from drawPts because commitFootprint owns that one.
    */
   private measurePts: THREE.Vector3[] = [];
@@ -737,6 +751,7 @@ export class Viewer {
   private measureFmt: MeasureFormat = {
     length: (m) => `${m.toFixed(2)} m`,
     area: (a) => `${a.toFixed(2)} m²`,
+    level: (z) => `${z.toFixed(2)} m`,
   };
   /**
    * The last pointer position a measure tool has yet to resolve.
@@ -3835,6 +3850,15 @@ export class Viewer {
           this.screenDist(this.measurePts[0], e) < 12
         )
           return this.finishDraw();
+
+        // A spot level is one point: every click takes one, and the tool stays
+        // in hand for the next. The live marker stays on the point just taken
+        // until the pointer moves off it.
+        if (kind === 'elev') {
+          this.commitMeasure('elev', [s.p]);
+          this.measure.setLive('elev', [s.p], s.kind);
+          return;
+        }
 
         this.measurePts.push(s.p);
         // A distance is two points and no more. Committing re-arms with the
