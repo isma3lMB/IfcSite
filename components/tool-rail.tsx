@@ -19,6 +19,7 @@ import {
   IconRotate,
   IconScale,
   IconSearch,
+  IconSculpt,
   IconSelect,
   IconTree,
   IconUndo,
@@ -37,6 +38,9 @@ export type ToolRailProps = {
   /** The top-right utility cluster, when it has nowhere else to be. See below. */
   utils?: ReactNode;
   hasScene: boolean;
+  /** Whether the scene has a terrain mesh — the sculpt tool has nothing to
+   *  work on without one. */
+  hasTerrain: boolean;
   rect: SiteRect | null;
   armed: boolean;
   drawTool: DrawTool | null;
@@ -164,6 +168,17 @@ export function ToolRail(p: ToolRailProps) {
             tip: t('rail.measureArea'),
             on: p.drawTool === 'measureArea',
             onClick: () => p.onDrawTool('measureArea'),
+          },
+          // Last in the group: it acts on the ground rather than adding to it or
+          // reading it, but it is armed and disarmed like every tool above, and
+          // what it does is what the next click on the ground does.
+          {
+            key: 'sculpt',
+            icon: <IconSculpt />,
+            tip: t('rail.sculpt'),
+            on: p.drawTool === 'sculpt',
+            disabled: !p.hasTerrain,
+            onClick: () => p.onDrawTool('sculpt'),
           },
         ],
         [

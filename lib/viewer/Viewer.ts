@@ -7,6 +7,21 @@ import { densify, ringCentre } from '@/lib/geo/rings';
 import { treeCanopyGeometry, treeTrunkGeometry, treeTrunkHeight } from '@/lib/geo/treeShape';
 import { cutTerrain, groundAt } from '@/lib/geo/voids';
 import { cutRings, plinthOf } from '@/lib/scene/cut';
+import {
+  DEFAULT_BRUSH,
+  type GroundShift,
+  type SculptBrush,
+  applyShift,
+  brushWeights,
+  cellSize,
+  dab,
+  editedCount,
+  followGround,
+  keepOriginal,
+  nearestVertex,
+  sanitizeBrush,
+  setHeights,
+} from '@/lib/scene/sculpt';
 import { type DrawnSurfaceLayer, buildDrawn, placeRing } from '@/lib/scene/drawn';
 import {
   LAYER_LABEL,
@@ -76,6 +91,7 @@ import {
   LAYER_IDS,
   type LayerId,
   type LayerXf,
+  type RoadFace,
   type SampleZ,
   type SceneData,
   type Site,
@@ -221,7 +237,7 @@ export type LayerNode = {
  * would mean a second copy of all four. The handful of places that assume a
  * footprint guard on measureKindOf instead.
  */
-export type DrawTool = 'rect' | 'polygon' | 'tree' | 'measure' | 'measureArea';
+export type DrawTool = 'rect' | 'polygon' | 'tree' | 'measure' | 'measureArea' | 'sculpt';
 
 /** Which kind of measurement a tool makes, or null when it makes none. Doubles
  *  as the "is this a measure tool" test, so there is only one list of them. */
@@ -286,6 +302,9 @@ export type ViewerCallbacks = {
   /** How many measurements are on screen, across both kinds. Deliberately not
    *  onCount, which means buildings and feeds the site readout. */
   onMeasure: (n: number) => void;
+  /** An Alt+click with the sculpt tool: the ground's elevation there, absolute
+   *  model z, for the panel to take as the brush's target. */
+  onSculptSample: (z: number) => void;
 };
 
 /**
@@ -395,6 +414,19 @@ type Cmd =
        * LayerXf and travel in before/after above.
        */
       styles: { rec: Styled; before: Style; after: Style }[];
+    }
+  /* The terrain's heights changed: a sculpt stroke, or a reset. The lattice
+     vertices it moved with their heights either side, and everything resting on
+     the ground that followed — held as the exact moves made, so a replay puts
+     back precisely what the stroke did rather than deciding again (see
+     GroundShift in lib/scene/sculpt). */
+  | {
+      label: EditLabelKey;
+      kind: 'terrain';
+      idx: number[];
+      before: number[];
+      after: number[];
+      shift: GroundShift;
     }
   | {
       label: EditLabelKey;
@@ -508,6 +540,16 @@ const layerXf = (id: LayerId, l: LayerXf): Xf => ({
 /** What a mesh inside a layer group is for, so a recolour knows which of them
  *  take the layer's colour and which take the accent derived from it. */
 type LayerRole = 'fill' | 'edge';
+
+/** The sculpt brush's rim and the lattice points inside it. The selection blue,
+ *  so the brush reads as "what the next click acts on", like a selected outline. */
+const BRUSH_LINE = 0x1f8ac0;
+/** Past this many lattice points under the brush the dots stop being a reading
+ *  of individual vertices and become a solid smear, so they are not drawn. */
+const BRUSH_DOTS_MAX = 1500;
+/** How high the brush rim is drawn over the ground, in metres. It draws with the
+ *  depth test off, so this only keeps it from shimmering where it is edge-on. */
+const BRUSH_LIFT = 0.15;
 
 /** Below this a drawn footprint is a slip of the pointer, not a building. */
 const MIN_FOOTPRINT_M2 = 1;
@@ -707,6 +749,32 @@ export class Viewer {
    * most once per frame.
    */
   private hoverEvent: PointerEvent | null = null;
+
+  /* ---- sculpting the terrain ----
+     The brush is React's, pushed down through setSculptOptions. A stroke is one
+     press-drag-release on the ground: every dab writes into the lattice as it
+     goes, and the release lands it as one command — see endStroke. */
+  private brush: SculptBrush = { ...DEFAULT_BRUSH };
+  /** Parked by pointermove and resolved once a frame, for the reason hoverEvent
+   *  is: the pick casts against the whole terrain. */
+  private sculptHover: PointerEvent | null = null;
+  /** Where the brush last stood, so a change of radius redraws it in place. */
+  private brushAt: THREE.Vector3 | null = null;
+  /**
+   * The stroke in progress. `before` holds each lattice vertex's height from the
+   * moment the stroke first touched it, which is everything the command needs;
+   * `level` is what flatten levels to, read off the ground under the first dab.
+   */
+  private stroke: {
+    before: Map<number, number>;
+    level: number;
+    last: THREE.Vector3;
+  } | null = null;
+  private readonly brushRing: THREE.LineLoop;
+  private readonly brushDots: THREE.Points;
+  /** The panel's live elevation readout, written to directly like the compass:
+   *  it changes every frame the pointer moves. */
+  private sculptReadout: HTMLElement | null = null;
 
   private firstFrame = true;
   /** frameCamera's inputs, kept because a projection swap has to re-derive the
@@ -972,6 +1040,38 @@ export class Viewer {
     this.layerBox.visible = false;
     this.sceneGL.add(this.layerBox);
 
+    // The sculpt brush, on the scene for the reason the draft is: it has to
+    // survive the disposeGroup that clears contentGroup on a rebuild. Drawn over
+    // everything, like the origin marker — the rim of a brush half hidden behind
+    // the hill it is about to dig into is no rim at all.
+    this.brushRing = new THREE.LineLoop(
+      new THREE.BufferGeometry().setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(65 * 3), 3),
+      ),
+      new THREE.LineBasicMaterial({ color: BRUSH_LINE, depthTest: false, transparent: true }),
+    );
+    this.brushDots = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(BRUSH_DOTS_MAX * 3), 3),
+      ),
+      new THREE.PointsMaterial({
+        color: BRUSH_LINE,
+        size: 5,
+        sizeAttenuation: false,
+        depthTest: false,
+        transparent: true,
+      }),
+    );
+    for (const o of [this.brushRing, this.brushDots]) {
+      o.visible = false;
+      o.frustumCulled = false;
+      o.renderOrder = DRAW_ORDER.MARKER;
+      o.raycast = () => {};
+      this.sceneGL.add(o);
+    }
+
     this.triad = createViewTriad();
 
     // Registered on the host and in the capture phase, so it runs before both
@@ -1131,6 +1231,7 @@ export class Viewer {
     this.updateCompass();
     this.updateMarkers();
     this.updateMeasure();
+    this.updateSculpt();
     this.renderer.render(this.sceneGL, this.camera);
     this.triad.render(this.renderer, this.camera, this.rightInset);
   };
@@ -1852,14 +1953,7 @@ export class Viewer {
     );
 
     if (scene.roads.length) {
-      const pos: number[] = [];
-      // Triangles, since finishRoads conforms the ribbon to the terrain — the
-      // fan is a no-op on them, and stays only because it is exact for any
-      // convex face if that ever changes back.
-      for (const f of scene.roads)
-        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const geo = Viewer.ribbonGeometry(scene.roads);
       // The roadway is draped a few centimetres over the terrain, so it needs a
       // nudge toward the camera to win that tie. Only a nudge, though: polygon
       // offset scales with depth slope, and the -4 this used to carry pulled a
@@ -1882,6 +1976,7 @@ export class Viewer {
       );
       roadMesh.renderOrder = DRAW_ORDER.ROAD;
       roadMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      roadMesh.userData.ribbon = 'top';
       this.layerGroup('roads').add(roadMesh);
       const roadEdges = new THREE.LineSegments(
         new THREE.EdgesGeometry(geo),
@@ -1895,6 +1990,7 @@ export class Viewer {
       roadEdges.renderOrder = DRAW_ORDER.ROAD;
       roadEdges.userData.layerRole = 'edge' satisfies LayerRole;
       roadEdges.userData.edgeColor = 0xaeaeae;
+      roadEdges.userData.ribbon = 'edges';
       this.layerGroup('roads').add(roadEdges);
     }
 
@@ -1904,11 +2000,7 @@ export class Viewer {
       // top surface above, but its own mesh so the crisp EdgesGeometry outline
       // above stays built from the top surface alone, not the skirt's
       // vertical and floor edges too.
-      const pos: number[] = [];
-      for (const f of scene.roadWalls)
-        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const geo = Viewer.ribbonGeometry(scene.roadWalls);
       const wallMesh = new THREE.Mesh(
         geo,
         new THREE.MeshBasicMaterial({
@@ -1921,6 +2013,7 @@ export class Viewer {
       );
       wallMesh.renderOrder = DRAW_ORDER.ROAD;
       wallMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      wallMesh.userData.ribbon = 'walls';
       this.layerGroup('roads').add(wallMesh);
     }
 
@@ -1931,11 +2024,7 @@ export class Viewer {
     // (see the SURFACE_TIER note below) so a level crossing resolves the way
     // the z ladder says it should rather than the way the sort happens to land.
     if (scene.railways.length) {
-      const pos: number[] = [];
-      for (const f of scene.railways)
-        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const geo = Viewer.ribbonGeometry(scene.railways);
       const railMesh = new THREE.Mesh(
         geo,
         new THREE.MeshBasicMaterial({
@@ -1948,6 +2037,7 @@ export class Viewer {
       );
       railMesh.renderOrder = DRAW_ORDER.RAILWAY;
       railMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      railMesh.userData.ribbon = 'top';
       this.layerGroup('railways').add(railMesh);
       // Built off the top surface alone, for the same reason the road outline
       // is — the skirt below has its own mesh so its vertical and floor edges
@@ -1964,15 +2054,12 @@ export class Viewer {
       railEdges.renderOrder = DRAW_ORDER.RAILWAY;
       railEdges.userData.layerRole = 'edge' satisfies LayerRole;
       railEdges.userData.edgeColor = 0x8d7f6e;
+      railEdges.userData.ribbon = 'edges';
       this.layerGroup('railways').add(railEdges);
     }
 
     if (scene.railwayWalls.length) {
-      const pos: number[] = [];
-      for (const f of scene.railwayWalls)
-        for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const geo = Viewer.ribbonGeometry(scene.railwayWalls);
       const railWallMesh = new THREE.Mesh(
         geo,
         new THREE.MeshBasicMaterial({
@@ -1985,6 +2072,7 @@ export class Viewer {
       );
       railWallMesh.renderOrder = DRAW_ORDER.RAILWAY;
       railWallMesh.userData.layerRole = 'fill' satisfies LayerRole;
+      railWallMesh.userData.ribbon = 'walls';
       this.layerGroup('railways').add(railWallMesh);
     }
 
@@ -2081,6 +2169,23 @@ export class Viewer {
       this.present = null;
       this.setPresentation(true);
     }
+  }
+
+  /**
+   * A road or railway ribbon's faces as one triangle soup — the top surface or
+   * its skirt, each of which is a mesh of its own (see setScene).
+   *
+   * Triangles, since finishRoads conforms the ribbon to the terrain — the fan is
+   * a no-op on them, and stays only because it is exact for any convex face if
+   * that ever changes back.
+   */
+  private static ribbonGeometry(faces: RoadFace[]): THREE.BufferGeometry {
+    const pos: number[] = [];
+    for (const f of faces)
+      for (let k = 2; k < f.length; k++) pos.push(...f[0], ...f[k - 1], ...f[k]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    return geo;
   }
 
   /* ---- context surfaces and voids ------------------------------------
@@ -2337,6 +2442,305 @@ export class Viewer {
     const old = this.groundMesh.geometry;
     this.groundMesh.geometry = this.groundGeometry();
     old.dispose();
+  }
+
+  /* ---- sculpting the terrain -----------------------------------------
+     The lattice is edited in place, which is all it takes for the edit to reach
+     everything else: drapes and lookups read Grid.sample, which reads the
+     vertices, and the IFC, glTF and draft writers read the vertices too. What
+     rests on the ground is carried along by followGround (lib/scene/sculpt);
+     what has a recipe is built again on the new ground. */
+
+  /** The brush the next dab uses. Idempotent, like every setter React pushes. */
+  setSculptOptions(b: SculptBrush): void {
+    this.brush = sanitizeBrush(b);
+    if (this.drawTool === 'sculpt' && this.brushAt) this.showBrush(this.brushAt);
+  }
+
+  /** Where the elevation under the brush is written. See sculptReadout. */
+  setSculptReadout(el: HTMLElement | null): void {
+    this.sculptReadout = el;
+  }
+
+  /** How many lattice vertices stand somewhere other than where the DEM put
+   *  them — what the panel's Reset is offered on. */
+  terrainEdits(): number {
+    return editedCount(this.scene?.terrain ?? null);
+  }
+
+  /** The terrain lattice's spacing in metres, or null without a terrain. */
+  terrainCell(): number | null {
+    const t = this.scene?.terrain;
+    return t ? cellSize(t) : null;
+  }
+
+  /** Where the pointer meets the drawn ground, or null: off the terrain, the
+   *  terrain hidden, or no terrain at all. Only the ground — a building standing
+   *  in front of it does not stop the brush, the way it would stop a click. */
+  private pickTerrain(e: PointerEvent): THREE.Vector3 | null {
+    if (!this.groundMesh || !this.shown('terrain')) return null;
+    this.setRay(e);
+    return this.raycaster.intersectObject(this.groundMesh, false)[0]?.point.clone() ?? null;
+  }
+
+  /** Once a frame while the tool is armed: follow the pointer with the brush,
+   *  and dab when a stroke has travelled far enough to warrant one. */
+  private updateSculpt(): void {
+    if (this.drawTool !== 'sculpt') return;
+    const e = this.sculptHover;
+    this.sculptHover = null;
+    if (!e) return;
+    const p = this.pickTerrain(e);
+    if (!p) {
+      // A stroke dragged off the edge of the ground pauses rather than ends: the
+      // button is still down, and coming back on carries on painting.
+      if (!this.stroke) this.hideBrush();
+      return;
+    }
+    const st = this.stroke;
+    const t = this.scene?.terrain;
+    if (st && t) {
+      // Spaced by a fraction of the brush so a fast sweep paints a continuous
+      // band rather than a row of dents, and a slow one does not pile dabs up.
+      const spacing = Math.max(cellSize(t) * 0.5, this.brush.radius * 0.3);
+      if (Math.hypot(p.x - st.last.x, p.y - st.last.y) >= spacing) {
+        this.strokeDab(p);
+        st.last.copy(p);
+      }
+    }
+    this.showBrush(p);
+  }
+
+  /** Draw the brush where it stands: its rim along the ground, and the lattice
+   *  points it would move. Under half a cell the brush is the one nearest
+   *  vertex, so that vertex is what is marked. */
+  private showBrush(p: THREE.Vector3): void {
+    const t = this.scene?.terrain;
+    if (!t) return this.hideBrush();
+    this.brushAt = p.clone();
+    const cell = cellSize(t);
+    const single = this.brush.radius < cell / 2;
+    const k0 = single ? nearestVertex(t, p.x, p.y) : -1;
+    const cx = single && k0 >= 0 ? t.verts[k0][0] : p.x;
+    const cy = single && k0 >= 0 ? t.verts[k0][1] : p.y;
+    const r = single ? cell * 0.35 : this.brush.radius;
+
+    const ring = this.brushRing.geometry.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i <= 64; i++) {
+      const a = (i / 64) * Math.PI * 2;
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      ring.setXYZ(i, x, y, this.groundZ(x, y) + BRUSH_LIFT);
+    }
+    ring.needsUpdate = true;
+    this.brushRing.geometry.computeBoundingSphere();
+    this.brushRing.visible = true;
+
+    const hits = single
+      ? k0 >= 0
+        ? [{ k: k0, w: 1 }]
+        : []
+      : brushWeights(t, p.x, p.y, this.brush.radius, this.brush.falloff);
+    const dots = this.brushDots.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const shown = hits.length <= BRUSH_DOTS_MAX ? hits : [];
+    shown.forEach(({ k }, i) => {
+      const v = t.verts[k];
+      dots.setXYZ(i, v[0], v[1], v[2] + BRUSH_LIFT);
+    });
+    dots.needsUpdate = true;
+    this.brushDots.geometry.setDrawRange(0, shown.length);
+    this.brushDots.visible = shown.length > 0;
+
+    // The elevation the brush is reading: the vertex it holds, or the ground
+    // under its centre. Formatted by React's formatter, never composed here.
+    if (this.sculptReadout)
+      this.sculptReadout.textContent = this.measureFmt.length(
+        single && k0 >= 0 ? t.verts[k0][2] : this.groundZ(cx, cy),
+      );
+  }
+
+  private hideBrush(): void {
+    this.brushRing.visible = false;
+    this.brushDots.visible = false;
+    this.brushAt = null;
+    if (this.sculptReadout) this.sculptReadout.textContent = '—';
+  }
+
+  /** Open a stroke at the point pressed, and lay its first dab. False when the
+   *  press missed the ground, which leaves it to orbit the camera instead. */
+  private beginStroke(e: PointerEvent): boolean {
+    const t = this.scene?.terrain;
+    const p = this.pickTerrain(e);
+    if (!t || !p) return false;
+    // The way back to the survey is kept before anything first moves it.
+    keepOriginal(t);
+    this.stroke = { before: new Map(), level: this.groundZ(p.x, p.y), last: p.clone() };
+    // A stroke is one drag, so it takes the camera off the left button for its
+    // length — the arbitration the rectangle tool makes for the same reason.
+    this.controls.enabled = false;
+    this.strokeDab(p);
+    this.showBrush(p);
+    return true;
+  }
+
+  private strokeDab(p: THREE.Vector3): void {
+    const st = this.stroke;
+    const t = this.scene?.terrain;
+    if (!st || !t) return;
+    const moved = dab(t, p.x, p.y, this.brush, st.level);
+    for (const m of moved) if (!st.before.has(m.k)) st.before.set(m.k, m.was);
+    if (moved.length) this.liveGround(moved.map((m) => m.k));
+  }
+
+  /**
+   * Show a dab on the ground at once. With nothing cut out of it the drawn mesh
+   * is the lattice itself, vertex for vertex (see cutTerrain), so only the moved
+   * heights are written. With holes the cut has to be made again.
+   *
+   * Only the ground follows live. What rests on it is carried when the stroke is
+   * let go, which keeps a sweep across a dense quarter at one buffer write a dab.
+   */
+  private liveGround(idx: number[]): void {
+    const s = this.scene;
+    const mesh = this.groundMesh;
+    if (!s?.terrain || !mesh) return;
+    if (cutRings(s).length) return this.rebuildGround();
+    const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    for (const k of idx) pos.setZ(k, s.terrain.verts[k][2]);
+    pos.needsUpdate = true;
+    mesh.geometry.computeBoundingBox();
+    mesh.geometry.computeBoundingSphere();
+  }
+
+  /** Let go of a stroke: everything on the ground follows it, and the whole
+   *  stroke lands on the stack as one command. */
+  private endStroke(): void {
+    const st = this.stroke;
+    if (!st) return;
+    this.stroke = null;
+    this.controls.enabled = true;
+    this.commitGround(st.before, 'edit.sculpt');
+  }
+
+  /**
+   * Put every sculpted vertex back at the height the DEM delivered, as one
+   * undoable step — so a reset that went too far is a Ctrl+Z away.
+   */
+  resetTerrain(): void {
+    const t = this.scene?.terrain;
+    if (!t?.z0) return;
+    const before = new Map<number, number>();
+    t.verts.forEach((v, k) => {
+      if (v[2] !== t.z0![k]) before.set(k, v[2]);
+    });
+    if (!before.size) return;
+    for (const k of before.keys()) t.verts[k][2] = t.z0[k];
+    this.commitGround(before, 'edit.sculptReset');
+  }
+
+  /**
+   * Land a change of the lattice's heights — already written — as a command:
+   * carry what rests on the ground through it, redraw, and push. `before` holds
+   * the old height of every vertex that moved.
+   */
+  private commitGround(before: Map<number, number>, label: EditLabelKey): void {
+    const s = this.scene;
+    const t = s?.terrain;
+    if (!s || !t) return;
+    const idx: number[] = [];
+    const was: number[] = [];
+    const now: number[] = [];
+    for (const [k, z] of before) {
+      // A vertex raised and lowered back within one stroke changed nothing.
+      if (t.verts[k][2] === z) continue;
+      idx.push(k);
+      was.push(z);
+      now.push(t.verts[k][2]);
+    }
+    if (!idx.length) {
+      this.rebuildGround();
+      return;
+    }
+    const moved = new Map(idx.map((k, i) => [k, was[i]]));
+    const shift = followGround(s, moved);
+    applyShift(shift, 1);
+    this.refreshOnGround(shift);
+    this.pushCmd(
+      { label, kind: 'terrain', idx, before: was, after: now, shift },
+      LAYER_LABEL.terrain,
+    );
+  }
+
+  /** Replay a terrain command: the heights, then what followed them. */
+  private applyTerrainCmd(c: Cmd & { kind: 'terrain' }, to: 'before' | 'after'): void {
+    const t = this.scene?.terrain;
+    if (!t) return;
+    setHeights(t, c.idx, c[to]);
+    applyShift(c.shift, to === 'after' ? 1 : -1);
+    this.refreshOnGround(c.shift);
+    this.cb.onDirty();
+  }
+
+  /**
+   * Redraw everything that stands on the ground after its heights changed.
+   *
+   * What followGround moved is redrawn from the records it moved. What is built
+   * from a recipe — drawn surfaces, void rims — is built again on the new
+   * ground, the way a move rebuilds it. A building set to cut the ground has
+   * its plinth re-measured, since the lowest ground under it may have moved.
+   * The ground itself is marked stale and re-cut once, by whoever lands the
+   * gesture (pushCmd, undo, redo).
+   */
+  private refreshOnGround(shift: GroundShift): void {
+    const s = this.scene;
+    if (!s) return;
+    for (const surf of shift.surfaces) {
+      const mesh = this.layerGroups
+        .get(surf.layer ?? 'parcel')
+        ?.children.find((o) => o.userData.surface === surf) as THREE.Mesh | undefined;
+      if (!mesh) continue;
+      mesh.geometry.dispose();
+      mesh.geometry = facesetGeometry(surf.verts, surf.faces);
+    }
+    if (shift.roads) this.refreshRibbons('roads');
+    if (shift.railways) this.refreshRibbons('railways');
+    for (const { t } of shift.trees) {
+      const g = this.groupFor(t);
+      if (g) this.applyTreeXf(g, t);
+    }
+    for (const o of [...this.shapeObjs]) this.reshape(this.shapeTarget(o) as Target & { kind: 'shape' });
+    for (const b of s.buildings)
+      if (b.xf.cut) {
+        const mesh = this.meshFor(b);
+        if (mesh) this.rebuildGeometry(mesh, b);
+      }
+    this.groundStale = true;
+    if (this.drawTool === 'sculpt' && this.brushAt) this.showBrush(this.brushAt);
+  }
+
+  /** A road or railway layer's meshes, rebuilt from the scene's faces. */
+  private refreshRibbons(id: 'roads' | 'railways'): void {
+    const s = this.scene;
+    const group = this.layerGroups.get(id);
+    if (!s || !group) return;
+    const top = id === 'roads' ? s.roads : s.railways;
+    const walls = id === 'roads' ? s.roadWalls : s.railwayWalls;
+    let topGeo: THREE.BufferGeometry | null = null;
+    for (const o of group.children) {
+      const tag = o.userData.ribbon;
+      if (tag !== 'top' && tag !== 'walls') continue;
+      const m = o as THREE.Mesh;
+      m.geometry.dispose();
+      m.geometry = Viewer.ribbonGeometry(tag === 'top' ? top : walls);
+      if (tag === 'top') topGeo = m.geometry;
+    }
+    // The outline is built off the top surface alone, as setScene builds it.
+    for (const o of group.children)
+      if (o.userData.ribbon === 'edges' && topGeo) {
+        const l = o as THREE.LineSegments;
+        l.geometry.dispose();
+        l.geometry = new THREE.EdgesGeometry(topGeo);
+      }
   }
 
   /**
@@ -3309,6 +3713,21 @@ export class Viewer {
       downY = e.clientY;
       onGizmo = !!this.gizmo.axis; // the gizmo sets .axis while hovered
 
+      // The sculpt brush: a press on the ground opens a stroke, Alt+press reads
+      // the elevation there for the panel instead. A press off the ground falls
+      // through to the camera, so the view can still be turned with the tool in
+      // hand.
+      if (this.drawTool === 'sculpt' && e.button === 0) {
+        if (e.altKey) {
+          const p = this.pickTerrain(e);
+          if (p) this.cb.onSculptSample(this.groundZ(p.x, p.y));
+          return;
+        }
+        // Captured, so a release outside the canvas still ends the stroke.
+        if (this.beginStroke(e)) dom.setPointerCapture(e.pointerId);
+        return;
+      }
+
       // A rectangle is one drag, so it takes the camera off the left button for
       // the duration — the same arbitration the gizmo makes in dragging-changed.
       if (this.drawTool === 'rect' && e.button === 0) {
@@ -3323,6 +3742,12 @@ export class Viewer {
     });
 
     dom.addEventListener('pointermove', (e) => {
+      // The brush follows the pointer whether or not a stroke is down, and is
+      // resolved once a frame — see updateSculpt.
+      if (this.drawTool === 'sculpt') {
+        this.sculptHover = e;
+        return;
+      }
       // Measuring is the exception to the note below: its snap has to answer
       // while the pointer is only hovering, before any point is placed. So it
       // parks the event and updateMeasure resolves it once on the next frame,
@@ -3350,6 +3775,12 @@ export class Viewer {
 
     dom.addEventListener('pointerup', (e) => {
       if (this.present) return;
+      // A sculpt click is a stroke of one dab, already laid on the press, so the
+      // release only lands it. Nothing is ever selected with the brush in hand.
+      if (this.drawTool === 'sculpt') {
+        if (e.button === 0) this.endStroke();
+        return;
+      }
       if (this.drawTool === 'rect') {
         const anchor = this.rectAnchor;
         this.rectAnchor = null;
@@ -3476,6 +3907,10 @@ export class Viewer {
       else if (sub) this.removeTarget(hit);
       else this.selectTarget(hit);
     });
+
+    // A cancelled pointer (a touch taken over by the browser, a lost capture)
+    // still lands the stroke it was painting: what was painted is on screen.
+    dom.addEventListener('pointercancel', () => this.endStroke());
 
     // Closing on a double-click means the second click has already been taken
     // as a corner, so it is dropped before the ring is committed.
@@ -3959,6 +4394,8 @@ export class Viewer {
       this.applyShapeCmd(c.rec, c[to]);
     } else if (c.kind === 'layer') {
       this.applyLayerCmd(c, to);
+    } else if (c.kind === 'terrain') {
+      this.applyTerrainCmd(c, to);
     } else if (c.kind === 'tree') {
       this.applyXfCmdTree(c.t, c[to], to === 'after' ? c.afterH : c.beforeH);
     } else this.applyXfCmd(c.b, c[to], to === 'after' ? c.afterH : c.beforeH);
@@ -4026,6 +4463,7 @@ export class Viewer {
   private cmdName(c: Cmd): string {
     if (c.kind === 'origin') return ORIGIN_NAME;
     if (c.kind === 'layer') return LAYER_LABEL[c.id];
+    if (c.kind === 'terrain') return LAYER_LABEL.terrain;
     // Unused for a 'multi' — report() takes the count instead — but a name is
     // still wanted for the empty case, and the first child is the honest one.
     if (c.kind === 'multi') return c.cmds.length ? this.cmdName(c.cmds[0]) : '';
@@ -4034,6 +4472,9 @@ export class Viewer {
   }
 
   undo(): void {
+    // A stroke still down is landed first, so the undo takes back the stroke
+    // rather than replaying underneath one whose `before` it would invalidate.
+    this.endStroke();
     if (this.edits.index < 0) return;
     const c = this.edits.stack[this.edits.index--];
     this.applyCmd(c, 'before');
@@ -4047,6 +4488,7 @@ export class Viewer {
   }
 
   redo(): void {
+    this.endStroke();
     if (this.edits.index >= this.edits.stack.length - 1) return;
     const c = this.edits.stack[++this.edits.index];
     this.applyCmd(c, 'after');
@@ -4469,6 +4911,14 @@ export class Viewer {
 
   setDrawMode(tool: DrawTool | null): void {
     if (tool === this.drawTool) return;
+    // A stroke still down when the tool changes lands as it stands, rather than
+    // leaving painted ground on screen with no command behind it.
+    this.endStroke();
+    if (tool !== 'sculpt') this.hideBrush();
+    // Sculpting needs ground to sculpt; the rail does not offer it without, and
+    // this is the guard for every other caller.
+    if (tool === 'sculpt' && !this.scene?.terrain) tool = null;
+    if (tool === this.drawTool) return;
     this.drawTool = tool;
     this.drawPts = [];
     this.rectAnchor = null;
@@ -4512,6 +4962,7 @@ export class Viewer {
    *  the mode. Leaving the tool entirely is setDrawMode(null). */
   cancelDraw(): void {
     if (!this.drawTool) return;
+    this.endStroke();
     this.drawPts = [];
     this.rectAnchor = null;
     this.clearDrawPlane();
@@ -4798,6 +5249,10 @@ export class Viewer {
     Viewer.disposeGroup(this.originMarker);
     Viewer.disposeGroup(this.pivotGhost);
     this.draft.dispose();
+    for (const o of [this.brushRing, this.brushDots]) {
+      o.geometry.dispose();
+      (o.material as THREE.Material).dispose();
+    }
     // Frees its geometry and takes its label layer off the host, which is
     // React's div and outlives the viewer — see listeners.abort above.
     this.measure.dispose();

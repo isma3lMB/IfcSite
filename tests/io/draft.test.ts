@@ -3,6 +3,7 @@ import { DEFAULT_FORM } from '@/lib/build/defaults';
 import { DEFAULT_TUNABLES } from '@/lib/build/tunables';
 import { isAppError } from '@/lib/errors';
 import { CRS_DEFS } from '@/lib/geo/crs';
+import { gridFrom } from '@/lib/geo/grid';
 import {
   DRAFT_MAGIC,
   DRAFT_VERSION,
@@ -475,5 +476,43 @@ describe('parseDraft', () => {
       const { voids: _v, ...older } = draft().scene;
       expect(parseDraft(text({ scene: older })).scene.voids).toEqual([]);
     });
+  });
+});
+
+describe('a sculpted terrain', () => {
+  const sculpted = () => {
+    const zn = new Array(25).fill(35);
+    const g = gridFrom(RECT, 4, zn, (lo, la) => [lo, la]);
+    g.z0 = g.verts.map((v) => v[2]);
+    g.verts[6][2] = 38.5;
+    g.verts[12][2] = 31.25;
+    const scene = emptyScene();
+    scene.terrain = g;
+    return toDraft({ ...draft(), scene, meta: META });
+  };
+
+  it('keeps the delivered heights only where they were edited', () => {
+    expect(sculpted().scene.terrain?.z0).toEqual([6, 35, 12, 35]);
+    // An untouched terrain carries no way back, and so costs nothing extra.
+    const g = gridFrom(RECT, 4, new Array(25).fill(35), (lo, la) => [lo, la]);
+    expect(toDraft({ ...draft(), scene: { ...emptyScene(), terrain: g } }).scene.terrain?.z0).toBeUndefined();
+  });
+
+  it('reopens with the edits, and with the way back to the survey', () => {
+    const g = parseDraft(draftToText(sculpted())).scene.terrain!;
+    expect(g.verts[6][2]).toBe(38.5);
+    expect(g.verts[12][2]).toBe(31.25);
+    expect(g.z0?.[6]).toBe(35);
+    expect(g.z0?.[12]).toBe(35);
+    expect(g.z0?.[0]).toBe(35);
+  });
+
+  it('drops a damaged pair rather than the terrain it belongs to', () => {
+    const d = sculpted();
+    d.scene.terrain!.z0 = [6, 35, 99, 1, 12, 'x' as never, 1.5, 2];
+    const g = parseDraft(draftToText(d)).scene.terrain!;
+    expect(g.verts.length).toBe(25);
+    expect(g.z0?.[6]).toBe(35);
+    expect(g.z0?.[12]).toBe(31.25);
   });
 });

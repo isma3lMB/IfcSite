@@ -67,6 +67,7 @@ export const en = {
   'rail.drawTree': 'Plant a tree',
   'rail.measure': 'Measure a distance',
   'rail.measureArea': 'Measure an area',
+  'rail.sculpt': 'Sculpt the terrain',
   'rail.model': 'Layers',
   'rail.file': 'Drafts',
 
@@ -113,6 +114,8 @@ export const en = {
   'bar.areaHintStart': 'Click the corners of an area — corners and edges snap. Esc leaves the tool.',
   'bar.areaHintPoints': '{n} corners — the first corner or Enter closes, Esc cancels.',
   'bar.measureClear': 'Clear ({n})',
+  'bar.sculptHint':
+    'Click or drag on the ground to sculpt it. Alt+click reads an elevation, [ and ] resize the brush, Esc leaves the tool.',
 
   /* ---- the draw panel: what the next rectangle or polygon becomes. It takes
      the element editor's place while a draw tool is armed — nothing can be
@@ -138,6 +141,36 @@ export const en = {
     'Cuts a hole through the terrain. Buildings and surfaces above it are left as they are.',
   'draw.noTerrain':
     'This scene has no terrain mesh, so there is nothing to drape onto or cut through.',
+
+  /* ---- the sculpt panel: the terrain brush, in the draw panel's corner while
+     the sculpt tool is armed. ---- */
+  'sculpt.title': 'Terrain',
+  'sculpt.tool': 'Sculpt',
+  'sculpt.mode': 'Brush',
+  'sculpt.raise': 'Raise',
+  'sculpt.lower': 'Lower',
+  'sculpt.flatten': 'Flatten',
+  'sculpt.smooth': 'Smooth',
+  'sculpt.set': 'Set elevation',
+  'sculpt.radius': 'Radius (m)',
+  'sculpt.radiusTitle': 'Brush radius (m)',
+  'sculpt.strength': 'Step (m)',
+  'sculpt.strengthTitle': 'How far one click raises or lowers the centre of the brush (m)',
+  'sculpt.target': 'Elevation (m)',
+  'sculpt.targetTitle': 'The elevation the brush sets the ground to (m)',
+  'sculpt.targetHint': 'Alt+click the ground to pick up its elevation.',
+  'sculpt.flattenHint': 'Levels to the ground where the stroke starts.',
+  'sculpt.falloff': 'Falloff',
+  'sculpt.falloffSmooth': 'Smooth',
+  'sculpt.falloffLinear': 'Linear',
+  'sculpt.falloffFlat': 'Flat',
+  'sculpt.vertexHint': 'Under {half} m the brush edits the single nearest vertex — the lattice is {cell} m.',
+  'sculpt.under': 'Under the brush',
+  'sculpt.follows':
+    'Roads, surfaces and trees follow the new ground. Buildings stay where they are; one set to cut the terrain re-measures its plinth.',
+  'sculpt.edited': '{n} vertices edited',
+  'sculpt.reset': 'Reset terrain',
+  'sculpt.resetTitle': 'Put every sculpted vertex back at its surveyed height',
 
   /* ---- the IFC panel: everything the exported file says about itself, off the
      wrench beside Download. None of it is a build input — see IfcMeta. ---- */
@@ -467,6 +500,8 @@ export const en = {
   'edit.reset': 'Reset element',
   'edit.origin': 'Move origin',
   'edit.originReset': 'Origin recentred',
+  'edit.sculpt': 'Sculpt',
+  'edit.sculptReset': 'Terrain reset',
 
   /* ---- confirmations ----
      Singular and plural are separate entries rather than an "(s)": this card

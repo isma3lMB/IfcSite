@@ -17,6 +17,7 @@ import {
 import { InfoOverlay } from '@/components/info-overlay';
 import { LangToggle } from '@/components/lang-toggle';
 import { ModelTree } from '@/components/model-tree';
+import { SculptPanel } from '@/components/sculpt-panel';
 import { SearchFlyout } from '@/components/search-flyout';
 import { SiteReadout } from '@/components/site-readout';
 import { Stage } from '@/components/stage';
@@ -82,6 +83,7 @@ import type {
 import { GLTF_MIME, emitGLTF, gltfFileName } from '@/lib/gltf/emit';
 import type { ExportFormat } from '@/lib/gltf/writer';
 import { ifcFileName } from '@/lib/ifc/writer';
+import { DEFAULT_BRUSH, SCULPT_RANGE, type SculptBrush } from '@/lib/scene/sculpt';
 import { useUnloadGuard } from '@/lib/ui/unload-guard';
 import { PHONE_QUERY, useMedia } from '@/lib/ui/useMedia';
 import { paint } from '@/lib/ui/yield';
@@ -369,6 +371,15 @@ export function IfcSite() {
   /** Whether the scene on screen has a terrain mesh. The panel reads it to take
       Drape and Void away where there is no ground to drape onto or hole. */
   const [hasTerrain, setHasTerrain] = useState(false);
+  /* The terrain brush. React's, like the draw panel's choices, and it survives
+     a rebuild for the same reason: it is how the user sculpts, not a fact about
+     the site. The ref is for the mount-only key handler's [ and ]. */
+  const [sculptBrush, setSculptBrush] = useState<SculptBrush>(DEFAULT_BRUSH);
+  /** How many terrain vertices are off their surveyed height, and the lattice's
+      spacing — both re-read from the viewer on its onLayers signal, which every
+      committed edit, undo and rebuild fires. */
+  const [terrainEdits, setTerrainEdits] = useState(0);
+  const [terrainCell, setTerrainCell] = useState<number | null>(null);
   /** How many measurements the viewer is holding. Reported the same way the
       corner count is, and for the same reason: the viewer drops them on a
       rebuild without being asked. */
@@ -439,6 +450,10 @@ export function IfcSite() {
         setDrawPoints(points);
       },
       onMeasure: setMeasureCount,
+      // An Alt+click with the brush reads the ground and hands it to the panel
+      // as the elevation to set — the mode follows, since that is the only mode
+      // the number means anything to.
+      onSculptSample: (z) => setSculptBrush((b) => ({ ...b, mode: 'set', target: z })),
     });
     viewerRef.current = v;
     v.setCompassElement(compassRef.current);
@@ -531,7 +546,8 @@ export function IfcSite() {
     (drawTool === 'rect' || drawTool === 'polygon' || drawTool === 'tree')
       ? drawTool
       : null;
-  const cornerTaken = selection !== null || panelTool !== null;
+  const sculpting = view === '3d' && hasScene && !selection && drawTool === 'sculpt';
+  const cornerTaken = selection !== null || panelTool !== null || sculpting;
 
   const wideEditor = useMedia('(min-width: 861px)');
 
@@ -605,6 +621,17 @@ export function IfcSite() {
       copyName: t('ed.copySuffix'),
     });
   }, [drawHeight, drawLayer, drawDrape, t]);
+
+  /* ---- sculpting ------------------------------------------------------- */
+  useEffect(() => {
+    viewerRef.current?.setSculptOptions(sculptBrush);
+  }, [sculptBrush]);
+
+  /** The panel's live elevation readout. A callback ref, so the viewer is told
+   *  each time the panel mounts and unmounts. */
+  const sculptReadoutRef = useCallback((el: HTMLSpanElement | null) => {
+    viewerRef.current?.setSculptReadout(el);
+  }, []);
 
   /* ---- measuring -------------------------------------------------------
      Same rule as the drawn name above: the viewer may not compose text, so how
@@ -791,6 +818,14 @@ export function IfcSite() {
         const tool = drawToolRef.current;
         if (tool === 'measure' || tool === 'measureArea') viewerRef.current?.undoMeasure();
         else viewerRef.current?.deleteSelected();
+      } else if ((e.key === '[' || e.key === ']') && drawToolRef.current === 'sculpt') {
+        // A fifth of the radius a press, the step most sculpting tools take: fine
+        // enough near a vertex, quick enough across a whole hillside.
+        const [lo, hi] = SCULPT_RANGE.radius;
+        setSculptBrush((b) => ({
+          ...b,
+          radius: Math.min(hi, Math.max(lo, e.key === ']' ? Math.max(1, b.radius * 1.25) : b.radius * 0.8)),
+        }));
       } else if (e.key === 'd' || e.key === 'D') {
         // Straight on the ref, like deleteSelected above: the viewer knows
         // whether anything duplicable is selected, and this effect holds no
@@ -819,6 +854,8 @@ export function IfcSite() {
      from the scene it describes cannot disagree with it. */
   const refreshLayers = useCallback(() => {
     setLayerNodes(viewerRef.current?.layerTree() ?? []);
+    setTerrainEdits(viewerRef.current?.terrainEdits() ?? 0);
+    setTerrainCell(viewerRef.current?.terrainCell() ?? null);
   }, []);
 
   const onSelectLayer = useCallback((id: LayerId) => viewerRef.current?.selectLayer(id), []);
@@ -1789,6 +1826,7 @@ export function IfcSite() {
             horizontal={phone}
             utils={phone ? dockUtils : undefined}
             hasScene={hasScene}
+            hasTerrain={hasTerrain}
             rect={rect}
             armed={armed}
             drawTool={drawTool}
@@ -1909,6 +1947,18 @@ export function IfcSite() {
             drape={drawDrape}
             onDrape={setDrawDrape}
             hasTerrain={hasTerrain}
+            onClose={() => viewerRef.current?.setDrawMode(null)}
+          />
+        )}
+
+        {sculpting && (
+          <SculptPanel
+            brush={sculptBrush}
+            onBrush={setSculptBrush}
+            cell={terrainCell}
+            edited={terrainEdits}
+            onReset={() => viewerRef.current?.resetTerrain()}
+            readoutRef={sculptReadoutRef}
             onClose={() => viewerRef.current?.setDrawMode(null)}
           />
         )}
