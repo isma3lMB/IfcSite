@@ -40,6 +40,7 @@ import { EPSG_CHOICES } from '@/lib/geo/crs';
 import { bestAt, loadEpsgIndex } from '@/lib/geo/epsg';
 import { toGeoOf } from '@/lib/geo/inverse';
 import { rectCentre } from '@/lib/geo/rect';
+import { TERRAIN_VIEW_OFF, type TerrainView } from '@/lib/geo/relief';
 import { useT } from '@/lib/i18n/context';
 import {
   DRAFT_EXT,
@@ -376,6 +377,14 @@ export function IfcSite() {
   /** Whether the scene on screen has a terrain mesh. The panel reads it to take
       Drape and Void away where there is no ground to drape onto or hole. */
   const [hasTerrain, setHasTerrain] = useState(false);
+  /* How the terrain is shown while a rectangle or polygon is being drawn — the
+     draw panel's toggles. Remembered here, applied by the viewer only while such
+     a tool is armed (see the effect below), so leaving the tool gives the plain
+     ground back. The range and interval are the legend's, read off the scene the
+     viewer holds each time one is loaded. */
+  const [terrainView, setTerrainView] = useState<TerrainView>(TERRAIN_VIEW_OFF);
+  const [terrainRange, setTerrainRange] = useState<{ min: number; max: number } | null>(null);
+  const [contourStep, setContourStep] = useState<number | null>(null);
   /* The terrain brush. React's, like the draw panel's choices, and it survives
      a rebuild for the same reason: it is how the user sculpts, not a fact about
      the site. The ref is for the mount-only key handler's [ and ]. */
@@ -627,6 +636,15 @@ export function IfcSite() {
       copyName: t('ed.copySuffix'),
     });
   }, [drawHeight, drawLayer, drawDrape, t]);
+
+  /* The terrain view applies only while the sculpt tool is armed: the toggles
+     are on its panel, and a ground left see-through or tinted with the panel
+     gone would have no control to undo it. Re-run on a new scene so a rebuild
+     keeps the look the user chose. */
+  const terrainEditing = view === '3d' && drawTool === 'sculpt';
+  useEffect(() => {
+    viewerRef.current?.setTerrainView(terrainEditing ? terrainView : TERRAIN_VIEW_OFF);
+  }, [terrainEditing, terrainView, hasTerrain]);
 
   /* ---- sculpting ------------------------------------------------------- */
   useEffect(() => {
@@ -886,6 +904,14 @@ export function IfcSite() {
     setLayerNodes(viewerRef.current?.layerTree() ?? []);
     setTerrainEdits(viewerRef.current?.terrainEdits() ?? 0);
     setTerrainCell(viewerRef.current?.terrainCell() ?? null);
+    // A stroke, an undo or a reset moves the ground's range, and the legend and
+    // the contour interval are read off it. A scene load signals this too, so
+    // the two lines that used to set these beside setHasTerrain are gone.
+    const r = viewerRef.current?.terrainRange() ?? null;
+    setTerrainRange((prev) =>
+      prev && r && prev.min === r.min && prev.max === r.max ? prev : r,
+    );
+    setContourStep(viewerRef.current?.contourInterval() ?? null);
   }, []);
 
   const onSelectLayer = useCallback((id: LayerId) => viewerRef.current?.selectLayer(id), []);
@@ -1988,6 +2014,10 @@ export function IfcSite() {
             cell={terrainCell}
             edited={terrainEdits}
             onReset={() => viewerRef.current?.resetTerrain()}
+            terrainView={terrainView}
+            onTerrainView={setTerrainView}
+            contourStep={contourStep}
+            terrainRange={terrainRange}
             readoutRef={sculptReadoutRef}
             onClose={() => viewerRef.current?.setDrawMode(null)}
           />
