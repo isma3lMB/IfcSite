@@ -70,11 +70,16 @@ export function StatusLine({
     if (s.reused) parts.push(t('sum.reused', { n: n(s.reused) }));
     if (s.skipped.length)
       parts.push(t('sum.skipped', { layers: s.skipped.map((k) => t(k)).join(', ') }));
+    if (s.treesTimedOut) parts.push(t('sum.treesTimedOut', { secs: n(s.treesDeadlineS) }));
     // No "click a building to edit it" tail: the build lands in the 3D view with
     // the element editor beside it, and the building under the cursor says it.
 
     text = parts.join(' ');
-    tone = !s.capped && !s.skipped.length ? 'ok' : undefined;
+    tone = s.treesTimedOut
+      ? 'err'
+      : !s.capped && !s.skipped.length
+        ? 'ok'
+        : undefined;
   }
 
   // The bar keeps a fixed height, so a long summary is cut — the tail has to be

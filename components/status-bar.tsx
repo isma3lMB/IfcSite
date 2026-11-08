@@ -4,6 +4,7 @@ import type { ReactNode, RefObject } from 'react';
 import { IconExport, IconWrench } from '@/components/icons';
 import { IfcFlyout } from '@/components/ifc-flyout';
 import { type Step, buildStep } from '@/lib/ui/step';
+import type { ExportFormat } from '@/lib/gltf/writer';
 import { useT } from '@/lib/i18n/context';
 import type { IfcMeta, SiteRect } from '@/lib/types';
 import type { DrawTool } from '@/lib/viewer/Viewer';
@@ -27,6 +28,9 @@ export type StatusBarProps = {
      The panel lives here rather than beside the rail's flyouts because it hangs
      off Download — see IfcFlyout. */
   ifc: IfcMeta;
+  /** Which file Download writes, chosen in the same panel. */
+  format: ExportFormat;
+  onFormat: (f: ExportFormat) => void;
   ifcOpen: boolean;
   ifcBtnRef: RefObject<HTMLButtonElement | null>;
   defaultProjectName: string;
@@ -51,7 +55,8 @@ export function StatusBar(p: StatusBarProps) {
   const { t } = useT();
 
   const step: Step = buildStep(p);
-  const measuring = p.drawTool === 'measure' || p.drawTool === 'measureArea';
+  const measuring =
+    p.drawTool === 'measure' || p.drawTool === 'measureArea' || p.drawTool === 'measureElev';
   const clearable = measuring && p.measureCount > 0;
   /* Whether Download — and so the wrench, and so the panel — is in the row at
      all. Named because the chip and the panel are rendered in two different
@@ -74,14 +79,24 @@ export function StatusBar(p: StatusBarProps) {
      else is competing for the eye.
 
      Written once for the same reason withIfcChip below is: the two branches
-     differ only in which of btn-ghost/btn-primary carries this. */
+     differ only in which of btn-ghost/btn-primary carries this.
+
+     The IFC mark only on an IFC download: it says what the file is, and a GLB
+     is not one. The label says it instead. */
   const downloadLabel = (
     <>
-      <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
-      {t('ctl.download')}
+      {p.format === 'ifc' && (
+        <img className="ifcLogo" src="/IFC_logo.png" alt="" aria-hidden="true" />
+      )}
+      {p.format === 'glb'
+        ? t('ctl.downloadGlb')
+        : p.format === 'gltf'
+          ? t('ctl.downloadGltf')
+          : t('ctl.download')}
       <IconExport />
     </>
   );
+  const panelTitle = p.format === 'ifc' ? t('ifc.title') : t('gltf.title');
 
   /* Download, with the wrench pinned to its top-right corner.
 
@@ -107,8 +122,8 @@ export function StatusBar(p: StatusBarProps) {
         ref={p.ifcBtnRef}
         type="button"
         className={`barChip${p.ifcOpen ? ' on' : ''}`}
-        title={t('ifc.title')}
-        aria-label={t('ifc.title')}
+        title={panelTitle}
+        aria-label={panelTitle}
         aria-expanded={p.ifcOpen}
         aria-controls="ifcFlyout"
         onClick={p.onToggleIfc}
@@ -177,6 +192,8 @@ export function StatusBar(p: StatusBarProps) {
       {ifcChip && p.ifcOpen && (
         <IfcFlyout
           ifc={p.ifc}
+          format={p.format}
+          onFormat={p.onFormat}
           defaultProjectName={p.defaultProjectName}
           onChange={p.onIfc}
           onReset={p.onResetIfc}

@@ -46,6 +46,17 @@ const RAILWAYS = 'rail|light_rail|tram|narrow_gauge|funicular|monorail';
 const serverSecs = (t: Tunables): number =>
   Math.max(10, Math.round(t.overpassTimeoutMs / 1000) - 5);
 
+/**
+ * The whole budget for trees, every mirror and the padding retry included.
+ *
+ * Trees are the last fetch of a build and the one it can most easily do without,
+ * yet the per-mirror deadline alone let them hold a finished scene hostage for
+ * three (or, after a failed padded fetch, six) full timeouts. Past this the
+ * build lands without them and says so, rather than leaving the user watching
+ * "Querying OSM trees…" for minutes.
+ */
+export const TREES_DEADLINE_MS = 30000;
+
 type OverpassGeom = { lat: number; lon: number };
 type OverpassElement = {
   type: 'node' | 'way' | 'relation';
@@ -58,13 +69,21 @@ type OverpassElement = {
 };
 type OverpassResponse = { elements: OverpassElement[] };
 
+/** Thrown once a shared deadline (see TREES_DEADLINE_MS) has run out, whichever
+ *  mirror happened to be on the line at the time. */
+const deadlineError = () =>
+  new AppError('err.treesTimeout', { secs: Math.round(TREES_DEADLINE_MS / 1000) });
+
 async function overpassQuery(
   q: string,
   tune: Tunables,
   onStatus?: StatusFn,
+  /** An overall deadline across every mirror, on top of each one's own. */
+  deadline?: AbortSignal,
 ): Promise<OverpassResponse> {
   let lastErr: AppError | undefined;
   for (const url of ENDPOINTS) {
+    if (deadline?.aborted) throw deadlineError();
     const host = url.split('/')[2];
     // Each mirror is given the full timeout before the next is tried, so a bad
     // day here is three of them end to end under one unchanging sentence. Naming
@@ -75,11 +94,15 @@ async function overpassQuery(
         method: 'POST',
         body: 'data=' + encodeURIComponent(q),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        signal: AbortSignal.timeout(tune.overpassTimeoutMs),
+        signal: deadline
+          ? AbortSignal.any([AbortSignal.timeout(tune.overpassTimeoutMs), deadline])
+          : AbortSignal.timeout(tune.overpassTimeoutMs),
       });
       if (!res.ok) throw new AppError('err.overpassStatus', { host, status: res.status });
       return (await res.json()) as OverpassResponse;
     } catch (e) {
+      // Not this mirror's fault, and no use trying the next one.
+      if (deadline?.aborted) throw deadlineError();
       lastErr =
         e instanceof Error && e.name === 'TimeoutError'
           ? new AppError('err.overpassTimeout', { host })
@@ -227,21 +250,33 @@ export async function osmTrees(
   // keeping is the OSM nodes, not the Tree[] built from them, because every
   // field of a Tree past its tags comes from toLocal and sampleZ — the CRS and
   // the terrain, which change without OSM changing.
+  //
+  // The server is asked to give up inside the overall budget too, by the same
+  // margin serverSecs keeps against the per-mirror one.
+  const secs = Math.min(serverSecs(tune), Math.round(TREES_DEADLINE_MS / 1000) - 5);
   const q = (r: SiteRect) =>
-    `[out:json][timeout:${serverSecs(tune)}];node["natural"="tree"](${overpassBox(r)});out geom;`;
+    `[out:json][timeout:${secs}];node["natural"="tree"](${overpassBox(r)});out geom;`;
   const p = osmCache.plan('trees', box, ['tree']);
   let els: OverpassElement[];
   if (p.hit) {
     onStatus?.('status.reusingData');
     els = p.have;
   } else {
+    const deadline = AbortSignal.timeout(TREES_DEADLINE_MS);
     try {
       const got = [...p.have];
-      for (const r of p.fetch) got.push(...(await overpassQuery(q(r), tune)).elements);
+      for (const r of p.fetch)
+        got.push(...(await overpassQuery(q(r), tune, undefined, deadline)).elements);
       els = osmCache.put('trees', p.cover, ['tree'], got);
     } catch (e) {
-      if (p.fetch.length === 1 && sameRect(p.fetch[0], box)) throw e;
-      els = osmCache.put('trees', box, ['tree'], (await overpassQuery(q(box), tune)).elements);
+      // A spent budget is spent for the retry as well.
+      if (deadline.aborted || (p.fetch.length === 1 && sameRect(p.fetch[0], box))) throw e;
+      els = osmCache.put(
+        'trees',
+        box,
+        ['tree'],
+        (await overpassQuery(q(box), tune, undefined, deadline)).elements,
+      );
     }
   }
 

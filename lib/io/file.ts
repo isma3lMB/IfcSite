@@ -10,7 +10,16 @@ import { AppError } from '@/lib/errors';
  * hands it a dead URL.
  */
 export function downloadText(filename: string, text: string, mime: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  downloadBlob(filename, new Blob([text], { type: mime }));
+}
+
+/** The same for a binary file — the GLB export, which is bytes rather than text. */
+export function downloadBytes(filename: string, bytes: Uint8Array<ArrayBuffer>, mime: string): void {
+  downloadBlob(filename, new Blob([bytes], { type: mime }));
+}
+
+function downloadBlob(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;

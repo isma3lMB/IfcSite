@@ -1,6 +1,6 @@
-import proj4 from 'proj4';
 import { version } from '@/package.json';
 import { xfAxes } from '@/lib/geo/euler';
+import { mapPlacementOf } from '@/lib/geo/georef';
 import { treeProxy } from '@/lib/geo/mesh';
 import { dedupe, ensureCCW } from '@/lib/geo/rings';
 import { TREE_CANOPY_COLOR, TREE_TRUNK_COLOR } from '@/lib/scene/stack';
@@ -13,9 +13,10 @@ import type { Building, PropBag, Provider, SiteMeta, Tree, Vec2, Vec3 } from '@/
    ifc-writer — IFC2X3 / IFC4 / IFC4X3 SPF serialiser
 
    Framework-free: no renderer, no DOM, nothing that needs a browser — the whole
-   emit path runs under plain Node. proj4 is here for one job, inverting the
-   origin marker's projected position back to WGS84 for IfcSite's RefLatitude
-   and RefLongitude, and is pure arithmetic like the rest.
+   emit path runs under plain Node. proj4 is reached for one job, through
+   lib/geo/georef: inverting the origin marker's projected position back to
+   WGS84 for IfcSite's RefLatitude and RefLongitude. Pure arithmetic like the
+   rest.
 
    Three schemas out of one emitter. Everything that differs between them is a
    field of SCHEMA_CAPS below rather than a version test in the emitters, so the
@@ -486,7 +487,6 @@ export class ContextModel {
   /** The shared IfcOwnerHistory every IfcRoot points at, or null on a schema
    *  where the attribute is optional and this file leaves it out. */
   private readonly owner: Ref | null;
-  private readonly origin: Vec2;
   private readonly off: Vec3;
   private readonly base: Vec3;
   private readonly elements: Ref[] = [];
@@ -516,7 +516,6 @@ export class ContextModel {
     const a = o.ifc;
     this.f = new IfcFile(ifcFileName(o), a.schema, a.author, a.organization);
     this.caps = this.f.caps;
-    this.origin = o.origin;
     this.off = o.exportOffset;
     this.base = o.projectBase;
     this.provider = o.provider;
@@ -691,22 +690,13 @@ export class ContextModel {
        Site coordinates are metres east/north of the projected site origin, so
        the marker's map position is just that plus the offset — projectBase and
        projectAngle play no part, since they rename coordinates rather than move
-       the point. Inverted here at write time rather than stored anywhere: the
-       marker moves, and a saved copy of its position is a copy to keep in step.
-       A hand-edited draft can carry a definition proj4 rejects, and a bad
-       informational attribute must not cost the whole export — so that falls
-       back to the site centre, which is where the marker starts anyway. */
-    let originLon = o.lon;
-    let originLat = o.lat;
-    try {
-      const g = proj4(o.crsDef, 'EPSG:4326', [
-        this.origin[0] + off[0],
-        this.origin[1] + off[1],
-      ]) as Vec2;
-      if (Number.isFinite(g[0]) && Number.isFinite(g[1])) [originLon, originLat] = g;
-    } catch {
-      /* keep the site centre */
-    }
+       the point. Inverted at write time rather than stored anywhere: the marker
+       moves, and a saved copy of its position is a copy to keep in step. The
+       inversion, and its fallback for a definition proj4 rejects, is in
+       lib/geo/georef. */
+    const mp = mapPlacementOf(o);
+    const originLon = mp.markerLon;
+    const originLat = mp.markerLat;
 
     this.site = f.add('IfcSite', [
       S(ifcGuid()),
@@ -779,8 +769,9 @@ export class ContextModel {
        coordinates. The angle is defined as exactly that — counter-clockwise from
        grid east — so the pair reads straight off it. Scale stays 1: the projected
        CRS is already in metres and nothing here rescales. */
-    const eastings = this.origin[0] + off[0] - (base[0] * cos - base[1] * sin);
-    const northings = this.origin[1] + off[1] - (base[0] * sin + base[1] * cos);
+    // Computed in lib/geo/georef, which the glTF writer shares, so the two
+    // files cannot disagree about where model zero is.
+    const { eastings, northings } = mp;
 
     /* VerticalDatum carries the registry code rather than the name, so it reads
        EPSG:5773 the way Name two slots up reads EPSG:25830. Both are

@@ -15,7 +15,7 @@ import {
   siteDatumZ,
   type ThemeKey,
 } from '@/lib/sources/ign';
-import { osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
+import { TREES_DEADLINE_MS, osmTrees, overpass, parseOSM } from '@/lib/sources/overpass';
 import { terrariumGrid } from '@/lib/sources/terrain';
 import { finishRailways, finishRoads, type Ribbon } from '@/lib/scene/push';
 import { emptyScene, newIfcMeta } from '@/lib/types';
@@ -302,12 +302,16 @@ export async function runBuild(
   finishRoads(scene, roadRibbons, toGeo, sampleZ, tune, opts.drape.roads);
   finishRailways(scene, railwayRibbons, toGeo, sampleZ, tune, opts.drape.railways);
 
+  let treesTimedOut = false;
   if (opts.trees) {
     onStatus('status.queryingTrees');
     try {
       scene.trees = await osmTrees(site, toLocal, sampleZ, tune, onStatus);
-    } catch {
-      skipped.push('layer.trees');
+    } catch (e) {
+      // Reported on its own rather than folded into "No trees returned": that
+      // reads as an empty site, where this is a request that never came back.
+      if (e instanceof AppError && e.code === 'err.treesTimeout') treesTimedOut = true;
+      else skipped.push('layer.trees');
     }
   }
 
@@ -335,6 +339,8 @@ export async function runBuild(
       capAt: tune.buildingCap,
       treesCapped: scene.trees.length === tune.treeCap,
       treeCap: tune.treeCap,
+      treesTimedOut,
+      treesDeadlineS: Math.round(TREES_DEADLINE_MS / 1000),
       skipped,
       reused: reuseCount(),
     },

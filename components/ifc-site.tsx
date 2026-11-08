@@ -17,6 +17,7 @@ import {
 import { InfoOverlay } from '@/components/info-overlay';
 import { LangToggle } from '@/components/lang-toggle';
 import { ModelTree } from '@/components/model-tree';
+import { SculptPanel } from '@/components/sculpt-panel';
 import { SearchFlyout } from '@/components/search-flyout';
 import { SiteReadout } from '@/components/site-readout';
 import { Stage } from '@/components/stage';
@@ -50,7 +51,7 @@ import {
   parseDraft,
   toDraft,
 } from '@/lib/io/draft';
-import { downloadText, readDraftFile, safeFileStem } from '@/lib/io/file';
+import { downloadBytes, downloadText, readDraftFile, safeFileStem } from '@/lib/io/file';
 import {
   type SlotMeta,
   deleteSlot,
@@ -80,7 +81,10 @@ import type {
   Vec3,
   ViewTab,
 } from '@/lib/types';
+import { GLTF_MIME, emitGLTF, gltfFileName } from '@/lib/gltf/emit';
+import type { ExportFormat } from '@/lib/gltf/writer';
 import { ifcFileName } from '@/lib/ifc/writer';
+import { DEFAULT_BRUSH, SCULPT_RANGE, type SculptBrush } from '@/lib/scene/sculpt';
 import { useUnloadGuard } from '@/lib/ui/unload-guard';
 import { PHONE_QUERY, useMedia } from '@/lib/ui/useMedia';
 import { paint } from '@/lib/ui/yield';
@@ -281,6 +285,11 @@ export function IfcSite() {
   const [stats, setStats] = useState<IfcStats | null>(null);
   const [buildings, setBuildings] = useState<number | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);
+  /** The origin marker's height, local metres — what a spot level's file
+      elevation is read against, with the project base's Z. Kept beside the
+      label because the label carries only easting and northing, and a change
+      of height alone has to re-render the levels on screen. */
+  const [originZ, setOriginZ] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -314,6 +323,11 @@ export function IfcSite() {
       runBuildNow stamps this bag into the meta it is handed. */
   const [ifcOpen, setIfcOpenState] = useState(false);
   const [ifc, setIfc] = useState<IfcMeta>(newIfcMeta);
+  /** Which file Download writes. Not in IfcMeta, and so not in a draft: it says
+      nothing about the document, only which of its two renderings this click
+      wants, and a draft opened elsewhere should not change someone's download
+      into a format they did not pick. */
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('ifc');
   /** The stamp above happens inside a callback that must not re-create itself on
       every keystroke, so it reads the bag through a ref rather than closing over
       it. Kept in step below. */
@@ -371,6 +385,15 @@ export function IfcSite() {
   const [terrainView, setTerrainView] = useState<TerrainView>(TERRAIN_VIEW_OFF);
   const [terrainRange, setTerrainRange] = useState<{ min: number; max: number } | null>(null);
   const [contourStep, setContourStep] = useState<number | null>(null);
+  /* The terrain brush. React's, like the draw panel's choices, and it survives
+     a rebuild for the same reason: it is how the user sculpts, not a fact about
+     the site. The ref is for the mount-only key handler's [ and ]. */
+  const [sculptBrush, setSculptBrush] = useState<SculptBrush>(DEFAULT_BRUSH);
+  /** How many terrain vertices are off their surveyed height, and the lattice's
+      spacing — both re-read from the viewer on its onLayers signal, which every
+      committed edit, undo and rebuild fires. */
+  const [terrainEdits, setTerrainEdits] = useState(0);
+  const [terrainCell, setTerrainCell] = useState<number | null>(null);
   /** How many measurements the viewer is holding. Reported the same way the
       corner count is, and for the same reason: the viewer drops them on a
       rebuild without being asked. */
@@ -423,6 +446,7 @@ export function IfcSite() {
         if (!m) return;
         m.exportOffset = off;
         setOriginLabel(originLabelOf(m));
+        setOriginZ(off[2]);
         // Every way the marker can move arrives here — the gizmo, a typed axis,
         // resetOrigin, restoreOrigin — so this is the one place the matched base
         // has to follow it. m.projectAngle rather than the state: this closure is
@@ -441,6 +465,10 @@ export function IfcSite() {
         setDrawPoints(points);
       },
       onMeasure: setMeasureCount,
+      // An Alt+click with the brush reads the ground and hands it to the panel
+      // as the elevation to set — the mode follows, since that is the only mode
+      // the number means anything to.
+      onSculptSample: (z) => setSculptBrush((b) => ({ ...b, mode: 'set', target: z })),
     });
     viewerRef.current = v;
     v.setCompassElement(compassRef.current);
@@ -533,7 +561,8 @@ export function IfcSite() {
     (drawTool === 'rect' || drawTool === 'polygon' || drawTool === 'tree')
       ? drawTool
       : null;
-  const cornerTaken = selection !== null || panelTool !== null;
+  const sculpting = view === '3d' && hasScene && !selection && drawTool === 'sculpt';
+  const cornerTaken = selection !== null || panelTool !== null || sculpting;
 
   const wideEditor = useMedia('(min-width: 861px)');
 
@@ -617,6 +646,17 @@ export function IfcSite() {
     viewerRef.current?.setTerrainView(terrainEditing ? terrainView : TERRAIN_VIEW_OFF);
   }, [terrainEditing, terrainView, hasTerrain]);
 
+  /* ---- sculpting ------------------------------------------------------- */
+  useEffect(() => {
+    viewerRef.current?.setSculptOptions(sculptBrush);
+  }, [sculptBrush]);
+
+  /** The panel's live elevation readout. A callback ref, so the viewer is told
+   *  each time the panel mounts and unmounts. */
+  const sculptReadoutRef = useCallback((el: HTMLSpanElement | null) => {
+    viewerRef.current?.setSculptReadout(el);
+  }, []);
+
   /* ---- measuring -------------------------------------------------------
      Same rule as the drawn name above: the viewer may not compose text, so how
      a length and an area are written comes from here. Two fixed decimals rather
@@ -627,11 +667,34 @@ export function IfcSite() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+    // Signed, because a level reads above or below its zero; and zero itself is
+    // written ±0.00, the way a datum level is marked on a drawing.
+    const sf = new Intl.NumberFormat(lang, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      signDisplay: 'exceptZero',
+    });
+    const signed = (v: number): string => {
+      const s = sf.format(v);
+      return /^[+\-−]/.test(s) ? `${s} m` : `±${s} m`;
+    };
     viewerRef.current?.setMeasureOptions({
       length: (m) => `${nf.format(m)} m`,
       area: (a) => `${nf.format(a)} m²`,
+      // Two readings of one point. The altitude, against the vertical datum the
+      // scene was built in — only where there is one: a flat scene's z is not
+      // an altitude, and saying "m" next to it as if it were would be the lie
+      // the datum flag exists to prevent. Then the level the exported file gives
+      // the point: model z less the origin marker's height, plus the project
+      // base's Z — the same sum the IFC writer places the site by.
+      level: (z) => {
+        const meta = metaRef.current;
+        const file = t('measure.levelFile', { v: signed(z - originZ + projectBase[2]) });
+        if (!meta?.verticalDatum) return file;
+        return `${t('measure.levelAbs', { v: `${nf.format(z)} m`, datum: meta.verticalDatum })}\n${file}`;
+      },
     });
-  }, [lang]);
+  }, [lang, t, originZ, projectBase]);
 
   const onClearMeasures = useCallback(() => viewerRef.current?.clearMeasures(), []);
 
@@ -800,8 +863,17 @@ export function IfcSite() {
         // deliberately outside the undo stack — see undoMeasure — so this is the
         // only way back from one.
         const tool = drawToolRef.current;
-        if (tool === 'measure' || tool === 'measureArea') viewerRef.current?.undoMeasure();
+        if (tool === 'measure' || tool === 'measureArea' || tool === 'measureElev')
+          viewerRef.current?.undoMeasure();
         else viewerRef.current?.deleteSelected();
+      } else if ((e.key === '[' || e.key === ']') && drawToolRef.current === 'sculpt') {
+        // A fifth of the radius a press, the step most sculpting tools take: fine
+        // enough near a vertex, quick enough across a whole hillside.
+        const [lo, hi] = SCULPT_RANGE.radius;
+        setSculptBrush((b) => ({
+          ...b,
+          radius: Math.min(hi, Math.max(lo, e.key === ']' ? Math.max(1, b.radius * 1.25) : b.radius * 0.8)),
+        }));
       } else if (e.key === 'd' || e.key === 'D') {
         // Straight on the ref, like deleteSelected above: the viewer knows
         // whether anything duplicable is selected, and this effect holds no
@@ -830,6 +902,8 @@ export function IfcSite() {
      from the scene it describes cannot disagree with it. */
   const refreshLayers = useCallback(() => {
     setLayerNodes(viewerRef.current?.layerTree() ?? []);
+    setTerrainEdits(viewerRef.current?.terrainEdits() ?? 0);
+    setTerrainCell(viewerRef.current?.terrainCell() ?? null);
   }, []);
 
   const onSelectLayer = useCallback((id: LayerId) => viewerRef.current?.selectLayer(id), []);
@@ -1292,13 +1366,26 @@ export function IfcSite() {
   }, [openConfirm, runBuildNow]);
 
   const onDownload = useCallback(() => {
+    const meta = metaRef.current;
+    if (!meta) return;
+    if (exportFormat !== 'ifc') {
+      // Written from the live scene at the click rather than kept warm like the
+      // IFC: nothing on screen reads from it, so there is no readout to feed and
+      // no debounce to flush. The same object the viewer mutates, so the file is
+      // what is on screen.
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const name = gltfFileName(meta, exportFormat);
+      if (exportFormat === 'glb') downloadBytes(name, emitGLTF(scene, meta, 'glb'), GLTF_MIME.glb);
+      else downloadText(name, emitGLTF(scene, meta, 'gltf'), GLTF_MIME.gltf);
+      return;
+    }
     // pick up any edit still inside the debounce window
     const text = emitterRef.current?.flush();
-    const meta = metaRef.current;
-    if (!text || !meta) return;
+    if (!text) return;
     // The same name the header states — see ifcFileName.
     downloadText(ifcFileName(meta), text, 'application/x-step');
-  }, []);
+  }, [exportFormat]);
 
   /* ---- drafts -----------------------------------------------------------
      The document half, as against the deliverable onDownload writes. Save keeps
@@ -1791,6 +1878,7 @@ export function IfcSite() {
             horizontal={phone}
             utils={phone ? dockUtils : undefined}
             hasScene={hasScene}
+            hasTerrain={hasTerrain}
             rect={rect}
             armed={armed}
             drawTool={drawTool}
@@ -1919,6 +2007,18 @@ export function IfcSite() {
           />
         )}
 
+        {sculpting && (
+          <SculptPanel
+            brush={sculptBrush}
+            onBrush={setSculptBrush}
+            cell={terrainCell}
+            edited={terrainEdits}
+            onReset={() => viewerRef.current?.resetTerrain()}
+            readoutRef={sculptReadoutRef}
+            onClose={() => viewerRef.current?.setDrawMode(null)}
+          />
+        )}
+
         {/* What the status bar was, split by how long each part is true for:
             the momentary sentence floats over the viewer and leaves, the
             standing facts sit in the bottom-right corner, and the bar itself is
@@ -1946,6 +2046,8 @@ export function IfcSite() {
           onBuild={onBuild}
           onDownload={onDownload}
           ifc={ifc}
+          format={exportFormat}
+          onFormat={setExportFormat}
           ifcOpen={ifcOpen}
           ifcBtnRef={ifcBtnRef}
           /* The placeholder the name field shows, which is what the file will

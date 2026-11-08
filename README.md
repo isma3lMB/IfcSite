@@ -42,7 +42,9 @@ Then, in the app:
    definition; nothing is selected until you draw one.
 3. **Build model** — watch the status line. A first build in a French town takes a few
    seconds.
-4. **Download IFC** — the file lands as `IFCSITE_<lon>_<lat>.ifc`.
+4. **Download IFC** — the file lands as `IFCSITE_<lon>_<lat>.ifc`. The wrench on the button
+   switches it to **GLB** or **glTF** for 3D and visualisation tools — the same model, in
+   the same colours, as `IFCSITE_<lon>_<lat>.glb` / `.gltf`.
 
 Everything between steps 3 and 4 — editing, drawing extra buildings, measuring, restyling
 layers — is optional.
@@ -146,13 +148,23 @@ before 1 m, and the panel tells you the grid you will actually get:
   offset for lifting roads and draped surfaces off the ground.
 - **Draw your own** buildings — box or polygon footprints — and **plant trees**. These are
   the one thing no rebuild can bring back, so rebuilding over them asks first.
+- **Sculpt the terrain** to adjust the landscape design: a brush that raises, lowers,
+  flattens, smooths or sets the ground to a typed elevation, with a radius and a falloff.
+  Under half a lattice cell it edits the single nearest vertex, so a vertex can be put at
+  an exact height; Alt+click picks up the elevation under the cursor. Roads, draped
+  surfaces and trees follow the new ground, buildings stay where they are, and the edited
+  ground is what the IFC, the glTF and the draft carry. **Reset terrain** puts every
+  vertex back at its surveyed height, as one undoable step.
 - **Model origin**: the point the exported file calls `(0, 0, 0)`. Drag it and the file is
   re-georeferenced without anything moving on the ground.
 - **Local project placement**: give that origin your project's own coordinates and turn the
   axes to its grid. It becomes the IFC site placement; the georeferencing is untouched.
 - **Undo/redo**, 100 deep, one command per gesture.
 - **Model layers** — every layer and element, with visibility, colour and a filter.
-- **Measure** distance and area, snapping to vertices, midpoints and edges.
+- **Measure** distance and area, and **mark elevations** — a spot level on any point,
+  reading its altitude against the vertical datum and the level the exported IFC gives it
+  (relative to the model origin and project base). All three snap to vertices, midpoints
+  and edges.
 
 ### Drafts
 
@@ -163,7 +175,8 @@ Two verbs, deliberately not synonyms:
 - **Export** writes a portable **`.ifcsite.json`** you can move, back up or hand to someone.
 
 Either one reopens with *every* edit intact — hand-drawn footprints, transforms, colours,
-layer offsets, the origin marker, the placement. None of that survives a rebuild, because
+layer offsets, the sculpted terrain (and the way back to the surveyed one), the origin
+marker, the placement. None of that survives a rebuild, because
 element ids come from the source data and shift between fetches. Opening a draft touches the
 network not at all.
 
@@ -185,6 +198,7 @@ network not at all.
 | `Ctrl`+`Shift`+`Z` or `Ctrl`+`Y` | Redo |
 | `Del` | Delete the selection |
 | `Enter` | Close a polygon footprint or an area measurement |
+| `[` / `]` | Shrink / grow the terrain brush |
 | `Esc` | Unwind — the open card, then a drawing gesture, then the selection |
 
 ---

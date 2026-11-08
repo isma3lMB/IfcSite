@@ -54,8 +54,9 @@ lib/
   geo/               pure geometry: CRS, rings, meshes, rectangles, Euler decomposition
   i18n/              FR/EN dictionaries, key vocabulary, React context
   ifc/               SPF serialiser (three schemas) and the scene → IFC pass
+  gltf/              glTF 2.0 serialiser (GLB / .gltf) and the scene → glTF pass
   io/                the draft document: snapshot, IndexedDB slots, download/read
-  scene/             scene-record construction, layer table, per-element transform
+  scene/             scene-record construction, layer table, per-element transform, terrain sculpting
   sources/           network adapters: Overpass, IGN, Nominatim, Terrarium
   theme/             light/dark context — the single writer of the `dark` class
   ui/                the derived flow step and the cooperative-yield helper
@@ -246,10 +247,11 @@ agree — the bar offers Rebuild in the same step the toast calls the scene stal
 | [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections, plus a **Drape onto terrain** group of five per-layer checkboxes (IGN-only, dimmed under OSM, since OSM ways are 2D and there would be nothing to fall back to). Every tunable is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
 | [crs-field.tsx](components/crs-field.tsx) | The projected CRS, as a searchable list of the systems valid where the site actually is. It carries its own loading rather than sitting in the dock, because the list is a function of a rectangle drawn on the other side of the app — and it is inert until there is one, since a CRS list has nothing to be evaluated against and any choice made early is one the first rectangle invalidates. The hint line doubles as the loading and failure channel. |
 | [search-flyout.tsx](components/search-flyout.tsx) | The place search on its own rail button rather than folded into Options — finding a place is the first thing you do, before there is anything to configure. It opens on arrival while no rectangle exists and collapses to an icon the moment one does. |
-| [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
+| [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the format Download writes (IFC, GLB or glTF — see §11), the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. Under a glTF format the schema and georeferencing-target fields are hidden; the names and authorship still travel, in the glTF's `extras`. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
 | [file-flyout.tsx](components/file-flyout.tsx) | Drafts. Save into this browser, list/open/rename/delete the slots, open a dropped or picked `.ifcsite.json`, export one. **Save and Export are deliberately not synonyms** and the copy says so: Save keeps a site in this browser, Export writes a file you can move. Slot rows are sized and dated from `SlotMeta` alone (see §14) — `Intl.RelativeTimeFormat` in the *active* language, not the browser's. |
 | [model-tree.tsx](components/model-tree.tsx) | The scene by layer: visibility, colour and a filter, with the leaves under each layer. **Windowed** — `ROW_H = 24` and ten visible rows, because a scene is capped at four thousand buildings and four thousand DOM rows is a panel that stutters on every expand. Keep `ROW_H` in step with `.treeItem` in [globals.css](app/globals.css); the row is a fixed height there for exactly this reason. Rows take the same Ctrl/Shift modifiers as a click in the 3D view, and highlight the whole selection rather than one row — which is the only way to reach an element buried inside another. |
 | [element-editor.tsx](components/element-editor.tsx) | The selection panel, in five shapes depending on *what* is selected: an element (name, colour, opacity, height, X/Y/Z position/rotation/scale with a uniform-scale lock, reset, delete), a layer (colour, opacity and an offset applied to every element in it at once), the origin marker (its projected position, plus the local project placement — coordinates and angle, typed rather than dragged, and outside the undo history), a drawn shape (its layer, a position row of X/Y and a rotation of Z — the two moves a shape has — "back to where drawn", and Delete), or nothing. A building also gets **Cut the terrain under it**, dimmed without a terrain mesh. With several elements selected it keeps the element shape, showing the anchor's values under a `{n} elements` header; writing any field applies it to all of them. |
+| [sculpt-panel.tsx](components/sculpt-panel.tsx) | The terrain brush, in the draw panel's corner while the sculpt tool is armed: the **mode** (raise, lower, flatten, smooth, set elevation), the **radius**, the **step** for raise/lower or the **elevation** for set, and the **falloff**. Below the fields, the elevation under the brush — written straight into a span by the viewer (`setSculptReadout`) every frame, the compass's route, so hovering never re-renders the page — and **Reset terrain** with the count of edited vertices, re-read on `onLayers`. Stateless like the draw panel: the brush is `ifc-site`'s and reaches the viewer through `setSculptOptions`; Alt+click comes back up as `onSculptSample`, which switches the brush to *set* at that elevation. |
 | [draw-panel.tsx](components/draw-panel.tsx) | What the next rectangle, polygon or tree becomes, in the element editor's corner and type while a draw tool is armed: the **layer** (building, vegetation, road, water, or a void through the terrain), the **height** (buildings and trees only — the surfaces are flat slabs like the fetched ones of their layer), and **Drape onto terrain** for the three layers that lie on the ground. Drape and Void are dimmed without a terrain mesh. Stateless: every value is `ifc-site`'s and reaches the viewer through `setDrawOptions`. It shows only while nothing is selected, so the two panels never compete for the spot — arming a tool clears the selection, and a model-tree pick made mid-tool gives the corner back to the editor. Shrink-wrapped (`.drawPanel`) where the editor stretches, and a bottom sheet like it below 860 px. The height field used to sit alone in the status bar. |
 | [confirm-card.tsx](components/confirm-card.tsx) | A yes/no card for the one decision `Ctrl+Z` cannot take back: rebuilding or opening a draft over hand-drawn elements, which are not in any source and cannot be re-fetched. Not `window.confirm` — a native dialog is styled by the browser, sits outside the app's language, and cannot say how many buildings are about to go. It stacks above the info overlay because it is the only thing here that blocks. |
 | [colour-field.tsx](components/colour-field.tsx) | The colour swatch, its own module because the element editor and the model tree both need it — and the live/commit split below is exactly the part that would go wrong if the second one were written again from scratch. |
@@ -405,6 +407,20 @@ threshold, InstancedMesh trees, and an undo stack keyed on live mesh state.
   axes. A non-uniform scale across elements at differing rotations is a shear an `Xf` cannot
   hold; `decompose` approximates. Every panel write loops over `editables()`, which is
   coherent because an `Xf` is an offset from each element's own centroid.
+- **Sculpting the terrain** — the `'sculpt'` member of `DrawTool`, so it inherits the rail's
+  pressed state, the pinned hint and the Escape ladder like the other tools. A press on the
+  ground opens a *stroke* (`beginStroke`): the camera comes off the left button, as for the
+  rectangle tool, and each dab is written straight into `Grid.verts`. Dabs are laid in
+  `updateSculpt`, once a frame off the parked pointer like the measure snap, spaced by a
+  fraction of the radius. Only the ground follows live — with no holes in it the drawn mesh
+  *is* the lattice, so `liveGround` rewrites just the moved heights; with holes it re-cuts.
+  Releasing lands the stroke (`endStroke` → `commitGround`): `followGround` carries what
+  rests on the ground, drawn shapes are rebuilt through `reshape`, cutting buildings
+  re-measure their plinth, and one `'terrain'` command is pushed holding the moved vertices'
+  heights either side and the exact `GroundShift` applied — so an undo puts back what the
+  stroke moved instead of deciding again. The brush rim and the lattice dots under it sit on
+  the scene beside the draft (they must survive `disposeGroup`) and draw with the depth test
+  off. Tool changes, undo and redo all land a stroke still down before doing anything else.
 - **Undo/redo**: each command is a before/after snapshot of one `Xf` record (100-deep). The
   data is small and plain, so inverse-command machinery buys nothing; what matters is that
   one gesture produces exactly one command — hence `beginEdit()` on `dragging-changed` true
@@ -436,7 +452,7 @@ be reasoned about without a scene. They are modules, not methods, for that reaso
 | Module | What it owns |
 | --- | --- |
 | [snap.ts](lib/viewer/snap.ts) | Pure geometry. What a measured point latched onto — `vertex`, `midpoint`, `edge` or `free` — within `SNAP_PX = 10` of the cursor. Priority is expressed as **pixels of forgiveness** (`BONUS`) rather than as a sort order: a corner and the edge that ends at it are within a pixel of each other near that corner, so a strict nearest-wins flickers between them. Also `toScreen`, which returns `behind` *separately* from the coordinates — a point behind the camera still projects to a finite pair, mirrored through the screen centre, and anything placing a label has to drop those rather than trust them. |
-| [measureLayer.ts](lib/viewer/measureLayer.ts) | Distance and area measurements: the lines, the DOM labels (DOM, so they cannot live in the scene graph), the snap cursor held at a constant pixel size, and the live in-progress gesture. Number **formatters are injected from React** — nothing under `lib/viewer` may compose user-facing text, and a thousands separator is locale, not geometry. |
+| [measureLayer.ts](lib/viewer/measureLayer.ts) | Distance, area and spot-level (`'elev'`) measurements — a spot level is one click, and its label stands over the point on a CSS leader (`.measureLabel.elev`, spanning `CLEAR`) rather than across it. Its text comes from the injected `level` formatter, because what a level is read against — the vertical datum, the origin marker's height, the project base's Z — is site metadata the viewer does not hold; React re-creates the formatter when any of them changes, which is what re-renders the labels already taken. The module owns the lines, the DOM labels (DOM, so they cannot live in the scene graph), the snap cursor held at a constant pixel size, and the live in-progress gesture. Number **formatters are injected from React** — nothing under `lib/viewer` may compose user-facing text, and a thousands separator is locale, not geometry. |
 | [presentation.ts](lib/viewer/presentation.ts) | The camera path presentation mode flies, as pure geometry: `OrbitPose` at phase *p* of the loop, with an `ENTRY_MS = 1200` blend in. The loop's *shape* is fixed here; its *pace* is a setting — `orbitCycleMs`, default 36 s, held by `Viewer` and re-anchored mid-orbit by `setOrbitCycle` so a change of speed is not a cut. Deliberately not a turntable — a constant ring reads as a screensaver after half a revolution and shows the model from one height forever, so elevation and distance breathe once per revolution. The wide end of that breath is pinned to the distance the viewer frames the whole site from, which is what makes "the whole site is in frame" a guarantee rather than a hope. `OrbitPose` is Z-up spherical, not `THREE.Spherical`, whose phi is measured from +Y. |
 | [translucency.ts](lib/viewer/translucency.ts) | Twenty-seven lines, and the `needsUpdate` in them is the entire point rather than being defensive: three bakes `transparent` into the shader program's cache key as `#define OPAQUE`, which forces `diffuseColor.a = 1.0`, and assigning the flag does not bump `material.version`. A material compiled while opaque keeps reaching the screen solid no matter what opacity says — exactly what an element created at 1 and then dragged down the slider does. Gated on a real crossing so a drag inside the translucent range never recompiles. A solid below 1 must not write depth, or it hides what it is meant to be seen through, including its own far side. |
 | [viewTriad.ts](lib/viewer/viewTriad.ts) | three.js's `ViewHelper`, vendored and rewritten. What is kept is the corner render pass — clear depth, shrink the viewport, draw a second tiny scene, put the viewport back. The rest had to go: the stock helper is Y-up in three places at once (hard-coded snap Eulers, a dummy object with the default up, and X/Y/Z labels), and this scene is Z-up with axes that have names — east, north, up. It reports which axis the pointer is over and **never touches the camera**, so the Viewer can apply its own click-versus-orbit rules first. |
@@ -738,6 +754,37 @@ record and file reads as uncut.
   down and that much deeper — still one `SweptSolid` over the same profile; an uncut
   building is written on the shared axes exactly as before.
 
+### Sculpting the terrain — [lib/scene/sculpt.ts](lib/scene/sculpt.ts)
+
+The lattice is edited **in place**, and that is the whole of what reaching the deliverable
+takes: the IFC and glTF writers and the draft read `Grid.verts`, and `Grid.sample` does too —
+`gridFrom` builds its sampler over the vertices rather than over the column of heights it was
+handed, so a sculpted height is the height every later drape and lookup sees.
+
+- **The brush** (`dab`) — raise and lower move the centre by the step, flatten levels to the
+  ground under the stroke's first dab (so a stroke across a slope cuts and fills to one
+  plane rather than chasing it), smooth pulls each vertex towards its eight neighbours, set
+  moves the ground to a typed elevation. Weights fall off smooth (a cosine bell), linear or
+  flat. Every new height is worked out before any is written, so smoothing reads its
+  neighbours as they were. **Under half a lattice cell the brush is the single nearest
+  vertex at full weight** — a radius that small cannot be trusted to contain a vertex, and
+  it is what makes "put this vertex at 42.50 m" a click.
+- **What follows the ground** (`followGround`). The change in ground height is the lattice
+  of differences interpolated on the terrain's own triangles (`groundAt` over a mesh sharing
+  the terrain's `faces` array, so the plan-only face index is reused). That is *exact* for a
+  draped layer — every one of its vertices lies on a terrain triangle (see
+  `conformToTerrain`), so it moves by its triangle's own linear change and keeps its
+  clearance. Fetched surfaces follow whole (a hedge's top rises with its base), except one
+  whose elevation came from the source (`z_source: 'source'`). Road and railway vertices,
+  and tree bases, follow only where they were within `FOLLOW_TOL` (1 m) of the old ground,
+  so a source-Z deck over a valley stays up when the valley floor is lowered. Ribbon faces
+  share corner objects, so each vertex is moved once. **Buildings do not follow** — they are
+  the fixed points a landscape is graded around; one set to cut re-measures its plinth.
+  Drawn surfaces and voids are not shifted but rebuilt from their recipe by the viewer.
+- **The way back.** `Grid.z0` keeps the delivered heights from the first stroke on
+  (`keepOriginal`); `editedCount` is what the panel's Reset is offered on. Absent on every
+  untouched terrain, so a build and an untouched draft are exactly what they were.
+
 ### [layers.ts](lib/scene/layers.ts) — what a layer *is*, in one place
 
 The taxonomy itself (`LAYER_IDS`) lives on [lib/types.ts](lib/types.ts) beside the scene it
@@ -946,6 +993,31 @@ order (terrain, buildings, roads, railways, surfaces, trees), reconstructs the r
 railway surface meshes from the stored quads, and returns the text plus `IfcStats` as data
 for React to render.
 
+### glTF output (`lib/gltf/`)
+
+The wrench panel's **Format** field switches Download between the IFC and the same model as
+glTF 2.0, binary (`.glb`) or JSON with the buffer inlined (`.gltf`). The choice is app state
+in `ifc-site`, not part of `IfcMeta`, so it never travels in a draft.
+
+- [writer.ts](lib/gltf/writer.ts) — `GltfDoc`, a dependency-free glTF serialiser: one
+  buffer, positions and normals, matte materials deduplicated by colour. Deliberately not
+  three's `GLTFExporter`, which would export the viewer's scene graph — sky dome, gizmo, edge
+  overlays — in theme-dependent lighting. Colours are converted sRGB → linear, as
+  `baseColorFactor` requires; normals follow three's `computeVertexNormals`, so smooth/flat
+  shading matches the preview.
+- [emit.ts](lib/gltf/emit.ts) — `emitGLTF(scene, meta, format)`, element for element the
+  pass `emitIFC` makes, through the same colour, opacity, plinth, cut and layer-offset
+  helpers. Coordinates are the IFC's model coordinates (re-based on the origin marker, then
+  the project base and angle on the site node) inside one root node that turns Z-up into
+  glTF's Y-up. glTF has no CRS or property sets, so the map conversion, CRS, element
+  properties and data credits go into `extras` (and the licence notice into
+  `asset.copyright`). Written at click time from the live scene rather than kept warm like
+  the IFC — nothing on screen reads it.
+
+The map conversion numbers both writers state come from one place,
+[lib/geo/georef.ts](lib/geo/georef.ts), so the `.ifc` and the `.glb` cannot disagree about
+where model zero is.
+
 ---
 
 ## 12. Internationalisation (`lib/i18n/`)
@@ -1001,6 +1073,13 @@ not recomputable and storing the rest would be storing an answer next to its own
 the ceiling (`n = 211`, 44944 vertices) that is ~650 kB against ~3.6 MB.
 [gridFrom](lib/geo/grid.ts) is what both DEM providers *and* this go through, so the
 reconstruction is exact by construction rather than by two loops agreeing.
+
+A sculpted terrain needs nothing extra to save its edits — they are in `zn`. What it adds is
+the way back: `DraftGrid.z0`, the delivered height of every vertex that was edited, as flat
+`[k, z, k, z, …]` pairs and only where they differ, so a few hundred edited vertices cost a
+few kilobytes rather than a second lattice. A pair naming a vertex that does not exist or
+carrying a height that is not a number is dropped on its own — that edit cannot be reset,
+which is better than losing the terrain it belongs to.
 
 Deliberately **not pretty-printed and not rounded**: the IFC writer emits full doubles, so
 trimming a coordinate here would mean a draft that reopens and re-exports a *different* file

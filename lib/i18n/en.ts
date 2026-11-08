@@ -67,6 +67,8 @@ export const en = {
   'rail.drawTree': 'Plant a tree',
   'rail.measure': 'Measure a distance',
   'rail.measureArea': 'Measure an area',
+  'rail.measureElev': 'Mark an elevation',
+  'rail.sculpt': 'Sculpt the terrain',
   'rail.model': 'Layers',
   'rail.file': 'Drafts',
 
@@ -113,6 +115,13 @@ export const en = {
   'bar.areaHintStart': 'Click the corners of an area — corners and edges snap. Esc leaves the tool.',
   'bar.areaHintPoints': '{n} corners — the first corner or Enter closes, Esc cancels.',
   'bar.measureClear': 'Clear ({n})',
+  'bar.elevHint': 'Click a point to mark its elevation — corners and edges snap. Esc leaves the tool.',
+  /* A spot level's two lines: the altitude against the scene's vertical datum,
+     then the level the exported file gives the point. */
+  'measure.levelAbs': '▼ {v} {datum}',
+  'measure.levelFile': 'IFC level {v}',
+  'bar.sculptHint':
+    'Click or drag on the ground to sculpt it. Alt+click reads an elevation, [ and ] resize the brush, Esc leaves the tool.',
 
   /* ---- the draw panel: what the next rectangle or polygon becomes. It takes
      the element editor's place while a draw tool is armed — nothing can be
@@ -147,9 +156,48 @@ export const en = {
   'draw.noTerrain':
     'This scene has no terrain mesh, so there is nothing to drape onto or cut through.',
 
+  /* ---- the sculpt panel: the terrain brush, in the draw panel's corner while
+     the sculpt tool is armed. ---- */
+  'sculpt.title': 'Terrain',
+  'sculpt.tool': 'Sculpt',
+  'sculpt.mode': 'Brush',
+  'sculpt.raise': 'Raise',
+  'sculpt.lower': 'Lower',
+  'sculpt.flatten': 'Flatten',
+  'sculpt.smooth': 'Smooth',
+  'sculpt.set': 'Set elevation',
+  'sculpt.radius': 'Radius (m)',
+  'sculpt.radiusTitle': 'Brush radius (m)',
+  'sculpt.strength': 'Step (m)',
+  'sculpt.strengthTitle': 'How far one click raises or lowers the centre of the brush (m)',
+  'sculpt.target': 'Elevation (m)',
+  'sculpt.targetTitle': 'The elevation the brush sets the ground to (m)',
+  'sculpt.targetHint': 'Alt+click the ground to pick up its elevation.',
+  'sculpt.flattenHint': 'Levels to the ground where the stroke starts.',
+  'sculpt.falloff': 'Falloff',
+  'sculpt.falloffSmooth': 'Smooth',
+  'sculpt.falloffLinear': 'Linear',
+  'sculpt.falloffFlat': 'Flat',
+  'sculpt.vertexHint': 'Under {half} m the brush edits the single nearest vertex — the lattice is {cell} m.',
+  'sculpt.under': 'Under the brush',
+  'sculpt.follows':
+    'Roads, surfaces and trees follow the new ground. Buildings stay where they are; one set to cut the terrain re-measures its plinth.',
+  'sculpt.edited': '{n} vertices edited',
+  'sculpt.reset': 'Reset terrain',
+  'sculpt.resetTitle': 'Put every sculpted vertex back at its surveyed height',
+
   /* ---- the IFC panel: everything the exported file says about itself, off the
      wrench beside Download. None of it is a build input — see IfcMeta. ---- */
   'ifc.title': 'IFC file',
+  /* The same panel with a glTF format chosen: the title follows what Download
+     is about to write. */
+  'gltf.title': 'glTF file',
+  'exp.format': 'Format',
+  'exp.formatIfc': 'IFC — BIM model',
+  'exp.formatGlb': 'GLB — binary glTF',
+  'exp.formatGltf': 'glTF — JSON',
+  'exp.gltfHint':
+    'A mesh for 3D and visualisation tools: the same model, in the same colours, Y-up and in metres, with zero on the origin marker. The georeferencing, the names below and the data credits travel in the file’s extras.',
   'ifc.lead':
     'What the file says about itself. None of it is rebuilt — the model on screen is re-serialised as you type.',
   'ifc.schema': 'IFC schema',
@@ -268,6 +316,8 @@ export const en = {
   'ctl.build': 'Build model',
   'ctl.building': 'Building…',
   'ctl.download': 'Download IFC',
+  'ctl.downloadGlb': 'Download GLB',
+  'ctl.downloadGltf': 'Download glTF',
 
   /* ---- sheet ---- */
   'sheet.tabMap': '2D map',
@@ -435,6 +485,7 @@ export const en = {
   'sum.treesCapped': 'Trees capped at {cap}.',
   'sum.reused': 'Reused {n} downloads from earlier in this session.',
   'sum.skipped': 'No {layers} returned.',
+  'sum.treesTimedOut': 'No trees received within {secs} s — built without them.',
 
   /* ---- layer names (UI only; the IFC keeps stable English names) ---- */
   'layer.terrain': 'terrain',
@@ -463,6 +514,8 @@ export const en = {
   'edit.reset': 'Reset element',
   'edit.origin': 'Move origin',
   'edit.originReset': 'Origin recentred',
+  'edit.sculpt': 'Sculpt',
+  'edit.sculptReset': 'Terrain reset',
 
   /* ---- confirmations ----
      Singular and plural are separate entries rather than an "(s)": this card
@@ -498,6 +551,7 @@ export const en = {
   'err.overpassAllRefused': 'Every Overpass mirror refused the request.',
   'err.overpassTimeout': '{host} timed out',
   'err.overpassStatus': '{host} returned {status}',
+  'err.treesTimeout': 'No trees received within {secs} s.',
   'err.ignWfsStatus': 'IGN {layer} returned {status}',
   'err.altiStatus': 'RGE ALTI returned {status}',
   'err.altiShortGrid': 'RGE ALTI returned a short grid',

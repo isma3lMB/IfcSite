@@ -67,6 +67,7 @@ export type ErrorCode =
   | 'err.overpassAllRefused'
   | 'err.overpassTimeout'
   | 'err.overpassStatus'
+  | 'err.treesTimeout'
   | 'err.ignWfsStatus'
   | 'err.altiStatus'
   | 'err.altiShortGrid'
@@ -122,7 +123,9 @@ export type EditLabelKey =
   | 'edit.duplicate'
   | 'edit.reset'
   | 'edit.origin'
-  | 'edit.originReset';
+  | 'edit.originReset'
+  | 'edit.sculpt'
+  | 'edit.sculptReset';
 
 /**
  * Substituted into `{placeholders}` by the `t()` helper.

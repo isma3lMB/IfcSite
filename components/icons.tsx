@@ -199,6 +199,28 @@ export const IconMeasureArea = () => (
   </Svg>
 );
 
+/* The spot-level mark off a drawing: a datum line with the level's triangle
+   standing on it, point down, and the stem the reading is written beside. */
+export const IconMeasureElev = () => (
+  <Svg>
+    <path d="M1.5 12.5h13" />
+    <path d="M5 8h6l-3 4.5Z" />
+    <path d="M8 8V2.5h5" />
+  </Svg>
+);
+
+/* A ground profile through three lattice points, the middle one lifted by an
+   arrow — the vertex the brush is moving, rather than a generic shovel. */
+export const IconSculpt = () => (
+  <Svg>
+    <path d="M1.5 13.5 5 10.5l3-4.5 3 4 3.5-2" />
+    <path d="M8 3.6V1.8M6.6 3.2 8 1.8l1.4 1.4" />
+    <rect x="4" y="9.5" width="2" height="2" fill="currentColor" stroke="none" />
+    <rect x="7" y="5" width="2" height="2" fill="currentColor" stroke="none" />
+    <rect x="10" y="9" width="2" height="2" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 /* An axis gizmo, not the four-arrow cross — that one is Pan, and the two sit
    four buttons apart on the same rail. */
 export const IconMove = () => (

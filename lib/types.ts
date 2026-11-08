@@ -108,6 +108,16 @@ export type Grid = {
   verts: Vec3[];
   faces: number[][];
   sample: (lat: number, lon: number) => number;
+  /**
+   * The heights as the DEM delivered them, one per vertex, kept from the first
+   * sculpt onwards (see lib/scene/sculpt) so the ground can be put back. Absent
+   * on a terrain nobody has edited — which is every terrain a build produces,
+   * and what keeps an untouched draft exactly the size it was.
+   *
+   * `verts[k][2]` stays the state of record: it is what the viewer draws, what
+   * `sample` reads and what the writers export. This is only the way back.
+   */
+  z0?: number[];
 };
 
 /**
@@ -608,6 +618,10 @@ export type BuildSummary = {
   capAt: number;
   treesCapped: boolean;
   treeCap: number;
+  /** The tree fetch ran out of its overall budget (TREES_DEADLINE_MS) and the
+   *  scene was built without them. An error, not a footnote: it holds the toast. */
+  treesTimedOut: boolean;
+  treesDeadlineS: number;
   skipped: LayerKey[];
   /** Fetches this build answered out of the session cache rather than off the
    *  network. Reported because a build that normally takes forty seconds
