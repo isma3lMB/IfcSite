@@ -126,6 +126,14 @@ export const fr: Dict = {
     'Coché, la forme suit le sol sous elle. Décoché, elle reste de niveau à son sommet le plus bas. Dans les deux cas, une forme commencée sur un toit reste à plat sur ce toit.',
   'draw.voidHint':
     'Perce un trou dans le terrain. Les bâtiments et les surfaces au-dessus restent tels quels.',
+  'draw.terrainView': 'Vue du terrain',
+  'draw.xray': 'Terrain en transparence',
+  'draw.vertices': 'Afficher les sommets',
+  'draw.contours': 'Courbes de niveau',
+  'draw.contoursHint': 'Tous les {step} m, une sur cinq plus foncée.',
+  'draw.heatmap': 'Carte de chaleur des altitudes',
+  'draw.heatmapRange': 'Hauteur du sol, {min} – {max} m',
+  'draw.terrainViewHint': 'Simple affichage tant que cet outil est ouvert — rien n’est modifié ni exporté.',
   'draw.noTerrain':
     'Cette scène n’a pas de maillage de terrain : rien sur quoi draper, rien à percer.',
 

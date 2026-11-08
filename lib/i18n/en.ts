@@ -136,6 +136,14 @@ export const en = {
     'Ticked, the shape follows the ground under it. Unticked, it is held level at its lowest corner. Either way, a shape started on a roof stays flat on that roof.',
   'draw.voidHint':
     'Cuts a hole through the terrain. Buildings and surfaces above it are left as they are.',
+  'draw.terrainView': 'Terrain view',
+  'draw.xray': 'X-ray terrain',
+  'draw.vertices': 'Show vertices',
+  'draw.contours': 'Contours',
+  'draw.contoursHint': 'Every {step} m, every fifth darker.',
+  'draw.heatmap': 'Elevation heatmap',
+  'draw.heatmapRange': 'Ground height, {min} – {max} m',
+  'draw.terrainViewHint': 'Only a view while this tool is open — nothing is changed or exported.',
   'draw.noTerrain':
     'This scene has no terrain mesh, so there is nothing to drape onto or cut through.',
 

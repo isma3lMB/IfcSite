@@ -39,6 +39,7 @@ import { EPSG_CHOICES } from '@/lib/geo/crs';
 import { bestAt, loadEpsgIndex } from '@/lib/geo/epsg';
 import { toGeoOf } from '@/lib/geo/inverse';
 import { rectCentre } from '@/lib/geo/rect';
+import { TERRAIN_VIEW_OFF, type TerrainView } from '@/lib/geo/relief';
 import { useT } from '@/lib/i18n/context';
 import {
   DRAFT_EXT,
@@ -362,6 +363,14 @@ export function IfcSite() {
   /** Whether the scene on screen has a terrain mesh. The panel reads it to take
       Drape and Void away where there is no ground to drape onto or hole. */
   const [hasTerrain, setHasTerrain] = useState(false);
+  /* How the terrain is shown while a rectangle or polygon is being drawn — the
+     draw panel's toggles. Remembered here, applied by the viewer only while such
+     a tool is armed (see the effect below), so leaving the tool gives the plain
+     ground back. The range and interval are the legend's, read off the scene the
+     viewer holds each time one is loaded. */
+  const [terrainView, setTerrainView] = useState<TerrainView>(TERRAIN_VIEW_OFF);
+  const [terrainRange, setTerrainRange] = useState<{ min: number; max: number } | null>(null);
+  const [contourStep, setContourStep] = useState<number | null>(null);
   /** How many measurements the viewer is holding. Reported the same way the
       corner count is, and for the same reason: the viewer drops them on a
       rebuild without being asked. */
@@ -598,6 +607,15 @@ export function IfcSite() {
       copyName: t('ed.copySuffix'),
     });
   }, [drawHeight, drawLayer, drawDrape, t]);
+
+  /* The terrain view applies only while a footprint tool is armed: the toggles
+     are on its panel, and a ground left see-through or tinted with the panel
+     gone would have no control to undo it. Re-run on a new scene so a rebuild
+     keeps the look the user chose. */
+  const terrainEditing = view === '3d' && (drawTool === 'rect' || drawTool === 'polygon');
+  useEffect(() => {
+    viewerRef.current?.setTerrainView(terrainEditing ? terrainView : TERRAIN_VIEW_OFF);
+  }, [terrainEditing, terrainView, hasTerrain]);
 
   /* ---- measuring -------------------------------------------------------
      Same rule as the drawn name above: the viewer may not compose text, so how
@@ -1256,6 +1274,8 @@ export function IfcSite() {
     viewerRef.current?.setScene(res.scene, res.site, toGeoOf(res.meta));
     setHasScene(true);
     setHasTerrain(res.scene.terrain !== null);
+    setTerrainRange(viewerRef.current?.terrainRange() ?? null);
+    setContourStep(viewerRef.current?.contourInterval() ?? null);
     setSiteDirty(false);
     setView('3d');
     setBusy(false);
@@ -1375,6 +1395,8 @@ export function IfcSite() {
         emitterRef.current?.setSource(d.scene, d.meta);
         viewerRef.current?.setScene(d.scene, d.site, toGeoOf(d.meta));
         setHasTerrain(d.scene.terrain !== null);
+        setTerrainRange(viewerRef.current?.terrainRange() ?? null);
+        setContourStep(viewerRef.current?.contourInterval() ?? null);
 
         // setScene resets the origin to the site centre and clears layer
         // visibility, both of which are right for a rebuild and wrong here.
@@ -1889,6 +1911,10 @@ export function IfcSite() {
             drape={drawDrape}
             onDrape={setDrawDrape}
             hasTerrain={hasTerrain}
+            terrainView={terrainView}
+            onTerrainView={setTerrainView}
+            contourStep={contourStep}
+            terrainRange={terrainRange}
             onClose={() => viewerRef.current?.setDrawMode(null)}
           />
         )}
