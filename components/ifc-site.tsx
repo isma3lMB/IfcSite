@@ -637,11 +637,11 @@ export function IfcSite() {
     });
   }, [drawHeight, drawLayer, drawDrape, t]);
 
-  /* The terrain view applies only while a footprint tool is armed: the toggles
+  /* The terrain view applies only while the sculpt tool is armed: the toggles
      are on its panel, and a ground left see-through or tinted with the panel
      gone would have no control to undo it. Re-run on a new scene so a rebuild
      keeps the look the user chose. */
-  const terrainEditing = view === '3d' && (drawTool === 'rect' || drawTool === 'polygon');
+  const terrainEditing = view === '3d' && drawTool === 'sculpt';
   useEffect(() => {
     viewerRef.current?.setTerrainView(terrainEditing ? terrainView : TERRAIN_VIEW_OFF);
   }, [terrainEditing, terrainView, hasTerrain]);
@@ -904,6 +904,14 @@ export function IfcSite() {
     setLayerNodes(viewerRef.current?.layerTree() ?? []);
     setTerrainEdits(viewerRef.current?.terrainEdits() ?? 0);
     setTerrainCell(viewerRef.current?.terrainCell() ?? null);
+    // A stroke, an undo or a reset moves the ground's range, and the legend and
+    // the contour interval are read off it. A scene load signals this too, so
+    // the two lines that used to set these beside setHasTerrain are gone.
+    const r = viewerRef.current?.terrainRange() ?? null;
+    setTerrainRange((prev) =>
+      prev && r && prev.min === r.min && prev.max === r.max ? prev : r,
+    );
+    setContourStep(viewerRef.current?.contourInterval() ?? null);
   }, []);
 
   const onSelectLayer = useCallback((id: LayerId) => viewerRef.current?.selectLayer(id), []);
@@ -1348,8 +1356,6 @@ export function IfcSite() {
     viewerRef.current?.setScene(res.scene, res.site, toGeoOf(res.meta));
     setHasScene(true);
     setHasTerrain(res.scene.terrain !== null);
-    setTerrainRange(viewerRef.current?.terrainRange() ?? null);
-    setContourStep(viewerRef.current?.contourInterval() ?? null);
     setSiteDirty(false);
     setView('3d');
     setBusy(false);
@@ -1482,8 +1488,6 @@ export function IfcSite() {
         emitterRef.current?.setSource(d.scene, d.meta);
         viewerRef.current?.setScene(d.scene, d.site, toGeoOf(d.meta));
         setHasTerrain(d.scene.terrain !== null);
-        setTerrainRange(viewerRef.current?.terrainRange() ?? null);
-        setContourStep(viewerRef.current?.contourInterval() ?? null);
 
         // setScene resets the origin to the site centre and clears layer
         // visibility, both of which are right for a rebuild and wrong here.
@@ -1999,10 +2003,6 @@ export function IfcSite() {
             drape={drawDrape}
             onDrape={setDrawDrape}
             hasTerrain={hasTerrain}
-            terrainView={terrainView}
-            onTerrainView={setTerrainView}
-            contourStep={contourStep}
-            terrainRange={terrainRange}
             onClose={() => viewerRef.current?.setDrawMode(null)}
           />
         )}
@@ -2014,6 +2014,10 @@ export function IfcSite() {
             cell={terrainCell}
             edited={terrainEdits}
             onReset={() => viewerRef.current?.resetTerrain()}
+            terrainView={terrainView}
+            onTerrainView={setTerrainView}
+            contourStep={contourStep}
+            terrainRange={terrainRange}
             readoutRef={sculptReadoutRef}
             onClose={() => viewerRef.current?.setDrawMode(null)}
           />

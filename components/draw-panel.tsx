@@ -7,7 +7,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Radio, RadioGroup } from '@/components/ui/radio-group';
 import { useT } from '@/lib/i18n/context';
 import type { StringKey } from '@/lib/i18n/context';
-import { type TerrainView, heatGradientCss } from '@/lib/geo/relief';
 import { rnd } from '@/lib/scene/xf';
 import { DRAPEABLE, DRAW_LAYERS, type DrawLayer } from '@/lib/types';
 
@@ -32,13 +31,6 @@ const TOOL_NAME: Record<PanelTool, StringKey> = {
   tree: 'draw.toolTree',
 };
 
-const VIEW_ROWS: [keyof TerrainView, StringKey][] = [
-  ['xray', 'draw.xray'],
-  ['vertices', 'draw.vertices'],
-  ['contours', 'draw.contours'],
-  ['heatmap', 'draw.heatmap'],
-];
-
 export type DrawPanelProps = {
   tool: PanelTool;
   layer: DrawLayer;
@@ -50,12 +42,6 @@ export type DrawPanelProps = {
   /** Whether the scene has a terrain mesh — without one there is nothing to
    *  drape onto and nothing to cut a void through. */
   hasTerrain: boolean;
-  /** How the terrain is shown while the tool is open, and what the legend under
-   *  the toggles needs to say: the contour interval and the heatmap's range. */
-  terrainView: TerrainView;
-  onTerrainView: (v: TerrainView) => void;
-  contourStep: number | null;
-  terrainRange: { min: number; max: number } | null;
   /** Leave the tool: the panel is the tool's, so its ✕ is the same as Esc. */
   onClose: () => void;
 };
@@ -165,43 +151,7 @@ export function DrawPanel(p: DrawPanelProps) {
 
       {footprint && p.layer === 'void' && <p className="editHint">{t('draw.voidHint')}</p>}
 
-      {footprint && p.hasTerrain && (
-        <div className="field">
-          <span className="eyebrow block mb-1.5">{t('draw.terrainView')}</span>
-          {VIEW_ROWS.map(([key, label]) => (
-            <label key={key} className="check dimmed">
-              <Checkbox
-                checked={p.terrainView[key]}
-                onCheckedChange={(v) => p.onTerrainView({ ...p.terrainView, [key]: v === true })}
-              />
-              {t(label)}
-            </label>
-          ))}
-          {p.terrainView.contours && p.contourStep !== null && (
-            <p className="editHint mt-1!">
-              {t('draw.contoursHint', { step: String(p.contourStep) })}
-            </p>
-          )}
-          {p.terrainView.heatmap && p.terrainRange && (
-            <div className="mt-1.5">
-              <div
-                aria-hidden="true"
-                className="h-2 rounded-sm"
-                style={{ background: heatGradientCss() }}
-              />
-              <p className="editHint mt-1!">
-                {t('draw.heatmapRange', {
-                  min: rnd(p.terrainRange.min, 1).toString(),
-                  max: rnd(p.terrainRange.max, 1).toString(),
-                })}
-              </p>
-            </div>
-          )}
-          <p className="editHint mt-1!">{t('draw.terrainViewHint')}</p>
-        </div>
-      )}
-
-      {needsTerrain && !p.hasTerrain &&<p className="editHint editWarn">{t('draw.noTerrain')}</p>}
+      {needsTerrain && !p.hasTerrain && <p className="editHint editWarn">{t('draw.noTerrain')}</p>}
     </div>
   );
 }

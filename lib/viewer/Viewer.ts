@@ -698,6 +698,13 @@ export class Viewer {
   private groundContours: THREE.LineSegments | null = null;
   /** The ground as last cut, which the overlays above are drawn from. */
   private groundCut: { verts: Vec3[]; faces: number[][] } | null = null;
+  /** The lattice's height range as of the last full cut: the scale the heatmap and
+   *  the contour interval are drawn to. Held still through a sculpt stroke and
+   *  re-measured when the stroke lands. */
+  private reliefRange: { min: number; max: number } | null = null;
+  /** The ground moved under a stroke and the contour lines are behind it. */
+  private reliefDirty = false;
+  private reliefAt = 0;
   private terrainView: TerrainView = TERRAIN_VIEW_OFF;
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   private readonly draft: FootprintDraft;
@@ -1272,6 +1279,7 @@ export class Viewer {
     this.updateMarkers();
     this.updateMeasure();
     this.updateSculpt();
+    this.flushRelief(now);
     this.renderer.render(this.sceneGL, this.camera);
     this.triad.render(this.renderer, this.camera, this.rightInset);
   };
@@ -2497,17 +2505,20 @@ export class Viewer {
     // Always carried, used only while the heatmap is on (see paintLayer). Scaled
     // by the uncut lattice's range so a hole through the highest ground does not
     // re-colour everything around it.
-    const range = elevationRange(s.terrain!.verts);
-    const span = range ? range.max - range.min : 0;
-    const colors = new Float32Array(cut.verts.length * 3);
-    cut.verts.forEach((v, i) => {
-      const [r, g, b] = heatColor(span > 0 ? (v[2] - range!.min) / span : 0.5);
-      colors[i * 3] = r;
-      colors[i * 3 + 1] = g;
-      colors[i * 3 + 2] = b;
-    });
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this.reliefRange = elevationRange(s.terrain!.verts);
+    const colors = new THREE.BufferAttribute(new Float32Array(cut.verts.length * 3), 3);
+    for (let i = 0; i < cut.verts.length; i++) this.heatVertex(colors, i, cut.verts[i][2]);
+    geo.setAttribute('color', colors);
     return geo;
+  }
+
+  /** One vertex's heatmap colour, on the scale of the last full cut. A vertex a
+   *  stroke has lifted past that scale takes the end colour until it lands. */
+  private heatVertex(colors: THREE.BufferAttribute, i: number, z: number): void {
+    const r = this.reliefRange;
+    const span = r ? r.max - r.min : 0;
+    const [cr, cg, cb] = heatColor(span > 0 ? (z - r!.min) / span : 0.5);
+    colors.setXYZ(i, cr, cg, cb);
   }
 
   /** Lowest and highest ground in the scene, for the heatmap's legend. */
@@ -2555,31 +2566,26 @@ export class Viewer {
   /** Make the dots and the contour lines match the view and the ground as cut. */
   private syncGroundOverlays(): void {
     const ground = this.groundMesh;
-    for (const o of [this.groundDots, this.groundContours]) {
-      if (!o) continue;
-      ground?.remove(o);
-      o.geometry.dispose();
-      (o.material as THREE.Material).dispose();
-    }
+    if (this.groundDots) this.dropOverlay(this.groundDots);
     this.groundDots = null;
-    this.groundContours = null;
+    this.reliefDirty = false;
     const cut = this.groundCut;
-    if (!ground || !cut) return;
+    if (!ground || !cut) {
+      this.syncContours();
+      return;
+    }
 
     if (this.terrainView.vertices) {
       // Only the vertices a face still uses: a cut leaves the ones it dropped in
       // the array, and a dot floating in the hole would be a lie.
       const used = new Set<number>();
       for (const f of cut.faces) for (const i of f) used.add(i);
-      const pos = new Float32Array(used.size * 3);
-      let k = 0;
-      for (const i of used) {
-        pos[k++] = cut.verts[i][0];
-        pos[k++] = cut.verts[i][1];
-        pos[k++] = cut.verts[i][2];
-      }
+      // The ground's own position buffer, indexed, rather than a copy of it: a
+      // sculpt dab writes heights into that buffer live (see liveGround), and the
+      // dots follow the brush for free instead of lagging a stroke behind.
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('position', ground.geometry.getAttribute('position'));
+      geo.setIndex([...used]);
       const dots = new THREE.Points(
         geo,
         new THREE.PointsMaterial({
@@ -2590,12 +2596,38 @@ export class Viewer {
       );
       // Dots are for looking at; they must never be what a click lands on.
       dots.raycast = () => {};
+      // Its own bounds are those of the buffer it borrowed, as they were when
+      // first measured — a ridge raised since would be culled with them.
+      dots.frustumCulled = false;
       ground.add(dots);
       this.groundDots = dots;
     }
+    this.syncContours();
+  }
+
+  /** Take an overlay off the ground and free it. A dot layer's position buffer is
+   *  the ground's, and freeing it here only makes three upload it again. */
+  private dropOverlay(o: THREE.Points | THREE.LineSegments): void {
+    this.groundMesh?.remove(o);
+    o.geometry.dispose();
+    (o.material as THREE.Material).dispose();
+  }
+
+  /**
+   * Contour lines are rebuilt from the ground as it stands, at an interval fixed
+   * by the height range of the last full cut — so raising a hill mid-stroke does
+   * not make every line jump to a new spacing, and the stroke's end (a re-cut)
+   * settles it.
+   */
+  private syncContours(): void {
+    if (this.groundContours) this.dropOverlay(this.groundContours);
+    this.groundContours = null;
+    const ground = this.groundMesh;
+    const cut = this.groundCut;
+    if (!ground || !cut) return;
 
     if (this.terrainView.contours) {
-      const range = this.terrainRange();
+      const range = this.reliefRange;
       const c = contourSegments(cut, niceInterval(range ? range.max - range.min : 0));
       const pos = new Float32Array([...c.minor, ...c.major]);
       const col = new Float32Array(pos.length);
@@ -2613,9 +2645,19 @@ export class Viewer {
         new THREE.LineBasicMaterial({ vertexColors: true }),
       );
       lines.raycast = () => {};
+      lines.frustumCulled = false;
       ground.add(lines);
       this.groundContours = lines;
     }
+  }
+
+  /** Redo the contour lines once the ground has moved under a stroke — at most
+   *  every 80 ms, since each pass walks every triangle. */
+  private flushRelief(now: number): void {
+    if (!this.reliefDirty || now - this.reliefAt < 80) return;
+    this.reliefDirty = false;
+    this.reliefAt = now;
+    this.syncContours();
   }
 
   /* ---- sculpting the terrain -----------------------------------------
@@ -2780,8 +2822,16 @@ export class Viewer {
     if (!s?.terrain || !mesh) return;
     if (cutRings(s).length) return this.rebuildGround();
     const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
-    for (const k of idx) pos.setZ(k, s.terrain.verts[k][2]);
+    const col = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+    for (const k of idx) {
+      const z = s.terrain.verts[k][2];
+      pos.setZ(k, z);
+      this.heatVertex(col, k, z);
+    }
     pos.needsUpdate = true;
+    col.needsUpdate = true;
+    // The vertex dots share `pos`; the contour lines are re-walked, throttled.
+    if (this.terrainView.contours) this.reliefDirty = true;
     mesh.geometry.computeBoundingBox();
     mesh.geometry.computeBoundingSphere();
   }
