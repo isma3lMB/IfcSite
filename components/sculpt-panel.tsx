@@ -67,7 +67,7 @@ export function SculptPanel(p: SculptPanelProps) {
   const half = p.cell !== null ? p.cell / 2 : null;
   const single = half !== null && b.radius < half;
   const viewOn = VIEW_ROWS.filter(([key]) => p.terrainView[key]).length;
-  const [viewOpen, setViewOpen] = useState(viewOn > 0);
+  const [tab, setTab] = useState<'brush' | 'view'>('brush');
   const [rLo, rHi] = SCULPT_RANGE.radius;
   const [sLo, sHi] = SCULPT_RANGE.strength;
 
@@ -85,7 +85,50 @@ export function SculptPanel(p: SculptPanelProps) {
         </div>
       </div>
 
-      <div className="field">
+      {/* Two tabs rather than one long column: the brush alone nearly fills the
+          panel on a phone, and the view options are a second subject. Both panels
+          stay mounted and the inactive one is only hidden, so the live elevation
+          readout keeps its element and a half-typed field keeps its text. The
+          count on the second tab says what is on while it is out of sight — the
+          ground stays see-through or tinted whichever tab is showing. */}
+      <div className="presets" role="tablist" aria-label={t('sculpt.title')}>
+        {(
+          [
+            ['brush', 'sculptTabBrushBtn', 'sculptTabBrush', t('sculpt.mode')],
+            [
+              'view',
+              'sculptTabViewBtn',
+              'sculptTabView',
+              `${t('sculpt.view')}${viewOn > 0 ? ` (${viewOn})` : ''}`,
+            ],
+          ] as const
+        ).map(([id, btn, panel, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={btn}
+            aria-selected={tab === id}
+            aria-controls={panel}
+            tabIndex={tab === id ? 0 : -1}
+            className={tab === id ? 'on' : undefined}
+            onClick={() => setTab(id)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const next = id === 'brush' ? 'view' : 'brush';
+                setTab(next);
+                document.getElementById(next === 'brush' ? 'sculptTabBrushBtn' : 'sculptTabViewBtn')?.focus();
+              }
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div role="tabpanel" id="sculptTabBrush" aria-labelledby="sculptTabBrushBtn" hidden={tab !== 'brush'}>
+      <div className="field mt-3">
         <span className="eyebrow block mb-1.5" id="sculptMode">
           {t('sculpt.mode')}
         </span>
@@ -192,71 +235,6 @@ export function SculptPanel(p: SculptPanelProps) {
         </span>
       </div>
 
-      {/* How the ground is looked at while it is shaped: see through it, see its
-          vertices, read its height as lines or as colour. Beside the brush, not
-          in the options, because sculpting is where you need them — the
-          vertices are what the brush moves and the colours are what it changes. */}
-      {/* A disclosure, closed until asked for: most strokes never need it. The
-          count beside the title says what a closed group is still doing to the
-          ground, and it opens by itself when the panel comes back with a view
-          already on — the tool remembers the choice, so hiding the controls of
-          a see-through ground would leave nothing to turn it off with. */}
-      <div className="field editSection">
-        <button
-          type="button"
-          className="advHead"
-          aria-expanded={viewOpen}
-          aria-controls="sculptViewBody"
-          onClick={() => setViewOpen((v) => !v)}
-        >
-          <span className="treeTwisty" aria-hidden="true">
-            {viewOpen ? '▾' : '▸'}
-          </span>
-          <span className="eyebrow">
-            {t('sculpt.view')}
-            {!viewOpen && viewOn > 0 && ` (${viewOn})`}
-          </span>
-        </button>
-
-        <div id="sculptViewBody" hidden={!viewOpen} className="mt-2">
-          {viewOpen && (
-            <>
-              {VIEW_ROWS.map(([key, label]) => (
-                <label key={key} className="check dimmed">
-                  <Checkbox
-                    checked={p.terrainView[key]}
-                    onCheckedChange={(v) =>
-                      p.onTerrainView({ ...p.terrainView, [key]: v === true })
-                    }
-                  />
-                  {t(label)}
-                </label>
-              ))}
-              {p.terrainView.contours && p.contourStep !== null && (
-                <p className="editHint mt-1!">
-                  {t('sculpt.contoursHint', { step: n(p.contourStep) })}
-                </p>
-              )}
-              {p.terrainView.heatmap && p.terrainRange && (
-                <div className="mt-1.5">
-                  <div
-                    aria-hidden="true"
-                    className="h-2 rounded-sm"
-                    style={{ background: heatGradientCss() }}
-                  />
-                  <p className="editHint mt-1!">
-                    {t('sculpt.heatmapRange', {
-                      min: n(rnd(p.terrainRange.min, 1)),
-                      max: n(rnd(p.terrainRange.max, 1)),
-                    })}
-                  </p>
-                </div>
-              )}
-              <p className="editHint mt-1!">{t('sculpt.viewHint')}</p>
-            </>
-          )}
-        </div>
-      </div>
 
       <p className="editHint">{t('sculpt.follows')}</p>
 
@@ -271,6 +249,46 @@ export function SculptPanel(p: SculptPanelProps) {
         </button>
       </div>
       {p.edited > 0 && <p className="editHint">{t('sculpt.edited', { n: n(p.edited) })}</p>}
+      </div>
+
+      {/* How the ground is looked at while it is shaped: see through it, see its
+          vertices, read its height as lines or as colour. The tool stays armed on
+          this tab, so the brush keeps working under the pointer and the overlays
+          follow it. */}
+      <div role="tabpanel" id="sculptTabView" aria-labelledby="sculptTabViewBtn" hidden={tab !== 'view'}>
+        <div className="field mt-3">
+          {VIEW_ROWS.map(([key, label]) => (
+            <label key={key} className="check dimmed">
+              <Checkbox
+                checked={p.terrainView[key]}
+                onCheckedChange={(v) => p.onTerrainView({ ...p.terrainView, [key]: v === true })}
+              />
+              {t(label)}
+            </label>
+          ))}
+          {p.terrainView.contours && p.contourStep !== null && (
+            <p className="editHint mt-1!">
+              {t('sculpt.contoursHint', { step: n(p.contourStep) })}
+            </p>
+          )}
+          {p.terrainView.heatmap && p.terrainRange && (
+            <div className="mt-1.5">
+              <div
+                aria-hidden="true"
+                className="h-2 rounded-sm"
+                style={{ background: heatGradientCss() }}
+              />
+              <p className="editHint mt-1!">
+                {t('sculpt.heatmapRange', {
+                  min: n(rnd(p.terrainRange.min, 1)),
+                  max: n(rnd(p.terrainRange.max, 1)),
+                })}
+              </p>
+            </div>
+          )}
+          <p className="editHint mt-1!">{t('sculpt.viewHint')}</p>
+        </div>
+      </div>
     </div>
   );
 }
