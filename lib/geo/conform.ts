@@ -54,8 +54,26 @@ const MIN_AREA = 1e-4;
  *  drops geometry, so pad generously. */
 const PAD = 2;
 
+/** Height over a plane at an xy. */
+type Plane = (p: Vec2) => number;
+
+const xy = (p: Vec3): Vec2 => [p[0], p[1]];
+
+/** The plane through three points, as a height lookup — barycentric in xy, so
+ *  a point on a shared edge gets the same answer from either side of it. */
+function planeOf(A: Vec3, B: Vec3, C: Vec3): Plane {
+  const det = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
+  if (Math.abs(det) < 1e-12) return () => (A[2] + B[2] + C[2]) / 3;
+  return ([x, y]) => {
+    const l1 = ((B[1] - C[1]) * (x - C[0]) + (C[0] - B[0]) * (y - C[1])) / det;
+    const l2 = ((C[1] - A[1]) * (x - C[0]) + (A[0] - C[0]) * (y - C[1])) / det;
+    return l1 * A[2] + l2 * B[2] + (1 - l1 - l2) * C[2];
+  };
+}
+
 type LatticeFrame = {
   n: number;
+  verts: Vec3[];
   at: (i: number, j: number) => Vec2;
   toIndex: (p: Vec2) => Vec2;
   cell: number;
@@ -103,7 +121,7 @@ function latticeFrame(terrain: Grid | null): LatticeFrame | null {
     const dy = p[1] - o[1];
     return [(dx * ej[1] - dy * ej[0]) / det, (dy * ei[0] - dx * ei[1]) / det];
   };
-  return { n, at, toIndex, cell: Math.hypot(ei[0], ei[1]), ccw: det > 0 };
+  return { n, verts: V, at, toIndex, cell: Math.hypot(ei[0], ei[1]), ccw: det > 0 };
 }
 
 /**
@@ -168,7 +186,7 @@ export function conformToTerrain(
   // is the same path a source-Z ring takes, for the reason in the doc above.
   const frame = latticeFrame(terrain);
   if (r.length < 3 || zAt || !frame) return flat();
-  const { n, at } = frame;
+  const { n, at, verts: V } = frame;
 
   // Ring bbox -> index window. An affine map takes a rectangle's corners to the
   // image parallelogram's corners, so the four corners bound it exactly.
@@ -208,13 +226,33 @@ export function conformToTerrain(
   j1 = Math.min(hi, Math.ceil(j1) + PAD);
   if (i1 <= i0 || j1 <= j0) return flat();
 
-  // A lattice finer than `step` is subdivided in blocks rather than cells.
-  // Block corners are still draped through sampleZ and so still exact; only a
-  // block's interior approximates, by the margin `step` sets.
+  // A lattice finer than `step` is subdivided in blocks rather than cells, and
+  // a block is then a coarser terrain cell: its corners are draped through
+  // sampleZ (and lifted clear of the ground between them — see `lift`), split
+  // on the same anti-diagonal the terrain splits on, and every piece inside it
+  // lies on one of those two planes. See `add` below for why nothing inside a
+  // block may be sampled off the real ground instead.
   let stride = Math.max(1, Math.round(step / Math.max(frame.cell, 1e-6)));
   const blocks = (): number =>
     Math.ceil((i1 - i0) / stride) * Math.ceil((j1 - j0) / stride);
-  while (blocks() > MAX_BLOCKS) stride++;
+  // The window of a ring that fills the whole lattice is the lattice plus its
+  // padding and the convergence overhang, so the budget has to allow for that
+  // much over n^2 — counting against MAX_BLOCKS alone quietly coarsened every
+  // site-spanning ring (the merged road network, a forest across the site) on
+  // the densest grids, and coarsened it differently from everything above it.
+  const budget = Math.max(MAX_BLOCKS, (n + 2 * (PAD + 1)) ** 2);
+  while (blocks() > budget) stride++;
+  // Blocks sit on the lattice's own multiples of stride, not on this ring's
+  // bbox, so every ring in the scene cuts on the same blocks and lands on the
+  // same coarse ground. Otherwise two stacked layers approximate the hillside
+  // differently, by decimetres, and the centimetre rungs in lib/scene/stack
+  // stop deciding which one is on top.
+  // Both ends, so every block is a whole one and its plane is a property of
+  // the lattice alone.
+  i0 = Math.floor(i0 / stride) * stride;
+  j0 = Math.floor(j0 / stride) * stride;
+  i1 = i0 + Math.ceil((i1 - i0) / stride) * stride;
+  j1 = j0 + Math.ceil((j1 - j0) / stride) * stride;
 
   const verts: Vec3[] = [];
   const faces: number[][] = [];
@@ -224,14 +262,82 @@ export function conformToTerrain(
   // proj4 to one call per unique point rather than one per piece vertex. Per
   // ring only: welding across features would fuse neighbouring parcels.
   const seen = new Map<string, number>();
-  const push = (p: Vec2): number => {
+  const push = (p: Vec2, plane?: Plane): number => {
     const k = `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
     const hit = seen.get(k);
     if (hit !== undefined) return hit;
-    const [lonv, latv] = toGeo(p[0], p[1]);
-    verts.push([p[0], p[1], sampleZ(latv, lonv) + dz]);
+    let z: number;
+    if (plane) z = plane(p);
+    else {
+      const [lonv, latv] = toGeo(p[0], p[1]);
+      z = sampleZ(latv, lonv);
+    }
+    verts.push([p[0], p[1], z + dz]);
     seen.set(k, verts.length - 1);
     return verts.length - 1;
+  };
+
+  // Block corners, draped once each: neighbouring blocks share them, and so do
+  // the several ear triangles that reach into one block.
+  const cornerZ = new Map<string, number>();
+  const corner = (i: number, j: number): Vec3 => {
+    const p = at(i, j);
+    const k = `${i},${j}`;
+    let z = cornerZ.get(k);
+    if (z === undefined) {
+      const [lonv, latv] = toGeo(p[0], p[1]);
+      z = sampleZ(latv, lonv);
+      cornerZ.set(k, z);
+    }
+    return [p[0], p[1], z];
+  };
+
+  /* A block's two planes are a chord through ground that is not flat inside
+     it, so wherever the terrain bulges between block corners it stands up
+     through the layer — on a 1 m DEM under the default 8 m step, decimetres of
+     open ground in the middle of a road. Each block is therefore measured
+     against the terrain it covers: how far the drawn lattice rises above its
+     planes at worst. The lattice is piecewise linear and the block's halves
+     are unions of whole terrain triangles (both split on the same
+     anti-diagonal), so that worst case is always at a lattice post. */
+  const rise = new Map<string, number>();
+  const blockRise = (I: number, J: number): number => {
+    const k = `${I},${J}`;
+    const hit = rise.get(k);
+    if (hit !== undefined) return hit;
+    const a = corner(I, J);
+    const b = corner(I + stride, J);
+    const c = corner(I + stride, J + stride);
+    const d = corner(I, J + stride);
+    const lower = planeOf(a, b, d);
+    const upper = planeOf(b, c, d);
+    let D = 0;
+    for (let jj = Math.max(J, 0); jj <= Math.min(J + stride, n); jj++)
+      for (let ii = Math.max(I, 0); ii <= Math.min(I + stride, n); ii++) {
+        const v = V[jj * (n + 1) + ii];
+        const plane = ii - I + (jj - J) <= stride ? lower : upper;
+        const up = v[2] - plane([v[0], v[1]]);
+        if (up > D) D = up;
+      }
+    rise.set(k, D);
+    return D;
+  };
+  /* Lifted per corner rather than per block, by the worst rise of any block
+     meeting at it. Per block would step at every block edge; per corner keeps
+     neighbours meeting on the same edge, and since a point's height is a convex
+     combination of its block's corners, each lifted at least that block's
+     rise, no point of the layer ends up below the drawn ground. The cost is
+     floating over hollows by up to the same margin, which the skirt hangs
+     below the outline closes from the side. */
+  const lift = (i: number, j: number): Vec3 => {
+    const p = corner(i, j);
+    const up = Math.max(
+      blockRise(i - stride, j - stride),
+      blockRise(i, j - stride),
+      blockRise(i - stride, j),
+      blockRise(i, j),
+    );
+    return [p[0], p[1], p[2] + up];
   };
 
   /**
@@ -240,15 +346,25 @@ export function conformToTerrain(
    * triangulates a convex polygon exactly — no ear clipping, and no way to
    * emit a triangle the piece does not cover.
    *
+   * `plane`, given for a block coarser than a cell, is where the piece's
+   * vertices take their height from instead of the real ground. It has to be.
+   * A piece's vertices include every point where an ear-clip diagonal crosses
+   * a block edge, and the ground is not flat inside a block: sampling it there
+   * folds the surface along each diagonal. Ear clipping lays those diagonals
+   * lengthwise down a road ribbon and fans them out of every junction, so that
+   * came out as raised and sunken strips running down the carriageway, and as
+   * spikes on area layers. On the block's own plane the only folds left are on
+   * block edges and diagonals — the terrain's folds, at a coarser spacing.
+   *
    * The two guards are for degeneracies the fan would otherwise pass through:
    * a clip leaves collinear corners, and `push` welds at a millimetre so two
    * corners of a sliver can come back as one index. Both make zero-area faces,
    * which draw nothing but do corrupt skirtInto's edge parity — it counts an
    * edge's uses to decide what is boundary, and a degenerate face votes twice.
    */
-  const add = (piece: Vec2[]): void => {
+  const add = (piece: Vec2[], plane?: Plane): void => {
     if (piece.length < 3 || Math.abs(signedArea(piece)) < MIN_AREA) return;
-    const idx = piece.map(push);
+    const idx = piece.map((p) => push(p, plane));
     for (let k = 2; k < piece.length; k++) {
       const [u, v, w] = [idx[0], idx[k - 1], idx[k]];
       if (u === v || v === w || u === w) continue;
@@ -343,25 +459,31 @@ export function conformToTerrain(
     const bj = Math.min(j1, snapJ(Math.ceil(tj1) + PAD, true));
 
     for (let j = aj; j < bj; j += stride) {
-      const jn = Math.min(j + stride, j1);
+      const jn = j + stride;
       for (let i = ai; i < bi; i += stride) {
-        const inx = Math.min(i + stride, i1);
-        const a = at(i, j);
-        const b = at(inx, j);
-        const c = at(inx, jn);
-        const d = at(i, jn);
+        const inx = i + stride;
         if (stride === 1) {
           // The two real terrain triangles, built from indices rather than read
           // out of terrain.faces so the window's winding is known here rather
           // than inherited. These are the same halves gridSampler splits on,
           // which is the whole reason a piece inside one lands exactly on the
-          // drawn surface.
+          // drawn surface — so the real ground is the plane, and sampling it
+          // directly is exact.
+          const a = at(i, j);
+          const b = at(inx, j);
+          const c = at(inx, jn);
+          const d = at(i, jn);
           add(dedupe(clipToConvex(tri, window([a, b, d]))));
           add(dedupe(clipToConvex(tri, window([b, c, d]))));
         } else {
-          // A block's diagonal is not a real fold, so splitting it would double
-          // the pieces for the same answer.
-          add(dedupe(clipToConvex(tri, window([a, b, c, d]))));
+          // The same two halves at block scale, each its own plane through
+          // three draped corners.
+          const a = lift(i, j);
+          const b = lift(inx, j);
+          const c = lift(inx, jn);
+          const d = lift(i, jn);
+          add(dedupe(clipToConvex(tri, window([xy(a), xy(b), xy(d)]))), planeOf(a, b, d));
+          add(dedupe(clipToConvex(tri, window([xy(b), xy(c), xy(d)]))), planeOf(b, c, d));
         }
       }
     }
