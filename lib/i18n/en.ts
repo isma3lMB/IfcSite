@@ -107,6 +107,8 @@ export const en = {
     'Click each corner on the ground — no crossing edges. Enter or the first corner closes it, Esc cancels.',
   'bar.drawHintPoints': '{n} corners — Enter closes, Esc cancels.',
   'bar.drawHintTree': 'Click on the ground to plant a tree. Esc cancels.',
+  'bar.drawHintTreeArea':
+    'Click the corners of the area to plant. Enter or the first corner closes it and fills it with trees, Esc cancels.',
   /* The measure tools read the scene rather than adding to it, so their hints
      have to say what stays behind: a taken measurement survives Esc, and only
      Clear removes it. */
@@ -130,6 +132,15 @@ export const en = {
   'draw.toolRect': 'Rectangle',
   'draw.toolPoly': 'Polygon',
   'draw.toolTree': 'Tree',
+  'draw.toolTreeArea': 'Trees in an area',
+  'draw.treeMode': 'Placement',
+  'draw.treeSingle': 'One per click',
+  'draw.treeArea': 'Fill a drawn area',
+  'draw.treeSpacing': 'Spacing (m)',
+  'draw.treeSpacingTitle': 'Distance between neighbouring trees (m)',
+  'draw.treeJitter': 'Irregular layout',
+  'draw.treeAreaHint':
+    'Trees are laid in staggered rows along the longest edge, and skip anything under a building. One Ctrl+Z removes the whole planting.',
   'draw.close': 'Leave the tool (Esc)',
   'draw.layer': 'Layer',
   'draw.building': 'Building',
@@ -465,6 +476,10 @@ export const en = {
   'status.noSiteYet': 'No site yet — click two opposite corners on the map.',
   'status.drawTooSmall': 'Too small — a shape needs at least 1 m².',
   'status.drawFull': 'Building limit reached ({cap}) — delete something first.',
+  'status.treeFull': 'Tree limit reached ({cap}) — delete some first.',
+  'status.treeAreaTooMany':
+    'That area would take the scene past {cap} trees — widen the spacing or draw a smaller area.',
+  'status.treeAreaEmpty': 'No tree fits in that area — draw it wider or reduce the spacing.',
   'status.voidNoTerrain': 'This scene has no terrain to cut a void through.',
   'status.measureCleared': 'Measurements cleared.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z to undo.',
@@ -513,6 +528,8 @@ export const en = {
   'edit.opacity': 'Opacity',
   'edit.height': 'Height',
   'edit.add': 'New building',
+  'edit.addTree': 'New tree',
+  'edit.addTrees': 'Trees planted',
   'edit.addShape': 'New shape',
   'edit.cut': 'Terrain cut',
   'edit.delete': 'Delete',

@@ -85,6 +85,8 @@ export function StatusToast(p: StatusToastProps) {
       ? t('bar.drawHintRect')
       : p.drawTool === 'tree'
         ? t('bar.drawHintTree')
+        : p.drawTool === 'treeArea' && p.drawPoints === 0
+          ? t('bar.drawHintTreeArea')
         : p.drawTool === 'sculpt'
           ? t('bar.sculptHint')
         : p.drawTool === 'measureElev'
@@ -142,7 +144,19 @@ export function StatusToast(p: StatusToastProps) {
   // short-circuit this branch entirely, so a status raised with a tool still
   // armed was invisible — and the stale warning is about a scene that is at this
   // moment being replaced.
-  const pinned = p.working ? null : (presentHint ?? drawHint ?? (stale ? t('bar.stale') : null));
+  //
+  // The draw hint also stands aside, between gestures, for a status the tool
+  // itself raised: what a drawn element was called, why a shape was refused,
+  // how many trees an area took. Pinned over them, every one of those would be
+  // invisible for as long as the tool stays armed — which is the whole time it
+  // is being used. "Raised by the tool" is "changed since it was armed", so the
+  // build summary that was on screen before cannot take the hint's place.
+  const [armed, setArmed] = useState({ tool: p.drawTool, status: p.status });
+  if (armed.tool !== p.drawTool) setArmed({ tool: p.drawTool, status: p.status });
+  const toolNews =
+    shown && p.drawPoints === 0 && p.status.kind === 'msg' && p.status !== armed.status;
+  const hint = toolNews ? null : drawHint;
+  const pinned = p.working ? null : (presentHint ?? hint ?? (stale ? t('bar.stale') : null));
   // Only the kinds that do not fade are worth a dismiss control; everything else
   // is already leaving. Progress is excluded on top of that: it holds because
   // work is running, and closing it would not stop the work.
@@ -159,7 +173,7 @@ export function StatusToast(p: StatusToastProps) {
           <div className="statusline statusline--bar" title={pinned}>
             {/* Only the stale warning is a warning. The two hints are guidance,
                 and the error style would read as something having gone wrong. */}
-            {presentHint || drawHint ? pinned : <span className="err">{pinned}</span>}
+            {presentHint || hint ? pinned : <span className="err">{pinned}</span>}
           </div>
         </div>
       ) : (

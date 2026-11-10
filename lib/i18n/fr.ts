@@ -96,6 +96,8 @@ export const fr: Dict = {
     'Cliquez chaque sommet sur le sol — sans arêtes croisées. Entrée ou le premier sommet ferme le contour, Échap annule.',
   'bar.drawHintPoints': '{n} sommets — Entrée ferme, Échap annule.',
   'bar.drawHintTree': 'Cliquez sur le sol pour planter un arbre. Échap annule.',
+  'bar.drawHintTreeArea':
+    'Cliquez les sommets de la zone à planter. Entrée ou le premier sommet la ferme et la remplit d’arbres, Échap annule.',
   /* Les outils de mesure lisent la scène au lieu d’y ajouter : leurs libellés
      doivent dire ce qui subsiste — une mesure prise survit à Échap, seul Effacer
      la retire. */
@@ -119,6 +121,15 @@ export const fr: Dict = {
   'draw.toolRect': 'Rectangle',
   'draw.toolPoly': 'Polygone',
   'draw.toolTree': 'Arbre',
+  'draw.toolTreeArea': 'Arbres dans une zone',
+  'draw.treeMode': 'Placement',
+  'draw.treeSingle': 'Un par clic',
+  'draw.treeArea': 'Remplir une zone dessinée',
+  'draw.treeSpacing': 'Espacement (m)',
+  'draw.treeSpacingTitle': 'Distance entre arbres voisins (m)',
+  'draw.treeJitter': 'Disposition irrégulière',
+  'draw.treeAreaHint':
+    'Les arbres sont disposés en quinconce, en rangées parallèles au plus long côté, et évitent les bâtiments. Un seul Ctrl+Z retire toute la plantation.',
   'draw.close': 'Quitter l’outil (Échap)',
   'draw.layer': 'Calque',
   'draw.building': 'Bâtiment',
@@ -435,6 +446,10 @@ export const fr: Dict = {
   'status.noSiteYet': 'Aucun site — cliquez deux coins opposés sur la carte.',
   'status.drawTooSmall': 'Trop petit — une forme doit faire au moins 1 m².',
   'status.drawFull': 'Limite de bâtiments atteinte ({cap}) — supprimez-en un d’abord.',
+  'status.treeFull': 'Limite d’arbres atteinte ({cap}) — supprimez-en d’abord.',
+  'status.treeAreaTooMany':
+    'Cette zone porterait la scène au-delà de {cap} arbres — élargissez l’espacement ou dessinez une zone plus petite.',
+  'status.treeAreaEmpty': 'Aucun arbre ne tient dans cette zone — agrandissez-la ou réduisez l’espacement.',
   'status.voidNoTerrain': 'Cette scène n’a pas de terrain dans lequel percer un vide.',
   'status.measureCleared': 'Mesures effacées.',
   'status.editCommitted': '{label} — {name}. Ctrl+Z pour annuler.',
@@ -484,6 +499,8 @@ export const fr: Dict = {
   'edit.opacity': 'Opacité',
   'edit.height': 'Hauteur',
   'edit.add': 'Nouveau bâtiment',
+  'edit.addTree': 'Nouvel arbre',
+  'edit.addTrees': 'Arbres plantés',
   'edit.addShape': 'Nouvelle forme',
   'edit.cut': 'Découpe du terrain',
   'edit.delete': 'Suppression',

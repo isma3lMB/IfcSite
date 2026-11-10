@@ -5,6 +5,7 @@ import { AxisInput } from '@/components/element-editor';
 import { IconVoid, LAYER_ICON } from '@/components/icons';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Radio, RadioGroup } from '@/components/ui/radio-group';
+import { MIN_SPACING } from '@/lib/geo/scatter';
 import { useT } from '@/lib/i18n/context';
 import type { StringKey } from '@/lib/i18n/context';
 import { rnd } from '@/lib/scene/xf';
@@ -12,7 +13,11 @@ import { DRAPEABLE, DRAW_LAYERS, type DrawLayer } from '@/lib/types';
 
 /** The tools this panel speaks for. The two measure tools take no options and
  *  add nothing to the scene, so they have no panel. */
-export type PanelTool = 'rect' | 'polygon' | 'tree';
+export type PanelTool = 'rect' | 'polygon' | 'tree' | 'treeArea';
+
+/** The two ways the tree tool plants: one per click, or a grove filling a
+ *  drawn ring. They are two viewer tools behind one rail button. */
+export type TreeTool = 'tree' | 'treeArea';
 
 /** A draw layer's glyph — the model tree's mark for the layer the shape lands
  *  in, so what you pick here and the row it shows up under look the same. A void
@@ -29,6 +34,7 @@ const TOOL_NAME: Record<PanelTool, StringKey> = {
   rect: 'draw.toolRect',
   polygon: 'draw.toolPoly',
   tree: 'draw.toolTree',
+  treeArea: 'draw.toolTreeArea',
 };
 
 export type DrawPanelProps = {
@@ -42,6 +48,14 @@ export type DrawPanelProps = {
   /** Whether the scene has a terrain mesh — without one there is nothing to
    *  drape onto and nothing to cut a void through. */
   hasTerrain: boolean;
+  /** Switch the tree tool between single placement and area fill. */
+  onTreeMode: (m: TreeTool) => void;
+  /** Distance between neighbouring trees in an area fill, metres. */
+  treeSpacing: number;
+  onTreeSpacing: (s: number) => void;
+  /** Whether an area fill nudges its trees off the strict lattice. */
+  treeJitter: boolean;
+  onTreeJitter: (v: boolean) => void;
   /** Leave the tool: the panel is the tool's, so its ✕ is the same as Esc. */
   onClose: () => void;
 };
@@ -64,10 +78,11 @@ export type DrawPanelProps = {
  */
 export function DrawPanel(p: DrawPanelProps) {
   const { t } = useT();
-  const footprint = p.tool !== 'tree';
+  const isTree = p.tool === 'tree' || p.tool === 'treeArea';
+  const footprint = !isTree;
   const drapeable = footprint && DRAPEABLE.has(p.layer);
   const needsTerrain = drapeable || (footprint && p.layer === 'void');
-  const tallLabel = t(p.tool === 'tree' ? 'draw.treeHeightTitle' : 'draw.heightTitle');
+  const tallLabel = t(isTree ? 'draw.treeHeightTitle' : 'draw.heightTitle');
 
   return (
     <div className="floating editPanel drawPanel" role="region" aria-label={t('draw.title')}>
@@ -113,6 +128,28 @@ export function DrawPanel(p: DrawPanelProps) {
         </div>
       )}
 
+      {isTree && (
+        <div className="field">
+          <span className="eyebrow block mb-1.5" id="treeMode">
+            {t('draw.treeMode')}
+          </span>
+          <RadioGroup
+            aria-labelledby="treeMode"
+            value={p.tool}
+            onValueChange={(v) => p.onTreeMode(v as TreeTool)}
+          >
+            <label className="check dimmed">
+              <Radio value="tree" />
+              {t('draw.treeSingle')}
+            </label>
+            <label className="check dimmed">
+              <Radio value="treeArea" />
+              {t('draw.treeArea')}
+            </label>
+          </RadioGroup>
+        </div>
+      )}
+
       {/* A building's extrusion, or a tree's total height. The surfaces are flat
           slabs on the ground like the fetched ones of their layer, and a void
           is a hole — neither has a height to give. */}
@@ -132,6 +169,30 @@ export function DrawPanel(p: DrawPanelProps) {
               onCommit={(v) => p.onHeight(Math.max(0.5, v))}
             />
           </div>
+        </div>
+      )}
+
+      {p.tool === 'treeArea' && (
+        <div className="field">
+          <span className="eyebrow block mb-1.5">{t('draw.treeSpacing')}</span>
+          <div className="axes">
+            <AxisInput
+              axis="↔"
+              value={rnd(p.treeSpacing, 2)}
+              step={0.5}
+              min={MIN_SPACING}
+              ariaLabel={t('draw.treeSpacingTitle')}
+              onLive={(v) => {
+                if (v >= MIN_SPACING) p.onTreeSpacing(v);
+              }}
+              onCommit={(v) => p.onTreeSpacing(Math.max(MIN_SPACING, v))}
+            />
+          </div>
+          <label className="check dimmed mt-2">
+            <Checkbox checked={p.treeJitter} onCheckedChange={(v) => p.onTreeJitter(v === true)} />
+            {t('draw.treeJitter')}
+          </label>
+          <p className="editHint mt-1!">{t('draw.treeAreaHint')}</p>
         </div>
       )}
 

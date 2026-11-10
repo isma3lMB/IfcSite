@@ -12,6 +12,7 @@ import {
   niceInterval,
 } from '@/lib/geo/relief';
 import { densify, ringCentre } from '@/lib/geo/rings';
+import { MIN_SPACING, scatterInRing } from '@/lib/geo/scatter';
 import { treeCanopyGeometry, treeTrunkGeometry, treeTrunkHeight } from '@/lib/geo/treeShape';
 import { cutTerrain, groundAt } from '@/lib/geo/voids';
 import { cutRings, plinthOf } from '@/lib/scene/cut';
@@ -250,10 +251,17 @@ export type DrawTool =
   | 'rect'
   | 'polygon'
   | 'tree'
+  | 'treeArea'
   | 'measure'
   | 'measureArea'
   | 'measureElev'
   | 'sculpt';
+
+/** The tools whose gesture is a ring of clicked corners — the polygon, and the
+ *  tree tool's area mode, which plants a grove inside one. Everything about
+ *  drawing the ring (closing on the first corner, Enter, the double-click, the
+ *  rubber band) is shared; only what the closed ring becomes differs. */
+export const ringTool = (tool: DrawTool | null): boolean => tool === 'polygon' || tool === 'treeArea';
 
 /** Which kind of measurement a tool makes, or null when it makes none. Doubles
  *  as the "is this a measure tool" test, so there is only one list of them. */
@@ -718,6 +726,11 @@ export class Viewer {
   private drawSeq = 0;
   private drawTreeName = 'Tree';
   private drawTreeSeq = 0;
+  /** What the tree tool's area mode plants: the distance between neighbouring
+   *  trees, and whether they are nudged off the strict lattice. React's, like
+   *  the height — see setDrawOptions. */
+  private treeSpacing = 6;
+  private treeJitter = true;
   /** What the rectangle and polygon tools make. React's, pushed down with the
    *  height through setDrawOptions. */
   private drawLayer: DrawLayer = 'building';
@@ -4027,7 +4040,7 @@ export class Viewer {
       if (onGizmo || this.gizmo.dragging) return;
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > CLICK_PX) return; // that was an orbit
 
-      if (this.drawTool === 'polygon') {
+      if (ringTool(this.drawTool)) {
         if (e.button !== 0) return this.cancelDraw();
         // Same rule as the rectangle's anchor: the opening click chooses the
         // surface, the rest of the ring is drawn on it.
@@ -4043,7 +4056,7 @@ export class Viewer {
           return this.finishDraw();
         this.drawPts.push(p);
         this.showDraft(this.drawPts, this.drawPts.length >= 3);
-        this.cb.onDraw(this.drawTool, this.drawPts.length);
+        this.cb.onDraw(this.drawTool!, this.drawPts.length);
         return;
       }
 
@@ -4154,7 +4167,7 @@ export class Viewer {
         this.measurePts.pop();
         return this.finishDraw();
       }
-      if (this.drawTool !== 'polygon' || this.drawPts.length < 4) return;
+      if (!ringTool(this.drawTool) || this.drawPts.length < 4) return;
       this.drawPts.pop();
       this.finishDraw();
     });
@@ -5064,7 +5077,7 @@ export class Viewer {
     if (s.buildings.length + nb > BUILDING_CAP)
       return this.cb.onStatus('status.drawFull', { cap: BUILDING_CAP });
     if (s.trees.length + nt > TREE_DRAW_CAP)
-      return this.cb.onStatus('status.drawFull', { cap: TREE_DRAW_CAP });
+      return this.cb.onStatus('status.treeFull', { cap: TREE_DRAW_CAP });
 
     const cmds: Cmd[] = [];
     const made: Target[] = [];
@@ -5177,6 +5190,8 @@ export class Viewer {
     drape: boolean;
     name: string;
     treeName: string;
+    treeSpacing: number;
+    treeJitter: boolean;
     shapeNames: Record<ShapeLayer, string>;
     copyName: string;
   }): void {
@@ -5185,6 +5200,8 @@ export class Viewer {
     this.drawDrape = opts.drape;
     if (opts.name) this.drawName = opts.name;
     if (opts.treeName) this.drawTreeName = opts.treeName;
+    if (Number.isFinite(opts.treeSpacing)) this.treeSpacing = Math.max(MIN_SPACING, opts.treeSpacing);
+    this.treeJitter = opts.treeJitter;
     for (const l of SHAPE_LAYERS) if (opts.shapeNames[l]) this.shapeNames[l] = opts.shapeNames[l];
     if (opts.copyName) this.copySuffix = opts.copyName;
   }
@@ -5221,6 +5238,7 @@ export class Viewer {
       this.cb.onDraw(this.drawTool, 0);
       return;
     }
+    if (this.drawTool === 'treeArea') return this.commitTreeArea(this.drawPts);
     if (this.drawTool !== 'polygon') return;
     this.commitFootprint(this.drawPts);
   }
@@ -5405,7 +5423,7 @@ export class Viewer {
     const s = this.scene;
     if (!s) return;
     if (s.trees.length >= TREE_DRAW_CAP)
-      return this.cb.onStatus('status.drawFull', { cap: TREE_DRAW_CAP });
+      return this.cb.onStatus('status.treeFull', { cap: TREE_DRAW_CAP });
 
     const n = ++this.drawTreeSeq;
     const { cr, tr } = defaultTreeDims(this.drawHeight);
@@ -5429,7 +5447,98 @@ export class Viewer {
     // Deliberately not selected, same reasoning as commitFootprint: the tool
     // stays armed, and a gizmo on the last tree would sit over the ground the
     // next click is aimed at.
-    this.pushCmd({ label: 'edit.add', kind: 'treeLife', t, index, added: true }, t.name);
+    this.pushCmd({ label: 'edit.addTree', kind: 'treeLife', t, index, added: true }, t.name);
+  }
+
+  /**
+   * Plant a grove inside the ring just drawn — the tree tool's area mode.
+   *
+   * The points come off scatterInRing (a staggered lattice, rows along the
+   * longest edge), and each one becomes an ordinary tree through pushTree, the
+   * same record a single click makes: every one of them is selectable, movable
+   * and deletable on its own afterwards. The whole planting is one 'multi'
+   * command, so one Ctrl+Z takes the grove back out.
+   *
+   * A ring started on a roof plants on that roof, at its height — the same rule
+   * the polygon tool keeps. On the ground, each tree stands on the terrain under
+   * it, and a point that falls under a building is skipped: an area drawn round
+   * a block should plant the courtyard, not the inside of the walls.
+   *
+   * Refused outright rather than truncated when the planting would carry the
+   * scene past TREE_DRAW_CAP, for the reason duplicateSelected gives.
+   */
+  private commitTreeArea(pts: THREE.Vector3[]): void {
+    const s = this.scene;
+    const roof = this.drawPlaneZ;
+    this.drawPts = [];
+    this.clearDrawPlane();
+    this.draft.clear();
+    if (this.drawTool) this.cb.onDraw(this.drawTool, 0);
+    if (!s || pts.length < 3) return;
+
+    const ring = pts.map((p): Vec2 => [p.x, p.y]);
+    if (Math.abs(ringArea2(ring)) < MIN_FOOTPRINT_M2 * 2)
+      return this.cb.onStatus('status.drawTooSmall');
+
+    const room = TREE_DRAW_CAP - s.trees.length;
+    if (room <= 0) return this.cb.onStatus('status.treeFull', { cap: TREE_DRAW_CAP });
+    const { cr, tr } = defaultTreeDims(this.drawHeight);
+    const spots = scatterInRing(ring, {
+      spacing: this.treeSpacing,
+      jitter: this.treeJitter ? 0.25 : 0,
+      // Half a crown in from the edge, but never more than a third of the
+      // spacing — a dense planting would otherwise lose its outer row.
+      margin: Math.min(cr * 0.5, this.treeSpacing / 3),
+      // Off the ring itself, so the same ring always plants the same grove.
+      seed: Math.round(Math.abs(ring[0][0] * 7919 + ring[0][1] * 104729)) || 1,
+      max: room,
+    });
+    if (!spots) return this.cb.onStatus('status.treeAreaTooMany', { cap: TREE_DRAW_CAP });
+
+    // Straight down from well above anything in the scene, against the
+    // buildings only: the terrain answers through groundZ, which reads the
+    // mesh's own triangles off a face grid rather than raycasting thousands of
+    // them per tree.
+    const blockers = roof === null && this.shown('buildings') ? this.buildingMeshes : [];
+    const down = new THREE.Vector3(0, 0, -1);
+    const from = new THREE.Vector3();
+    const top = (s.datumZ ?? 0) + 10000;
+
+    const cmds: Cmd[] = [];
+    this.batching = true;
+    try {
+      for (const [x, y] of spots) {
+        if (blockers.length) {
+          this.raycaster.set(from.set(x, y, top), down);
+          if (this.raycaster.intersectObjects(blockers, false).length) continue;
+        }
+        const n = ++this.drawTreeSeq;
+        pushTree(
+          s,
+          x,
+          y,
+          roof ?? this.groundZ(x, y),
+          this.drawHeight,
+          cr,
+          tr,
+          `drawn-tree-${n}`,
+          `${this.drawTreeName} ${n}`,
+          { Source: 'drawn' },
+          'user',
+        );
+        const index = s.trees.length - 1;
+        const t = s.trees[index];
+        this.addTreeMesh(t);
+        cmds.push({ label: 'edit.addTrees', kind: 'treeLife', t, index, added: true });
+      }
+    } finally {
+      this.batching = false;
+    }
+
+    if (!cmds.length) return this.cb.onStatus('status.treeAreaEmpty');
+    // Not selected, for the reason commitFootprint gives: the tool stays armed.
+    if (cmds.length === 1) return this.pushCmd({ ...cmds[0], label: 'edit.addTree' }, this.cmdName(cmds[0]));
+    this.pushCmd({ label: 'edit.addTrees', kind: 'multi', cmds, count: cmds.length }, '');
   }
 
   resetElement(): void {
