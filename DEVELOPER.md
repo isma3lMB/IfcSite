@@ -692,6 +692,14 @@ slit. Filling it with an arc rather than a miter keeps every emitted point withi
 carriageway of a centreline vertex, so the ribbon is a subset of the centreline's true buffer:
 it can fall short by the arc sagitta and can never bulge past the kerb.
 
+The same gap opens **between** two ways that meet end to end at an angle — two BD TOPO
+troncons sharing a node, or two OSM ways — because each stops square and `join` only sees
+bends inside one way. So each source collects its centrelines first and asks `sharedEnds`
+which ends another way also ends at, and `pushRoadway` puts a half-disc cap of half a
+carriageway on exactly those ends. Like the wedge arc, the cap only emits points at that
+distance from a centreline vertex, so it cannot bulge past the true buffer either. A dead end
+keeps its square end, and a closed way's seam stays a bend for `join`.
+
 `finishRoads` then unions every road's ribbon together, which is what merges crossings, and
 **holes survive** — a roundabout buffered by half a carriageway is a donut, and the island in
 the middle is not road.

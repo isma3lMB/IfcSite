@@ -17,7 +17,7 @@ import {
   memo,
   trimMemo,
 } from '@/lib/sources/cache';
-import { pushBuilding, pushRoadway, type Ribbon } from '@/lib/scene/push';
+import { pushBuilding, pushRoadway, sharedEnds, type Ribbon } from '@/lib/scene/push';
 import { LAYER_DZ, SURFACE_COLOR, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
@@ -563,6 +563,9 @@ export async function parseIGN(
       undefined,
       onStatus,
     );
+    // Collected before any is buffered: whether a troncon's end needs a cap
+    // depends on whether another troncon ends there too (see sharedEnds).
+    const ways: { line: Vec2[]; w: number; z: Vec3[] | null }[] = [];
     for (const f of rt) {
       const p = f.properties || {};
       const w = Math.max(
@@ -581,15 +584,11 @@ export async function parseIGN(
         // 2D ring so finishRoads can use it INSTEAD of the terrain when the
         // user has turned this layer's drape off; null when the feature came
         // back flat, which puts it back on the draped path.
-        pushRoadway(
-          roadRibbons,
-          r.map((c): Vec2 => toLocal(c[0], c[1])),
-          w,
-          site,
-          zLineFrom(r, toLocal),
-        );
+        ways.push({ line: r.map((c): Vec2 => toLocal(c[0], c[1])), w, z: zLineFrom(r, toLocal) });
       }
     }
+    const shared = sharedEnds(ways.map((x) => x.line));
+    for (const x of ways) pushRoadway(roadRibbons, x.line, x.w, site, x.z, shared);
   }
 
   if (wantRailways) {
@@ -604,6 +603,7 @@ export async function parseIGN(
       undefined,
       onStatus,
     );
+    const tracks: { line: Vec2[]; w: number; z: Vec3[] | null }[] = [];
     for (const f of rf) {
       const p = f.properties || {};
       // `largeur` on this layer is a categorical string, not a metre value —
@@ -612,16 +612,11 @@ export async function parseIGN(
         (Number(p.nombre_de_voies) || 1) * tune.railTrackWidth,
         tune.railTrackWidth,
       );
-      for (const r of geoRings(f.geometry)) {
-        pushRoadway(
-          railwayRibbons,
-          r.map((c): Vec2 => toLocal(c[0], c[1])),
-          w,
-          site,
-          zLineFrom(r, toLocal),
-        );
-      }
+      for (const r of geoRings(f.geometry))
+        tracks.push({ line: r.map((c): Vec2 => toLocal(c[0], c[1])), w, z: zLineFrom(r, toLocal) });
     }
+    const shared = sharedEnds(tracks.map((x) => x.line));
+    for (const x of tracks) pushRoadway(railwayRibbons, x.line, x.w, site, x.z, shared);
   }
 
   return { tagged, over, roadRibbons, railwayRibbons };

@@ -171,12 +171,43 @@ const JOIN_FLAT = -0.985;
  * buffered. Doing it the other way round pays ~10000 proj4 inversions per long
  * way to produce a handful of quads.
  */
+/** How close two way ends must be to count as the same node, in metres. OSM
+ *  repeats a shared node verbatim and BD TOPO troncons share their end vertex
+ *  exactly, so this only has to absorb the projection's rounding. */
+const NODE_TOL = 0.01;
+
+const nodeKey = (p: Vec2): string =>
+  `${Math.round(p[0] / NODE_TOL)},${Math.round(p[1] / NODE_TOL)}`;
+
+/**
+ * Which way ends another way also ends at, over one layer's centrelines.
+ *
+ * pushRoadway buffers one way at a time, so it cannot see this for itself, and
+ * it is exactly what decides whether an end needs a cap: two ways that meet end
+ * to end at an angle each stop square, and on the outside of the turn their two
+ * square ends leave an open wedge reaching down to the centreline — the same
+ * gap `join` fills inside a single way, but between two of them. A dead end is
+ * left square, which is what it looked like before and what it is.
+ *
+ * A closed way counts its seam once: that bend is `join`'s, not a cap's.
+ */
+export function sharedEnds(lines: Vec2[][]): (p: Vec2) => boolean {
+  const count = new Map<string, number>();
+  for (const l of lines) {
+    if (l.length < 2) continue;
+    const ends = new Set([nodeKey(l[0]), nodeKey(l[l.length - 1])]);
+    for (const k of ends) count.set(k, (count.get(k) ?? 0) + 1);
+  }
+  return (p) => (count.get(nodeKey(p)) ?? 0) >= 2;
+}
+
 export function pushRoadway(
   ribbons: Ribbon[],
   pts: Vec2[],
   w: number,
   site: Site,
   zLine?: Vec3[] | null,
+  shared?: (p: Vec2) => boolean,
 ): void {
   const { halfX, halfY } = site;
   const m = w / 2;
@@ -268,6 +299,34 @@ export function pushRoadway(
       box(theta > 0 ? [P, ...arc] : [P, ...arc.reverse()]);
     };
 
+    /**
+     * A half-disc of radius m on the end of segment `i` at P, bulging forward
+     * (`dir` +1, the way's last end) or backward (-1, its first). It covers
+     * every point within m of P on that side, which is the wedge a neighbouring
+     * way's square end leaves on the outside of the turn whatever the angle
+     * between them — and, like `join`, it only ever emits points exactly m from
+     * a centreline vertex, so the ribbon stays inside the true buffer. Its two
+     * diameter ends are the quad's own corners, taken from the same normal, so
+     * the union sees shared vertices rather than near-misses.
+     */
+    const cap = (i: number, P: Vec2, dir: 1 | -1): void => {
+      const step = JOIN_SAG >= m ? Math.PI : 2 * Math.acos(1 - JOIN_SAG / m);
+      const N = Math.min(JOIN_STEPS, Math.max(2, Math.ceil(Math.PI / step)));
+      const fx = dir * ux[i] * m;
+      const fy = dir * uy[i] * m;
+      const arc: Vec2[] = [[P[0] + nx[i], P[1] + ny[i]]];
+      for (let k = 1; k < N; k++) {
+        const t = (k / N) * Math.PI;
+        const c = Math.cos(t);
+        const sn = Math.sin(t);
+        arc.push([P[0] + nx[i] * c + fx * sn, P[1] + ny[i] * c + fy * sn]);
+      }
+      arc.push([P[0] - nx[i], P[1] - ny[i]]);
+      // Left normal through the backward side is counter-clockwise; through
+      // the forward side it is clockwise, so that one is reversed.
+      box(dir < 0 ? arc : arc.reverse());
+    };
+
     for (let k = 1; k < live.length; k++) join(live[k - 1], live[k], line[live[k]]);
     // A closed way — a roundabout, or an island — has a bend at its seam like
     // any other vertex. densify and collapseNear both leave the endpoints
@@ -279,6 +338,13 @@ export function pushRoadway(
       Math.hypot(line[0][0] - end[0], line[0][1] - end[1]) <= JOIN_TOL
     )
       join(live[live.length - 1], live[0], line[0]);
+    else if (shared) {
+      // Only the way's own ends: a run end clipPolyline cut on the site box is
+      // a new point no other way shares, so it stays square and the box clip
+      // trims it as before.
+      if (shared(line[0])) cap(live[0], line[0], -1);
+      if (shared(end)) cap(live[live.length - 1], end, 1);
+    }
   }
   // The centreline rides along with the ribbon it was buffered from. It cannot
   // be recovered later: by the time finishRibbons sees these, pushRoadway has
