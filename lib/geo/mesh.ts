@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { dedupe, ensureCCW, pointInRing, signedArea } from '@/lib/geo/rings';
+import { dedupe, ensureCCW } from '@/lib/geo/rings';
 import {
   appendGeometry,
   treeCanopyGeometry,
@@ -172,49 +172,24 @@ export function skirtInto(verts: Vec3[], faces: number[][], depth: number, cap =
   }
   if (!cap) return start;
 
-  // Chain the rim into closed loops to floor the solid. Array-valued, because a
-  // surface pinched to a point has two rim edges leaving that one vertex and a
-  // scalar would lose a loop.
-  const out = new Map<number, number[]>();
-  for (const [u, v] of rim) {
-    const at = out.get(u);
-    if (at) at.push(v);
-    else out.set(u, [v]);
-  }
-  const loops: number[][] = [];
-  const left = new Map(out);
-  for (const [seed] of out) {
-    while ((left.get(seed) ?? []).length) {
-      const loop: number[] = [seed];
-      let at = seed;
-      for (;;) {
-        const nexts = left.get(at);
-        if (!nexts || !nexts.length) return start; // open chain: keep the walls, skip the floor
-        const to = nexts.pop()!;
-        if (to === seed) break;
-        loop.push(to);
-        at = to;
-        if (loop.length > rim.length) return start;
-      }
-      if (loop.length >= 3) loops.push(loop);
-    }
-  }
+  /* The floor is the top's own triangulation dropped by `depth`, wound the
+     other way so its normal points down into the ground.
 
-  // Walked this way an outer loop comes back counter-clockwise and a hole
-  // clockwise, which is exactly the classification needed — no area comparison
-  // between loops, no assumption that the biggest one is the outer.
-  const xy = (loop: number[]): Vec2[] => loop.map((i): Vec2 => [verts[i][0], verts[i][1]]);
-  const outers = loops.filter((l) => signedArea(xy(l)) > 0);
-  const holes = loops.filter((l) => signedArea(xy(l)) < 0);
-  for (const outer of outers) {
-    const ring = xy(outer);
-    const mine = holes.filter((h) => pointInRing(xy(h)[0], ring));
-    const idx = [...outer, ...mine.flat()].map(low);
-    // Reversed against the top: a floor's normal belongs pointing down into the
-    // ground, not back up through the layer.
-    for (const t of triangulate(ring, mine.map(xy)))
-      faces.push([idx[t[0]], idx[t[2]], idx[t[1]]]);
-  }
+     It used to be the rim chained into loops and ear-clipped, which is a few
+     faces where the top has hundreds — but ear clipping only has the rim to
+     work with, so every floor triangle was a flat chord between outline points
+     tens of metres apart while the top above it follows the ground. Wherever
+     the top sagged below such a chord (a road through a valley, the inside of
+     a bend on a slope) the floor came up through it: in a real export, floor
+     triangles 37 to 112 m long standing up to 0.8 m proud of the carriageway,
+     drawn dark because they face down. Dropping the top instead puts every
+     floor point exactly `depth` under the top point above it, so it cannot
+     cross the top anywhere.
+
+     It is also closed by construction. The floor's outline is low(u)-low(v)
+     for every rim edge — the walls' bottom edges, exactly — holes and pinched
+     rims included, with no loops to chain and no outer to tell from a hole. */
+  for (let f = 0; f < start; f++) faces.push(faces[f].map(low).reverse());
   return start;
 }
 
