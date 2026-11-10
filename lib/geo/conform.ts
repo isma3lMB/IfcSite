@@ -42,9 +42,10 @@ import type { Grid, SampleZ, ToGeo, Vec2, Vec3 } from '@/lib/types';
  *  IfcCartesianPoint and every triangle another IfcIndexedPolygonalFace. */
 const MAX_BLOCKS = MAX_GRID_N * MAX_GRID_N;
 
-/** Below this a piece is a clip-line sliver or a Sutherland-Hodgman seam, not
- *  a surface. One test covers collinear output, seams and degenerate slivers,
- *  and keeps empty faces out of the deliverable. */
+/** Below this a hole is union noise, not an island — see the hole filter in
+ *  conformToTerrain. It used to drop cut pieces too, and must not: a thin piece
+ *  is still the only thing covering its strip, and dropping it opened the skin
+ *  (see `add`). */
 const MIN_AREA = 1e-4;
 
 /** Index window padding, in cells. The lattice is regular in index space but
@@ -262,8 +263,9 @@ export function conformToTerrain(
   // proj4 to one call per unique point rather than one per piece vertex. Per
   // ring only: welding across features would fuse neighbouring parcels.
   const seen = new Map<string, number>();
+  const weldKey = (p: Vec2): string => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
   const push = (p: Vec2, plane?: Plane): number => {
-    const k = `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
+    const k = weldKey(p);
     const hit = seen.get(k);
     if (hit !== undefined) return hit;
     let z: number;
@@ -356,21 +358,35 @@ export function conformToTerrain(
    * spikes on area layers. On the block's own plane the only folds left are on
    * block edges and diagonals — the terrain's folds, at a coarser spacing.
    *
-   * The two guards are for degeneracies the fan would otherwise pass through:
-   * a clip leaves collinear corners, and `push` welds at a millimetre so two
-   * corners of a sliver can come back as one index. Both make zero-area faces,
-   * which draw nothing but do corrupt skirtInto's edge parity — it counts an
-   * edge's uses to decide what is boundary, and a degenerate face votes twice.
+   * A piece is dropped only when the weld collapses it — never for being thin.
+   * Its neighbours are welded by the same millimetre rule, so a piece the weld
+   * collapses leaves no gap, while a thin one it does not collapse is still the
+   * only thing covering its strip. Dropping that strip on area alone (it used
+   * to go under a square centimetre) left a notch whose two sides were
+   * millimetres apart but separate vertices: a crack in the skin, and a rim
+   * that skirtInto walked through one vertex twice, writing a wall edge shared
+   * by four faces. The block diagonals put many more clip lines next to ring
+   * vertices, which is where those slivers come from.
+   *
+   * The two guards in the fan are for degeneracies it would otherwise pass
+   * through: a clip leaves collinear corners, and the weld can merge two
+   * corners of what is left. Both make zero-area faces, which draw nothing but
+   * do corrupt skirtInto's edge parity — it counts an edge's uses to decide
+   * what is boundary, and a degenerate face votes twice.
    */
   const add = (piece: Vec2[], plane?: Plane): void => {
-    if (piece.length < 3 || Math.abs(signedArea(piece)) < MIN_AREA) return;
-    const idx = piece.map((p) => push(p, plane));
-    for (let k = 2; k < piece.length; k++) {
+    // Welded before anything is pushed, so a piece that collapses leaves no
+    // orphan vertex behind in the point list.
+    const keys = piece.map(weldKey);
+    const pts = piece.filter((_, i) => keys[i] !== keys[(i + keys.length - 1) % keys.length]);
+    if (new Set(pts.map(weldKey)).size < 3) return;
+    const idx = pts.map((p) => push(p, plane));
+    for (let k = 2; k < pts.length; k++) {
       const [u, v, w] = [idx[0], idx[k - 1], idx[k]];
       if (u === v || v === w || u === w) continue;
-      const [ax, ay] = piece[0];
-      const [bx, by] = piece[k - 1];
-      const [cx, cy] = piece[k];
+      const [ax, ay] = pts[0];
+      const [bx, by] = pts[k - 1];
+      const [cx, cy] = pts[k];
       if (Math.abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) < 1e-9) continue;
       faces.push([u, v, w]);
     }

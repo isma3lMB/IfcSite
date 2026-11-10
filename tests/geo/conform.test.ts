@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { conformToTerrain } from '@/lib/geo/conform';
 import { gridFrom } from '@/lib/geo/grid';
+import { skirtInto } from '@/lib/geo/mesh';
 import type { Grid, SiteRect, Vec2, Vec3 } from '@/lib/types';
 
 /* -------------------------------------------------------------------------
@@ -203,4 +204,51 @@ describe('conformToTerrain', () => {
       expect(z).toBeCloseTo(big.terrain.sample(y, x) + DZ, 4);
     }
   });
+
+  /* A skirted drape is a closed solid: every edge of skin, walls and floor
+     shared by exactly two faces. Thin pieces used to be dropped on area alone
+     (under a square centimetre), which left notches in the skin that the skirt
+     walked through twice — before that changed, nearly half of these rings came
+     back open at the exact cut, and a few at the coarse one. Seeded, so the
+     rings are the same every run. */
+  for (const stride of [1, 3]) {
+    it(`closes every skirted ring at ${stride === 1 ? 'the exact cut' : 'a coarse step'}`, () => {
+      let seed = 7;
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      for (let trial = 0; trial < 60; trial++) {
+        const cx = -60 + 120 * rnd();
+        const cy = -60 + 120 * rnd();
+        const rot = rnd() * 2 * Math.PI;
+        const R = 10 + 25 * rnd();
+        const m = 8 + Math.floor(rnd() * 30);
+        const ring: Vec2[] = [];
+        for (let k = 0; k < m; k++) {
+          const a = (k / m) * 2 * Math.PI + rot;
+          const r = R * (0.7 + 0.3 * rnd());
+          ring.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+        }
+        const holes: Vec2[][] =
+          rnd() < 0.5
+            ? [
+                [0, 1, 2, 3]
+                  .map((k): Vec2 => {
+                    const a = rot + (k * Math.PI) / 2;
+                    return [cx + 3 * Math.cos(a), cy + 3 * Math.sin(a)];
+                  })
+                  .reverse(),
+              ]
+            : [];
+        const s = conformToTerrain(ring, terrain, toGeo, terrain.sample, DZ, holes, stride * CELL);
+        skirtInto(s.verts, s.faces, 0.3);
+        const uses = new Map<string, number>();
+        for (const f of s.faces)
+          f.forEach((a, i) => {
+            const b = f[(i + 1) % f.length];
+            const k = a < b ? `${a},${b}` : `${b},${a}`;
+            uses.set(k, (uses.get(k) ?? 0) + 1);
+          });
+        expect([...uses.values()].every((u) => u === 2)).toBe(true);
+      }
+    });
+  }
 });
