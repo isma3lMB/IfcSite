@@ -44,6 +44,16 @@ export type Tunables = {
   /** Metres of ribbon per parallel track, absent an explicit `width`. */
   railTrackWidth: number;
   /**
+   * How far a road's surface sits above the ground, in metres — and so how
+   * thick its slab reads. Railways ride 2 cm above it and water halfway down
+   * to vegetation (see ladderFor in lib/scene/stack), and it is held
+   * ROAD_OVER_VEGETATION above `vegetationHeight` so a road always covers the
+   * vegetation it crosses.
+   */
+  roadHeight: number;
+  /** How far a vegetation area's surface sits above the ground, in metres. */
+  vegetationHeight: number;
+  /**
    * How long one revolution of the presentation orbit takes, in ms.
    *
    * The default is slow enough to read as a camera move rather than a spin — a
@@ -52,6 +62,11 @@ export type Tunables = {
    */
   orbitCycleMs: number;
 };
+
+/** How far above vegetation a road must sit, in metres — room for water's rung
+ *  between them. Here rather than in lib/scene/stack because this module must
+ *  import nothing; stack reads it from here. */
+export const ROAD_OVER_VEGETATION = 0.04;
 
 export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
   buildingCap: 4000,
@@ -63,6 +78,8 @@ export const DEFAULT_TUNABLES: Readonly<Tunables> = Object.freeze({
   storeyHeight: 3.0,
   laneWidth: 3.25,
   railTrackWidth: 3.5,
+  roadHeight: 0.3,
+  vegetationHeight: 0.1,
   orbitCycleMs: 36000,
 });
 
@@ -92,6 +109,10 @@ export const TUNE_RANGE: Record<keyof Tunables, [number, number]> = {
   storeyHeight: [2, 6],
   laneWidth: [2, 6],
   railTrackWidth: [1, 8],
+  // Above the 5 cm parcel overlay at the bottom; a metre or two at the top,
+  // which is already a raised causeway rather than a road.
+  roadHeight: [0.1, 2],
+  vegetationHeight: [0.06, 1],
   orbitCycleMs: [10000, 180000],
 };
 
@@ -114,6 +135,8 @@ export const SCENE_TUNABLES: ReadonlySet<keyof Tunables> = new Set<keyof Tunable
   'storeyHeight',
   'laneWidth',
   'railTrackWidth',
+  'roadHeight',
+  'vegetationHeight',
 ]);
 
 const STORAGE_KEY = 'ifcsite.tunables';
@@ -147,6 +170,13 @@ export function sanitizeTunables(v: unknown): Tunables {
         ? Math.min(hi, Math.max(lo, raw))
         : DEFAULT_TUNABLES[k];
   }
+  // The one rule between two keys: roads stay above vegetation, with room for
+  // water's rung between them. Raised rather than refused, so a vegetation
+  // slider pushed up carries the roads with it instead of flipping the stack.
+  out.roadHeight = Math.min(
+    TUNE_RANGE.roadHeight[1],
+    Math.max(out.roadHeight, out.vegetationHeight + ROAD_OVER_VEGETATION),
+  );
   return out;
 }
 

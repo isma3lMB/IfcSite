@@ -341,6 +341,15 @@ export type SceneData = {
    * altitude, so nothing may claim one.
    */
   datumZ: number | null;
+  /**
+   * The road and vegetation heights above the ground this scene was built with
+   * (the options panel's roadHeight / vegetationHeight). Kept on the scene,
+   * not read from the panel, because a surface drawn later has to stand on the
+   * same ladder as what was fetched — the panel may have moved since. Absent on
+   * a scene built before the setting existed, which then reads the defaults —
+   * what it was built on. See sceneLadder in lib/scene/stack.
+   */
+  layerHeights?: { road: number; vegetation: number };
   surfaces: Surface[];
   trees: Tree[];
   /** Holes drawn through the terrain. Only ever hand-drawn, and only meaningful

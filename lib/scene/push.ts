@@ -11,7 +11,7 @@ import {
   ensureCCW,
   ringCentre,
 } from '@/lib/geo/rings';
-import { LAYER_DZ, skirtDepth } from '@/lib/scene/stack';
+import { sceneLadder, skirtDepth } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
 import type {
   HeightSource,
@@ -426,6 +426,9 @@ function finishRibbons(
   const hasZ = (r: Ribbon): r is Ribbon & { zLine: Vec3[] } => r.zLine !== undefined;
   const sourced = useSource ? ribbons.filter(hasZ) : [];
   const draped = useSource ? ribbons.filter((r) => !hasZ(r)) : ribbons;
+  // The scene's own ladder: the options panel sets the road rung, and the rail
+  // rung rides 2 cm above it (ladderFor in lib/scene/stack).
+  const ladder = sceneLadder(scene);
 
   const emit = (r: Ribbon, zAt?: (x: number, y: number) => number): void => {
     const { verts, faces } = conformToTerrain(
@@ -433,7 +436,7 @@ function finishRibbons(
       scene.terrain,
       toGeo,
       sampleZ,
-      LAYER_DZ[layer],
+      ladder[layer],
       r.holes,
       tune.conformStep,
       zAt,
@@ -442,7 +445,7 @@ function finishRibbons(
     // Skirted in both modes. Off the terrain it stops reading as the
     // containment lib/scene/stack describes and starts reading as deck
     // thickness, which is what a bridge deck has.
-    const skirt = skirtInto(verts, faces, skirtDepth(layer));
+    const skirt = skirtInto(verts, faces, skirtDepth(layer, ladder));
     const tri = (t: number[]): Vec3[] => [verts[t[0]], verts[t[1]], verts[t[2]]];
     for (let i = 0; i < skirt; i++) top.push(tri(faces[i]));
     for (let i = skirt; i < faces.length; i++) walls.push(tri(faces[i]));

@@ -291,6 +291,12 @@ export const fr: Dict = {
     'Utilisée lorsqu’un bâtiment indique son nombre de niveaux mais pas sa hauteur.',
   'ctl.advLaneWidth': 'Largeur d’une voie',
   'ctl.advTrackWidth': 'Largeur d’une voie ferrée',
+  'ctl.advRoadHeight': 'Hauteur des routes',
+  'ctl.advRoadHeightHint':
+    'Hauteur des chaussées au-dessus du sol, donc leur épaisseur apparente. Les voies ferrées passent juste au-dessus. Toujours au-dessus de la végétation.',
+  'ctl.advVegetationHeight': 'Hauteur de la végétation',
+  'ctl.advVegetationHeightHint':
+    'Hauteur des zones de végétation au-dessus du sol. L’eau se place à mi-hauteur entre la végétation et les routes.',
   'ctl.advPresentation': 'Présentation',
   'ctl.advOrbitCycle': 'Durée d’une révolution',
   'ctl.advOrbitCycleHint':

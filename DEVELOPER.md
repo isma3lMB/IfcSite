@@ -244,7 +244,7 @@ agree — the bar offers Rebuild in the same step the toast calls the scene stal
 | [brand-chip.tsx](components/brand-chip.tsx) | What is left of the masthead: the wordmark and the Map/3D switch, shrink-wrapped into the top-left corner. It used to be a strip across the whole window carrying a readout and three utility buttons as well — a bar between the user and the viewer for the sake of two controls. The readout moved to the status bar and the utilities to the opposite corner. |
 | [util-chip.tsx](components/util-chip.tsx) | The opposite corner: compass host, origin-marker toggle, orthographic toggle, presentation mode, stats toggle, theme toggle, info and the language select. Icon-only, so every label is a tooltip — and each is written as *what pressing it does*, not as the state it is in. |
 | [tool-rail.tsx](components/tool-rail.tsx) | The vertical rail: pan/select, draw site, zoom to site, the rectangle/polygon/tree draw tools, the two measure tools, the three gizmo modes and Duplicate, undo/redo, and the four flyout buttons (search, options, model tree, drafts). Icon-only and stateless — every button is a callback into `ifc-site`, and what is *offered* is derived from `view`, `hasScene`, `rect` and `selection` rather than stored. |
-| [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the nine pipeline tunables in three sub-sections, plus a **Drape onto terrain** group of five per-layer checkboxes (IGN-only, dimmed under OSM, since OSM ways are 2D and there would be nothing to fall back to). Every tunable is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
+| [controls-panel.tsx](components/controls-panel.tsx) | The options flyout: site extent readout, the CRS field, vertical datum, default-height slider, provider select, terrain accuracy, and the include checkboxes. IGN-only layers are dimmed and inert under OSM. Below them an **Advanced** disclosure, collapsed on every open (the panel unmounts with the flyout, so its local `useState(false)` is the default rather than something that has to be reset), holding the eleven pipeline tunables in three sub-sections, plus a **Drape onto terrain** group of five per-layer checkboxes (IGN-only, dimmed under OSM, since OSM ways are 2D and there would be nothing to fall back to). Every tunable is a bounded `Slider` — these numbers feed fetch deadlines and geometry loops, where a bad one is a wedged tab rather than a wrong pixel, and a slider cannot emit an out-of-range or non-finite value. **Holds no actions** — settings only. |
 | [crs-field.tsx](components/crs-field.tsx) | The projected CRS, as a searchable list of the systems valid where the site actually is. It carries its own loading rather than sitting in the dock, because the list is a function of a rectangle drawn on the other side of the app — and it is inert until there is one, since a CRS list has nothing to be evaluated against and any choice made early is one the first rectangle invalidates. The hint line doubles as the loading and failure channel. |
 | [search-flyout.tsx](components/search-flyout.tsx) | The place search on its own rail button rather than folded into Options — finding a place is the first thing you do, before there is anything to configure. It opens on arrival while no rectangle exists and collapses to an icon the moment one does. |
 | [ifc-flyout.tsx](components/ifc-flyout.tsx) | What the exported file says about itself: the format Download writes (IFC, GLB or glTF — see §11), the IFC schema, the names on `IfcProject` and `IfcSite`, and the author. Under a glTF format the schema and georeferencing-target fields are hidden; the names and authorship still travel, in the glTF's `extras`. The one flyout that is not the rail's — it opens *upward* off the wrench in the status bar, because it belongs to Download rather than to the build. None of it is a build input: a change is written into the live `SiteMeta` and the model on screen is re-serialised, the same route the origin marker's fields take. Blank means "leave the attribute out"; the two fields with a fallback instead show it as a placeholder. See `IfcMeta` in [lib/types.ts](lib/types.ts). |
@@ -498,12 +498,23 @@ would turn every `length >= cap` guard in the parsers into a no-op — a tab pul
 whole city rather than a wrong number on screen.
 
 ### [tunables.ts](lib/build/tunables.ts) — the pipeline's limits, as data
-Ten numbers that used to be `const`s beside their one call site: `buildingCap`, `treeCap`,
-`siteMax`, `overpassTimeoutMs`, `maxGridN`, `conformStep`, `storeyHeight`, `laneWidth`,
-`railTrackWidth`, `orbitCycleMs`. `runBuild` fans one `tune` object out to every parse path,
-so the change is a parameter, not a module global — the purity above still holds.
+Twelve numbers, most of which used to be `const`s beside their one call site: `buildingCap`,
+`treeCap`, `siteMax`, `overpassTimeoutMs`, `maxGridN`, `conformStep`, `storeyHeight`,
+`laneWidth`, `railTrackWidth`, `roadHeight`, `vegetationHeight`, `orbitCycleMs`. `runBuild`
+fans one `tune` object out to every parse path, so the change is a parameter, not a module
+global — the purity above still holds.
 
-Eight of the ten are the builder's. The other two have an imperative consumer instead and
+`roadHeight` and `vegetationHeight` are the two rungs of the `LAYER_DZ` ladder the panel sets
+(how far each layer's skin sits above the ground, and so how thick its slab reads);
+`ladderFor` in [stack.ts](lib/scene/stack.ts) places the rest from them — water halfway
+between, railways 2 cm above roads, parcels fixed at 5 cm — so the defaults reproduce the old
+literals exactly. They are the one pair with a rule between them: `sanitizeTunables` holds
+roads `ROAD_OVER_VEGETATION` above vegetation, so a road always covers what it crosses, and
+the panel's road slider floors at the same value. `runBuild` stamps them on the scene as
+`layerHeights`, which the draft keeps: a surface drawn later stands on the ladder the scene was
+built on (`sceneLadder`), not on whatever the panel says now.
+
+Ten of the twelve are the builder's. The other two have an imperative consumer instead and
 are pushed to it from an effect in `ifc-site.tsx` rather than carried into `runBuild`:
 `siteMax` reaches the Leaflet controller, whose clamp binds at drag time, and `orbitCycleMs`
 reaches `Viewer.setOrbitCycle`, whose clock binds per frame. Both are excluded from

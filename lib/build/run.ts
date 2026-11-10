@@ -128,6 +128,9 @@ export async function runBuild(
 
   const scene = emptyScene();
   scene.vectorSource = ign ? 'IGN BD TOPO' : 'OSM';
+  // Stamped before anything is draped: every layer below reads its rung off
+  // the scene (sceneLadder), and a surface drawn later must find the same one.
+  scene.layerHeights = { road: tune.roadHeight, vegetation: tune.vegetationHeight };
 
   // Terrain first so everything else can sit on it — and, with it, the scene's
   // vertical datum, which decides not just where things sit but whether an

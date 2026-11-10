@@ -1,3 +1,4 @@
+import { DEFAULT_TUNABLES, ROAD_OVER_VEGETATION } from '@/lib/build/tunables';
 import type { SurfaceLayer } from '@/lib/types';
 
 /**
@@ -47,17 +48,53 @@ import type { SurfaceLayer } from '@/lib/types';
  * shadow. They sit a few centimetres INTO the ground instead, so a base cap
  * never hangs in the air on a slope.
  */
-export const LAYER_DZ = {
-  parcel: 0.05,
-  vegetation: 0.1,
-  water: 0.2,
-  road: 0.3,
-  // A rail bed sits a little proud of the road surface it may cross, so it
-  // takes the next rung up — same containment logic, one step higher.
-  railway: 0.32,
-  tree: -0.05,
-  hedge: -0.05,
-} as const;
+/** The two rungs the options panel sets, in metres above the drawn ground.
+ *  Everything else on the ladder is placed relative to them. */
+export type LayerHeights = { road: number; vegetation: number };
+
+export type Ladder = {
+  parcel: number;
+  vegetation: number;
+  water: number;
+  road: number;
+  railway: number;
+  tree: number;
+  hedge: number;
+};
+
+/**
+ * The whole ladder from the two heights the options panel exposes.
+ *
+ * Parcels stay a fixed 5 cm overlay. Water takes the midpoint between
+ * vegetation and roads, so the order parcel < vegetation < water < road <
+ * railway holds for any pair the panel can produce (roadHeight is held
+ * ROAD_OVER_VEGETATION above vegetationHeight by sanitizeTunables). A rail bed
+ * sits a little proud of the road surface it may cross, so it takes the next
+ * rung up — same containment logic, one step higher.
+ */
+export function ladderFor(h: LayerHeights): Ladder {
+  const road = Math.max(h.road, h.vegetation + ROAD_OVER_VEGETATION);
+  return {
+    parcel: 0.05,
+    vegetation: h.vegetation,
+    water: (h.vegetation + road) / 2,
+    road,
+    railway: road + 0.02,
+    tree: -0.05,
+    hedge: -0.05,
+  };
+}
+
+/** The ladder at the default heights: 0.05 / 0.1 / 0.2 / 0.3 / 0.32, exactly
+ *  what it was when these were literals. */
+export const LAYER_DZ: Readonly<Ladder> = Object.freeze(
+  ladderFor({ road: DEFAULT_TUNABLES.roadHeight, vegetation: DEFAULT_TUNABLES.vegetationHeight }),
+);
+
+/** The ladder a scene was built on — what anything added to it later (a drawn
+ *  surface) has to stand on to stack with what was fetched. */
+export const sceneLadder = (s: { layerHeights?: LayerHeights }): Ladder =>
+  s.layerHeights ? ladderFor(s.layerHeights) : LAYER_DZ;
 
 /**
  * Draw order for everything in the viewer, low to high.
@@ -152,7 +189,8 @@ export type SkirtLayer = keyof typeof LAYER_BITE;
 /** How deep a layer's skirt hangs under its own conformed top surface. Reaches
  *  past the terrain by LAYER_BITE, which is what makes the containment above
  *  hold rather than merely being intended. */
-export const skirtDepth = (layer: SkirtLayer): number => LAYER_DZ[layer] + LAYER_BITE[layer];
+export const skirtDepth = (layer: SkirtLayer, ladder: Ladder = LAYER_DZ): number =>
+  ladder[layer] + LAYER_BITE[layer];
 
 /**
  * How solid a context layer draws, 0..1. Parcels are a cadastral overlay rather

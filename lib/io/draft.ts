@@ -585,6 +585,15 @@ const scene = (v: unknown, rect: SiteRect, toLocal: ToLocal): SceneData => {
   };
   if (typeof s.terrainSource === 'string') out.terrainSource = s.terrainSource;
   if (typeof s.vectorSource === 'string') out.vectorSource = s.vectorSource;
+  // Through the same sanitiser the panel's values go through, so a hand-edited
+  // draft cannot put vegetation above the roads or a road a kilometre up.
+  if (isObj(s.layerHeights)) {
+    const h = sanitizeTunables({
+      roadHeight: s.layerHeights.road,
+      vegetationHeight: s.layerHeights.vegetation,
+    });
+    out.layerHeights = { road: h.roadHeight, vegetation: h.vegetationHeight };
+  }
   return out;
 };
 

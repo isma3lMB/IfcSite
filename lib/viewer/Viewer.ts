@@ -57,6 +57,7 @@ import {
   TERRAIN_COLOR,
   TREE_CANOPY_COLOR,
   TREE_TRUNK_COLOR,
+  sceneLadder,
 } from '@/lib/scene/stack';
 import {
   MIN_SCALE,
@@ -2453,6 +2454,7 @@ export class Viewer {
       toGeo: this.toGeo,
       sampleZ: this.sampleZ(),
       groundZ: (x, y) => this.groundZ(x, y),
+      ladder: sceneLadder(s),
     });
     if (!made) return;
     rec.verts = made.verts;
@@ -5376,6 +5378,8 @@ export class Viewer {
             // Looked up afresh rather than taken off the picked corners, so the
             // first build and every later move stand on the ground by one rule.
             groundZ: (x, y) => this.groundZ(x, y),
+            // The heights this scene was built with, not the panel's current ones.
+            ladder: sceneLadder(s),
           });
     if (layer !== 'void' && !made) return this.cb.onStatus('status.drawTooSmall');
 

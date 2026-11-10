@@ -308,6 +308,12 @@ export const en = {
     'Used when a building states its number of levels but not its height.',
   'ctl.advLaneWidth': 'Lane width',
   'ctl.advTrackWidth': 'Rail track width',
+  'ctl.advRoadHeight': 'Road height',
+  'ctl.advRoadHeightHint':
+    'How far road surfaces sit above the ground, and so how thick they read. Railways ride just above them. Always kept above vegetation.',
+  'ctl.advVegetationHeight': 'Vegetation height',
+  'ctl.advVegetationHeightHint':
+    'How far vegetation areas sit above the ground. Water sits halfway between vegetation and roads.',
   'ctl.advPresentation': 'Presentation',
   'ctl.advOrbitCycle': 'Orbit period',
   'ctl.advOrbitCycleHint':

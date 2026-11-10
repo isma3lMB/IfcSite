@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_TUNABLES,
+  ROAD_OVER_VEGETATION,
   SCENE_TUNABLES,
   TUNE_RANGE,
   type Tunables,
@@ -102,9 +103,22 @@ describe('sanitizeTunables', () => {
   it('leaves a value sitting exactly on either bound alone', () => {
     for (const k of KEYS) {
       const [lo, hi] = TUNE_RANGE[k];
-      expect(sanitizeTunables({ [k]: lo })[k]).toBe(lo);
-      expect(sanitizeTunables({ [k]: hi })[k]).toBe(hi);
+      // The road floor is relative to vegetation (see the next test), so it is
+      // checked with vegetation at its own floor too.
+      const with_ = k === 'roadHeight' ? { vegetationHeight: TUNE_RANGE.vegetationHeight[0] } : {};
+      expect(sanitizeTunables({ ...with_, [k]: lo })[k]).toBeCloseTo(lo, 12);
+      expect(sanitizeTunables({ ...with_, [k]: hi })[k]).toBe(hi);
     }
+  });
+
+  /* Roads cover the vegetation they cross only while they sit above it, with
+     water's rung between the two. A vegetation height pushed past the roads
+     carries them up rather than flipping the stack. */
+  it('keeps roads above vegetation', () => {
+    const t = sanitizeTunables({ vegetationHeight: 0.5, roadHeight: 0.3 });
+    expect(t.vegetationHeight).toBe(0.5);
+    expect(t.roadHeight).toBeCloseTo(0.5 + ROAD_OVER_VEGETATION, 12);
+    expect(sanitizeTunables({ vegetationHeight: 0.1, roadHeight: 0.8 }).roadHeight).toBe(0.8);
   });
 
   it('falls back to the default for a value of the wrong type', () => {
