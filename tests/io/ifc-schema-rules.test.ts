@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { conformToTerrain } from '@/lib/geo/conform';
+import { gridFrom } from '@/lib/geo/grid';
+import { skirtInto } from '@/lib/geo/mesh';
 import { emitIFC } from '@/lib/ifc/emit';
 import { IFC_SCHEMAS, type IfcSchema } from '@/lib/ifc/writer';
+import { LAYER_DZ, skirtDepth } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
-import { emptyScene, newIfcMeta, type SceneData, type SiteMeta } from '@/lib/types';
+import { emptyScene, newIfcMeta, type SceneData, type SiteMeta, type Vec2 } from '@/lib/types';
 
 /* -------------------------------------------------------------------------
    Schema rules a validator holds the file to — the ones an attribute count or
@@ -217,4 +221,101 @@ describe('IfcBuilding (SPS001)', () => {
       expect(bodies(emitIFC(emptyScene(), meta(schema)).text, 'IFCBUILDING').size).toBe(0);
     });
   }
+});
+
+/* A road and a forest with a clearing, draped over a bumpy 2 m lattice at an
+   8 m step — the coarse-block path of conformToTerrain, with the skirt hung
+   under each as lib/scene/push and lib/sources/ign do. What that path hands the
+   writer is the thing a validator reads, so it is checked on the file. */
+const withCoarseDrape = (): SceneData => {
+  const n = 40;
+  const h = n; // 2 m cells
+  const box = { minLat: -h, maxLat: h, minLon: -h, maxLon: h };
+  const zn: number[] = [];
+  for (let j = 0; j <= n; j++)
+    for (let i = 0; i <= n; i++) zn.push(1.2 * Math.sin(0.5 * i) * Math.cos(0.6 * j) + 0.15 * i);
+  const terrain = gridFrom(box, n, zn, (lo, la) => [lo, la]);
+  const toGeo = (x: number, y: number): Vec2 => [x, y];
+  const s: SceneData = { ...emptyScene(), terrain };
+
+  const centre: Vec2[] = [];
+  for (let k = 0; k <= 20; k++) {
+    const t = k / 20;
+    centre.push([-32 + 64 * t, -20 + 40 * t + 4 * Math.sin(t * 9)]);
+  }
+  const road: Vec2[] = [
+    ...centre.map(([x, y]): Vec2 => [x - 2.4, y + 3.2]),
+    ...centre.map(([x, y]): Vec2 => [x + 2.4, y - 3.2]).reverse(),
+  ];
+  const r = conformToTerrain(road, terrain, toGeo, terrain.sample, LAYER_DZ.road, [], 8);
+  const skirt = skirtInto(r.verts, r.faces, skirtDepth('road'));
+  r.faces.forEach((f, i) => (i < skirt ? s.roads : s.roadWalls).push(f.map((k) => r.verts[k])));
+
+  const forest: Vec2[] = [];
+  for (let k = 0; k < 32; k++) {
+    const a = (k / 32) * 2 * Math.PI;
+    const rad = 18 + 4 * Math.sin(5 * a);
+    forest.push([-6 + rad * Math.cos(a), 12 + rad * Math.sin(a)]);
+  }
+  const clearing: Vec2[] = [
+    [-9, 9],
+    [-9, 15],
+    [-3, 15],
+    [-3, 9],
+  ];
+  const v = conformToTerrain(forest, terrain, toGeo, terrain.sample, LAYER_DZ.vegetation, [clearing], 8);
+  skirtInto(v.verts, v.faces, skirtDepth('vegetation'));
+  s.surfaces.push({ verts: v.verts, faces: v.faces, name: 'Forest', type: 'VEGETATION', layer: 'vegetation' });
+  return s;
+};
+
+describe('a draped layer at a step coarser than the terrain', () => {
+  for (const schema of ['IFC4', 'IFC4X3'] as const) {
+    it(`writes no degenerate face, and a closed forest solid, under ${schema}`, () => {
+      const text = emitIFC(withCoarseDrape(), meta(schema)).text;
+      const faces = bodies(text, 'IFCINDEXEDPOLYGONALFACE');
+      const sets = [...bodies(text, 'IFCPOLYGONALFACESET').values()];
+      expect(sets.length).toBe(3); // terrain, roads, forest
+      for (const set of sets) {
+        const uses = new Map<string, number>();
+        for (const ref of (set.match(/#\d+/g) ?? []).slice(1)) {
+          const idx = (faces.get(ref) as string).match(/\d+/g)!.map(Number);
+          expect(new Set(idx).size).toBe(idx.length);
+          idx.forEach((a, i) => {
+            const b = idx[(i + 1) % idx.length];
+            const k = a < b ? `${a},${b}` : `${b},${a}`;
+            uses.set(k, (uses.get(k) ?? 0) + 1);
+          });
+        }
+        expect([...uses.values()].every((u) => u <= 2)).toBe(true);
+        // The skirted forest shares its vertices across faces (the roads are
+        // written one point list per face, so they are checked under IFC2X3,
+        // where the writer welds them): skin, walls and floor close exactly.
+        if (set === sets[2]) expect([...uses.values()].every((u) => u === 2)).toBe(true);
+      }
+    });
+  }
+
+  /* Every shell but the terrain's — an open sheet by nature, and the one with
+     the most faces here — is a skirted layer and has to come back closed. A
+     sliver dropped from the skin used to leave a notch that the skirt walked
+     through twice, and the solid open. */
+  it('writes no degenerate loop, and closed draped solids, under IFC2X3', () => {
+    const text = emitIFC(withCoarseDrape(), meta('IFC2X3')).text;
+    const shells = [...bodies(text, 'IFCOPENSHELL').values()];
+    expect(shells.length).toBeGreaterThanOrEqual(3);
+    const size = (sh: string) => (sh.match(/#\d+/g) ?? []).length;
+    const terrain = shells.reduce((a, b) => (size(b) > size(a) ? b : a));
+    for (const sh of shells) {
+      const uses = new Map<string, number>();
+      for (const loop of shellLoops(text, sh)) {
+        expect(new Set(loop).size).toBe(loop.length);
+        loop.forEach((p, i) => {
+          const k = edgeKey(p, loop[(i + 1) % loop.length]);
+          uses.set(k, (uses.get(k) ?? 0) + 1);
+        });
+      }
+      expect([...uses.values()].every((u) => (sh === terrain ? u <= 2 : u === 2))).toBe(true);
+    }
+  });
 });

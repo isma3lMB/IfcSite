@@ -2,7 +2,7 @@ import { DEFAULT_TUNABLES } from '@/lib/build/tunables';
 import { conformToTerrain } from '@/lib/geo/conform';
 import { skirtInto } from '@/lib/geo/mesh';
 import { ringCentre } from '@/lib/geo/rings';
-import { DRAWN_TIER, LAYER_DZ, skirtDepth } from '@/lib/scene/stack';
+import { DRAWN_TIER, LAYER_DZ, type Ladder, skirtDepth } from '@/lib/scene/stack';
 import type {
   DrawnSpec,
   Grid,
@@ -53,6 +53,10 @@ export type DrawnSurfaceOpts = {
    *  scene has no projection to hand, which only ever holds the shape level. */
   toGeo: ToGeo | null;
   sampleZ: SampleZ;
+  /** The scene's ladder (sceneLadder), so a shape drawn on a scene built with
+   *  other road/vegetation heights stacks with what was fetched. Defaults to
+   *  the shipped ladder. */
+  ladder?: Ladder;
 };
 
 /**
@@ -74,6 +78,7 @@ export function drawnSurface(
   if (pts.length < 3) return null;
   const ring = pts.map((p): Vec2 => [p[0], p[1]]);
   const tier = DRAWN_TIER[layer];
+  const ladder = opts.ladder ?? LAYER_DZ;
   const draped = opts.drape && opts.roofZ === null && opts.toGeo !== null;
   const level = opts.roofZ ?? Math.min(...pts.map((p) => p[2]));
 
@@ -82,7 +87,7 @@ export function drawnSurface(
     opts.terrain,
     opts.toGeo ?? ((x, y) => [x, y]),
     opts.sampleZ,
-    LAYER_DZ[tier],
+    ladder[tier],
     [],
     DEFAULT_TUNABLES.conformStep,
     // A zAt takes conform's flat path, which is what holding a shape level is:
@@ -90,7 +95,7 @@ export function drawnSurface(
     draped ? undefined : () => level,
   );
   if (!faces.length) return null;
-  skirtInto(verts, faces, skirtDepth(tier));
+  skirtInto(verts, faces, skirtDepth(tier, ladder));
 
   // Which way the elevation came out, as the IGN layers record it for a drape
   // turned off — otherwise a level shape on a slope reads as a broken drape.

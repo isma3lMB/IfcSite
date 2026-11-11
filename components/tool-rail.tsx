@@ -45,6 +45,8 @@ export type ToolRailProps = {
   rect: SiteRect | null;
   armed: boolean;
   drawTool: DrawTool | null;
+  /** Which of the tree tool's two modes its button arms — the one last used. */
+  treeTool: 'tree' | 'treeArea';
   gizmoMode: GizmoMode;
   selection: Selection | null;
   canUndo: boolean;
@@ -147,8 +149,8 @@ export function ToolRail(p: ToolRailProps) {
             key: 'tree',
             icon: <IconTree />,
             tip: t('rail.drawTree'),
-            on: p.drawTool === 'tree',
-            onClick: () => p.onDrawTool('tree'),
+            on: p.drawTool === 'tree' || p.drawTool === 'treeArea',
+            onClick: () => p.onDrawTool(p.treeTool),
           },
           // In the draw group rather than in one of their own, even though these
           // three read the scene instead of adding to it. A separator is nine

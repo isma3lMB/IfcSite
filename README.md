@@ -146,8 +146,10 @@ before 1 m, and the panel tells you the grid you will actually get:
   uniform-scale lock.
 - **Colour, opacity and height** per element, or **per layer** in one go, with a per-layer
   offset for lifting roads and draped surfaces off the ground.
-- **Draw your own** buildings — box or polygon footprints — and **plant trees**. These are
-  the one thing no rebuild can bring back, so rebuilding over them asks first.
+- **Draw your own** buildings — box or polygon footprints — and **plant trees**, one per
+  click or by **filling a drawn area**: outline a polygon and it is planted in staggered rows
+  at the spacing you choose, skipping anything under a building, as one undoable step. These
+  are the one thing no rebuild can bring back, so rebuilding over them asks first.
 - **Sculpt the terrain** to adjust the landscape design: a brush that raises, lowers,
   flattens, smooths or sets the ground to a typed elevation, with a radius and a falloff.
   Under half a lattice cell it edits the single nearest vertex, so a vertex can be put at

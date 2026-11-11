@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BrandChip } from '@/components/brand-chip';
 import { ConfirmCard } from '@/components/confirm-card';
 import { ControlsPanel } from '@/components/controls-panel';
-import { DrawPanel } from '@/components/draw-panel';
+import { DrawPanel, type TreeTool } from '@/components/draw-panel';
 import { type AxisKey, ElementEditor } from '@/components/element-editor';
 import { FileFlyout } from '@/components/file-flyout';
 import {
@@ -96,6 +96,7 @@ import {
   Viewer,
   layerIdOf,
   layerSelId,
+  ringTool,
 } from '@/lib/viewer/Viewer';
 
 /**
@@ -374,6 +375,12 @@ export function IfcSite() {
      are how the user draws, not facts about the site. */
   const [drawLayer, setDrawLayer] = useState<DrawLayer>('building');
   const [drawDrape, setDrawDrape] = useState(true);
+  /* The tree tool's mode and what its area fill plants. Same standing as the
+     layer and drape above: how the user plants, kept across rebuilds. The mode
+     follows onDraw, so the rail button re-arms whichever was last in use. */
+  const [treeTool, setTreeTool] = useState<TreeTool>('tree');
+  const [treeSpacing, setTreeSpacing] = useState(6);
+  const [treeJitter, setTreeJitter] = useState(true);
   /** Whether the scene on screen has a terrain mesh. The panel reads it to take
       Drape and Void away where there is no ground to drape onto or hole. */
   const [hasTerrain, setHasTerrain] = useState(false);
@@ -463,6 +470,7 @@ export function IfcSite() {
         drawPointsRef.current = points;
         setDrawTool(tool);
         setDrawPoints(points);
+        if (tool === 'tree' || tool === 'treeArea') setTreeTool(tool);
       },
       onMeasure: setMeasureCount,
       // An Alt+click with the brush reads the ground and hands it to the panel
@@ -558,7 +566,7 @@ export function IfcSite() {
     view === '3d' &&
     hasScene &&
     !selection &&
-    (drawTool === 'rect' || drawTool === 'polygon' || drawTool === 'tree')
+    (drawTool === 'rect' || drawTool === 'polygon' || drawTool === 'tree' || drawTool === 'treeArea')
       ? drawTool
       : null;
   const sculpting = view === '3d' && hasScene && !selection && drawTool === 'sculpt';
@@ -627,6 +635,8 @@ export function IfcSite() {
       drape: drawDrape,
       name: t('ed.drawnName'),
       treeName: t('ed.drawnTreeName'),
+      treeSpacing,
+      treeJitter,
       shapeNames: {
         vegetation: t('ed.drawnVegName'),
         roads: t('ed.drawnRoadName'),
@@ -635,7 +645,7 @@ export function IfcSite() {
       },
       copyName: t('ed.copySuffix'),
     });
-  }, [drawHeight, drawLayer, drawDrape, t]);
+  }, [drawHeight, drawLayer, drawDrape, treeSpacing, treeJitter, t]);
 
   /* The terrain view applies only while the sculpt tool is armed: the toggles
      are on its panel, and a ground left see-through or tinted with the panel
@@ -854,7 +864,7 @@ export function IfcSite() {
         } else viewerRef.current?.select(null);
       } else if (
         e.key === 'Enter' &&
-        (drawToolRef.current === 'polygon' || drawToolRef.current === 'measureArea')
+        (ringTool(drawToolRef.current) || drawToolRef.current === 'measureArea')
       ) {
         viewerRef.current?.finishDraw();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -1886,6 +1896,7 @@ export function IfcSite() {
             rect={rect}
             armed={armed}
             drawTool={drawTool}
+            treeTool={treeTool}
             gizmoMode={gizmoMode}
             selection={selection}
             canUndo={canUndo}
@@ -2003,6 +2014,11 @@ export function IfcSite() {
             drape={drawDrape}
             onDrape={setDrawDrape}
             hasTerrain={hasTerrain}
+            onTreeMode={(m) => viewerRef.current?.setDrawMode(m)}
+            treeSpacing={treeSpacing}
+            onTreeSpacing={setTreeSpacing}
+            treeJitter={treeJitter}
+            onTreeJitter={setTreeJitter}
             onClose={() => viewerRef.current?.setDrawMode(null)}
           />
         )}

@@ -17,8 +17,8 @@ import {
   memo,
   trimMemo,
 } from '@/lib/sources/cache';
-import { pushBuilding, pushRoadway, type Ribbon } from '@/lib/scene/push';
-import { LAYER_DZ, SURFACE_COLOR, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
+import { pushBuilding, pushRoadway, sharedEnds, type Ribbon } from '@/lib/scene/push';
+import { SURFACE_COLOR, sceneLadder, skirtDepth, type SkirtLayer } from '@/lib/scene/stack';
 import type { LayerKey } from '@/lib/i18n/keys';
 import type {
   Grid,
@@ -58,10 +58,6 @@ export type IgnLayer = {
   ifc?: string;
   color?: number;
   line?: boolean;
-  /** Required for every entry in IGN_LAYERS (veg/hedge/water/parcel); the ad-hoc
-   *  layer literals `wfs()` takes for buildings/roads don't need one since those
-   *  compute their z elsewhere (lib/scene/push.ts). */
-  dz?: number;
 };
 
 // geom field name differs between BD TOPO and the cadastre — confirmed against
@@ -74,7 +70,6 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     props: ['cleabs', 'nature'],
     ifc: 'VEGETATION',
     color: SURFACE_COLOR.vegetation,
-    dz: LAYER_DZ.vegetation,
   },
   hedge: {
     type: 'BDTOPO_V3:haie',
@@ -86,7 +81,6 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     ifc: 'VEGETATION',
     color: SURFACE_COLOR.hedge,
     line: true,
-    dz: LAYER_DZ.hedge,
   },
   water: {
     type: 'BDTOPO_V3:surface_hydrographique',
@@ -95,7 +89,6 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     props: ['cleabs', 'nature'],
     ifc: 'WATER',
     color: SURFACE_COLOR.water,
-    dz: LAYER_DZ.water,
   },
   parcel: {
     type: 'CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle',
@@ -104,7 +97,6 @@ export const IGN_LAYERS: Record<'veg' | 'hedge' | 'water' | 'parcel', IgnLayer> 
     props: ['idu', 'section', 'numero', 'contenance'],
     ifc: 'USERDEFINED',
     color: SURFACE_COLOR.parcel,
-    dz: LAYER_DZ.parcel,
   },
 };
 
@@ -563,6 +555,9 @@ export async function parseIGN(
       undefined,
       onStatus,
     );
+    // Collected before any is buffered: whether a troncon's end needs a cap
+    // depends on whether another troncon ends there too (see sharedEnds).
+    const ways: { line: Vec2[]; w: number; z: Vec3[] | null }[] = [];
     for (const f of rt) {
       const p = f.properties || {};
       const w = Math.max(
@@ -581,15 +576,11 @@ export async function parseIGN(
         // 2D ring so finishRoads can use it INSTEAD of the terrain when the
         // user has turned this layer's drape off; null when the feature came
         // back flat, which puts it back on the draped path.
-        pushRoadway(
-          roadRibbons,
-          r.map((c): Vec2 => toLocal(c[0], c[1])),
-          w,
-          site,
-          zLineFrom(r, toLocal),
-        );
+        ways.push({ line: r.map((c): Vec2 => toLocal(c[0], c[1])), w, z: zLineFrom(r, toLocal) });
       }
     }
+    const shared = sharedEnds(ways.map((x) => x.line));
+    for (const x of ways) pushRoadway(roadRibbons, x.line, x.w, site, x.z, shared);
   }
 
   if (wantRailways) {
@@ -604,6 +595,7 @@ export async function parseIGN(
       undefined,
       onStatus,
     );
+    const tracks: { line: Vec2[]; w: number; z: Vec3[] | null }[] = [];
     for (const f of rf) {
       const p = f.properties || {};
       // `largeur` on this layer is a categorical string, not a metre value —
@@ -612,16 +604,11 @@ export async function parseIGN(
         (Number(p.nombre_de_voies) || 1) * tune.railTrackWidth,
         tune.railTrackWidth,
       );
-      for (const r of geoRings(f.geometry)) {
-        pushRoadway(
-          railwayRibbons,
-          r.map((c): Vec2 => toLocal(c[0], c[1])),
-          w,
-          site,
-          zLineFrom(r, toLocal),
-        );
-      }
+      for (const r of geoRings(f.geometry))
+        tracks.push({ line: r.map((c): Vec2 => toLocal(c[0], c[1])), w, z: zLineFrom(r, toLocal) });
     }
+    const shared = sharedEnds(tracks.map((x) => x.line));
+    for (const x of tracks) pushRoadway(railwayRibbons, x.line, x.w, site, x.z, shared);
   }
 
   return { tagged, over, roadRibbons, railwayRibbons };
@@ -669,6 +656,10 @@ export async function fetchThemeLayer(
   // saying so.
   const solid: SkirtLayer | undefined =
     layer === 'vegetation' || layer === 'water' ? layer : undefined;
+  // The scene's ladder, not the module defaults: the options panel sets the
+  // vegetation rung (and water's follows it) — see ladderFor in lib/scene/stack.
+  const ladder = sceneLadder(scene);
+  const dz = ladder[layer];
   let n = 0;
 
   // Every vertex of every prism gets its own elevation, so the base follows the
@@ -676,7 +667,7 @@ export async function fetchThemeLayer(
   // can run hundreds of metres.
   const groundAt = (p: Vec2): number => {
     const g = toGeo(p[0], p[1]);
-    return sampleZ(g[1], g[0]) + L.dz!;
+    return sampleZ(g[1], g[0]) + dz;
   };
 
   // Same guard the roads take, and the same one a building's surveyed
@@ -770,7 +761,7 @@ export async function fetchThemeLayer(
           scene.terrain,
           toGeo,
           sampleZ,
-          L.dz!,
+          dz,
           piece.holes,
           tune.conformStep,
           zAt,
@@ -783,7 +774,7 @@ export async function fetchThemeLayer(
         // An island's rim is walled the same way: skirtInto reads the outline
         // back off the triangulation and tells a hole from a surface by signed
         // area, so it needs to be told nothing about them.
-        if (solid) skirtInto(verts, faces, skirtDepth(solid));
+        if (solid) skirtInto(verts, faces, skirtDepth(solid, ladder));
         scene.surfaces.push({
           verts,
           faces,

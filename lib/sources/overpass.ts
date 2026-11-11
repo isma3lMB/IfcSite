@@ -3,7 +3,7 @@ import { AppError } from '@/lib/errors';
 import type { SplitPolygon } from '@/lib/geo/boolean';
 import { sameRect } from '@/lib/geo/rect';
 import { RegionCache } from '@/lib/sources/cache';
-import { pushBuilding, pushRoadway } from '@/lib/scene/push';
+import { pushBuilding, pushRoadway, sharedEnds } from '@/lib/scene/push';
 import { LAYER_DZ } from '@/lib/scene/stack';
 import { newXf } from '@/lib/scene/xf';
 import type {
@@ -388,6 +388,7 @@ export function parseOSM(
 
   const roadRibbons: SplitPolygon[] = [];
   if (wantRoads) {
+    const ways: { line: Vec2[]; w: number }[] = [];
     for (const el of data.elements) {
       if (el.type !== 'way' || !el.tags || !el.tags.highway || !el.geometry) continue;
       // pushRoadway clips to the box itself, so this is not needed for
@@ -398,12 +399,16 @@ export function parseOSM(
       const lanes =
         parseFloat(el.tags.lanes) || (/motorway|trunk|primary/.test(el.tags.highway) ? 4 : 2);
       const w = Math.max(parseFloat(el.tags.width) || lanes * tune.laneWidth, 3);
-      pushRoadway(roadRibbons, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
+      ways.push({ line: el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w });
     }
+    // Buffered once every way is known — see sharedEnds.
+    const shared = sharedEnds(ways.map((x) => x.line));
+    for (const x of ways) pushRoadway(roadRibbons, x.line, x.w, site, null, shared);
   }
 
   const railwayRibbons: SplitPolygon[] = [];
   if (wantRailways) {
+    const rails: { line: Vec2[]; w: number }[] = [];
     for (const el of data.elements) {
       if (el.type !== 'way' || !el.tags || !el.tags.railway || !el.geometry) continue;
       if (!geomInSite(el.geometry, site)) continue;
@@ -412,8 +417,10 @@ export function parseOSM(
         parseFloat(el.tags.width) || tracks * tune.railTrackWidth,
         tune.railTrackWidth,
       );
-      pushRoadway(railwayRibbons, el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w, site);
+      rails.push({ line: el.geometry.map((p): Vec2 => toLocal(p.lon, p.lat)), w });
     }
+    const shared = sharedEnds(rails.map((x) => x.line));
+    for (const x of rails) pushRoadway(railwayRibbons, x.line, x.w, site, null, shared);
   }
   return { tagged, roadRibbons, railwayRibbons };
 }

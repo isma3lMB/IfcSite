@@ -17,6 +17,7 @@ import {
 import { Slider } from '@/components/ui/slider';
 import {
   DEFAULT_TUNABLES,
+  ROAD_OVER_VEGETATION,
   TUNE_RANGE,
   type Tunables,
   isDefaultTunables,
@@ -579,6 +580,47 @@ export function ControlsPanel(p: ControlsPanelProps) {
                 disabled={!p.form.railways}
                 format={(v) => `${n(v)} m`}
                 onChange={(railTrackWidth) => setTune({ railTrackWidth })}
+              />
+
+              {/* Not gated on the Include checkboxes: a road or a vegetation area
+                  drawn in the 3D view stands on these too. The road slider's floor
+                  follows vegetation, and pushing vegetation up carries the roads
+                  with it, so roads always cover the vegetation they cross — the
+                  same rule sanitizeTunables enforces for a value from anywhere. */}
+              <TuneRow
+                id="advRoadHeight"
+                label={t('ctl.advRoadHeight')}
+                hint={t('ctl.advRoadHeightHint')}
+                value={tune.roadHeight}
+                range={[
+                  Math.max(
+                    TUNE_RANGE.roadHeight[0],
+                    Math.round((tune.vegetationHeight + ROAD_OVER_VEGETATION) * 100) / 100,
+                  ),
+                  TUNE_RANGE.roadHeight[1],
+                ]}
+                step={0.01}
+                format={(v) => `${n(v)} m`}
+                onChange={(roadHeight) => setTune({ roadHeight })}
+              />
+
+              <TuneRow
+                id="advVegetationHeight"
+                label={t('ctl.advVegetationHeight')}
+                hint={t('ctl.advVegetationHeightHint')}
+                value={tune.vegetationHeight}
+                range={TUNE_RANGE.vegetationHeight}
+                step={0.01}
+                format={(v) => `${n(v)} m`}
+                onChange={(vegetationHeight) =>
+                  setTune({
+                    vegetationHeight,
+                    roadHeight: Math.max(
+                      tune.roadHeight,
+                      Math.round((vegetationHeight + ROAD_OVER_VEGETATION) * 100) / 100,
+                    ),
+                  })
+                }
               />
 
               {/* The one setting here that changes nothing a build fetches or

@@ -516,3 +516,33 @@ describe('a sculpted terrain', () => {
     expect(g.z0?.[12]).toBe(31.25);
   });
 });
+
+describe('layer heights', () => {
+  const withHeights = (layerHeights: unknown): string => {
+    const d = draft();
+    return draftToText({ ...d, scene: { ...d.scene, layerHeights } } as Draft);
+  };
+
+  /* A surface drawn after reopening has to stand on the ladder the scene was
+     built on, so the heights travel with the scene. */
+  it('round-trips the heights the scene was built with', () => {
+    expect(parseDraft(withHeights({ road: 0.8, vegetation: 0.25 })).scene.layerHeights).toEqual({
+      road: 0.8,
+      vegetation: 0.25,
+    });
+  });
+
+  it('is absent on a draft saved before the setting existed', () => {
+    expect(parseDraft(text()).scene.layerHeights).toBeUndefined();
+  });
+
+  it('goes through the tunables sanitiser, so vegetation cannot end up over the roads', () => {
+    const h = parseDraft(withHeights({ road: 0.2, vegetation: 0.6 })).scene.layerHeights!;
+    expect(h.vegetation).toBe(0.6);
+    expect(h.road).toBeGreaterThan(h.vegetation);
+    // Junk takes the default, out of range is clamped, and the road rule runs last.
+    const j = parseDraft(withHeights({ road: 'tall', vegetation: 1e9 })).scene.layerHeights!;
+    expect(j.vegetation).toBe(1);
+    expect(j.road).toBeCloseTo(1.04, 12);
+  });
+});
